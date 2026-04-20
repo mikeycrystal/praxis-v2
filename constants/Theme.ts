@@ -1,23 +1,31 @@
+/**
+ * Unified design token system matching the flow-news web app.
+ * Web uses --radius: 1rem = 16px as the base.
+ */
+
 export const Radius = {
   xs: 4,
   sm: 8,
   md: 12,
-  lg: 16,
+  lg: 16,    // --radius (1rem)
   xl: 20,
   xxl: 24,
+  xxxl: 32,
   full: 9999,
 } as const;
 
 export const Typography = {
   size: {
-    xs: 12,
-    sm: 14,
-    base: 16,
+    xs: 11,
+    sm: 13,
+    base: 15,
+    md: 16,
     lg: 18,
     xl: 20,
-    '2xl': 24,
-    '3xl': 28,
-    '4xl': 32,
+    '2xl': 22,
+    '3xl': 26,
+    '4xl': 30,
+    '5xl': 36,
   },
   weight: {
     normal: '400' as const,
@@ -26,40 +34,47 @@ export const Typography = {
     bold: '700' as const,
     extrabold: '800' as const,
   },
+  lineHeight: {
+    tight: 1.2,
+    snug: 1.35,
+    normal: 1.5,
+    relaxed: 1.65,
+  },
 } as const;
 
 export const Spacing = {
   xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  '2xl': 24,
-  '3xl': 32,
-  '4xl': 40,
-  '5xl': 48,
+  sm: 6,
+  md: 10,
+  lg: 14,
+  xl: 16,
+  '2xl': 20,
+  '3xl': 24,
+  '4xl': 32,
+  '5xl': 40,
+  '6xl': 48,
 } as const;
 
 export const Shadows = {
   subtle: {
-    shadowColor: '#B8AA98',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
   card: {
-    shadowColor: '#B8AA98',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 8,
   },
   elevated: {
-    shadowColor: '#A89880',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 24,
-    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.5,
+    shadowRadius: 40,
+    elevation: 16,
   },
 } as const;
