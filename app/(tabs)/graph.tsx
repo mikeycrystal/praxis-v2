@@ -1,24 +1,22 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, Dimensions,
-  TouchableOpacity, useColorScheme, ActivityIndicator, ScrollView,
-  PanResponder, Animated,
+  TouchableOpacity, ActivityIndicator, ScrollView, PanResponder, Animated,
 } from 'react-native';
-import Svg, { Circle, Line, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, Line, Text as SvgText, Rect, Defs, Pattern } from 'react-native-svg';
 import { router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Colors } from '@/constants/Colors';
-import { Typography, Spacing, Radius, Shadows } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
+import TopicSelector, { TopicSelectorRef } from '../components/news-feed/TopicSelector';
 
 const { width: W } = Dimensions.get('window');
-const GRAPH_SIZE = W - Spacing['2xl'] * 2;
-const CENTER = GRAPH_SIZE / 2;
+const GRAPH_SIZE = W - 32;
 
-// Map article coordinates (x: -1..1 bias, y: 0..1 credibility) to SVG coords
-const toSvg = (x: number, y: number, size: number) => ({
-  cx: (x + 1) / 2 * size,
-  cy: (1 - y) * size,
+// Map article x (-1..1 bias) and y (0..1 credibility) to SVG coords
+const toSvg = (x: number, y: number) => ({
+  cx: ((x + 1) / 2) * GRAPH_SIZE,
+  cy: (1 - y) * GRAPH_SIZE,
 });
 
 interface GraphArticle {
@@ -26,144 +24,201 @@ interface GraphArticle {
   title: string;
   x: number;
   y: number;
-  publisher_name: string;
+  publisher_name?: string;
 }
 
-export default function GraphScreen() {
+export default function ConfigScreen() {
   const { profile } = useAuth();
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const { c, Radius } = useTheme();
+  const topicRef = useRef<TopicSelectorRef>(null);
 
-  const [radius, setRadius] = useState(0.4);
-  const [centerX, setCenterX] = useState(0);
-  const [centerY, setCenterY] = useState(0.6);
+  const [pinX, setPinX] = useState(0);
+  const [pinY, setPinY] = useState(0.7);
+  const [radius, setRadius] = useState(0.35);
+  const [zoom, setZoom] = useState(1);
   const [articles, setArticles] = useState<GraphArticle[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<GraphArticle | null>(null);
+  const [panning, setPanning] = useState(false);
 
-  const fetchRecommendations = async () => {
+  const pin = toSvg(pinX, pinY);
+  const svgRadius = (radius / 2) * GRAPH_SIZE;
+
+  const handleGraphPress = (evt: any) => {
+    if (panning) return;
+    const { locationX, locationY } = evt.nativeEvent;
+    const nx = (locationX / GRAPH_SIZE) * 2 - 1;
+    const ny = 1 - locationY / GRAPH_SIZE;
+    setPinX(Math.max(-1, Math.min(1, nx)));
+    setPinY(Math.max(0, Math.min(1, ny)));
+  };
+
+  const fetchArticles = async () => {
     setLoading(true);
+    const config = topicRef.current?.getConfig();
+    const topics = config?.type === 'topics' ? config.topics : (profile?.topics ?? []);
     const { data, error } = await supabase.functions.invoke('recommend', {
-      body: {
-        topics: profile?.topics ?? [],
-        center_x: centerX,
-        center_y: centerY,
-        radius,
-      },
+      body: { topics, center_x: pinX, center_y: pinY, radius, prompt: config?.freeText },
     });
-    if (!error && data?.articles) setArticles(data.articles);
+    if (!error && data?.articles) {
+      setArticles(data.articles);
+    }
     setLoading(false);
   };
 
-  const svgCenter = toSvg(centerX, centerY, GRAPH_SIZE);
-  const svgRadius = (radius / 2) * GRAPH_SIZE;
+  const biasLabel = pinX < -0.33 ? 'Left' : pinX > 0.33 ? 'Right' : 'Center';
+  const credLabel = pinY > 0.66 ? 'High' : pinY > 0.33 ? 'Medium' : 'Low';
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: c.text }]}>Knowledge Graph</Text>
-        <Text style={[styles.subtitle, { color: c.textSecondary }]}>
-          Drag the circle to explore articles by bias &amp; credibility
-        </Text>
-      </View>
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={s.header}>
+          <Text style={[s.title, { color: c.text }]}>Configure Feed</Text>
+          <Text style={[s.subtitle, { color: c.textMuted }]}>
+            Select topics and tap the graph to set your bias/credibility preference.
+          </Text>
+        </View>
 
-      <View style={[styles.graphWrap, Shadows.card]}>
-        <Svg width={GRAPH_SIZE} height={GRAPH_SIZE}>
-          {/* Axis labels */}
-          <SvgText x={8} y={GRAPH_SIZE / 2} fill={c.textMuted} fontSize={10}>High cred</SvgText>
-          <SvgText x={8} y={GRAPH_SIZE - 8} fill={c.textMuted} fontSize={10}>Low cred</SvgText>
-          <SvgText x={8} y={20} fill={c.textMuted} fontSize={10}>Left</SvgText>
-          <SvgText x={GRAPH_SIZE - 30} y={20} fill={c.textMuted} fontSize={10}>Right</SvgText>
+        {/* Topic selector */}
+        <View style={s.section}>
+          <TopicSelector ref={topicRef} defaultTopics={profile?.topics ?? ['Technology']} />
+        </View>
 
-          {/* Center crosshair */}
-          <Line x1={CENTER} y1={0} x2={CENTER} y2={GRAPH_SIZE} stroke={c.border} strokeWidth={1} />
-          <Line x1={0} y1={CENTER} x2={GRAPH_SIZE} y2={CENTER} stroke={c.border} strokeWidth={1} />
+        {/* Graph */}
+        <View style={s.section}>
+          <Text style={[s.sectionTitle, { color: c.textSecondary }]}>PLACEMENT</Text>
+          <Text style={[s.sectionSub, { color: c.textMuted }]}>
+            Tap the graph to place your preference pin. X = bias, Y = credibility.
+          </Text>
 
-          {/* Articles */}
-          {articles.map(a => {
-            const pos = toSvg(a.x, a.y, GRAPH_SIZE);
-            return (
+          <View style={[s.graphWrap, { borderColor: c.border }]}>
+            <Svg
+              width={GRAPH_SIZE}
+              height={GRAPH_SIZE}
+              onPress={handleGraphPress}
+            >
+              {/* Background */}
+              <Rect x={0} y={0} width={GRAPH_SIZE} height={GRAPH_SIZE} fill={c.secondary} />
+
+              {/* Grid lines */}
+              {[0.25, 0.5, 0.75].map(f => (
+                <React.Fragment key={f}>
+                  <Line
+                    x1={f * GRAPH_SIZE} y1={0}
+                    x2={f * GRAPH_SIZE} y2={GRAPH_SIZE}
+                    stroke={c.border} strokeWidth={1}
+                  />
+                  <Line
+                    x1={0} y1={f * GRAPH_SIZE}
+                    x2={GRAPH_SIZE} y2={f * GRAPH_SIZE}
+                    stroke={c.border} strokeWidth={1}
+                  />
+                </React.Fragment>
+              ))}
+
+              {/* Center axes */}
+              <Line x1={GRAPH_SIZE / 2} y1={0} x2={GRAPH_SIZE / 2} y2={GRAPH_SIZE} stroke={c.border} strokeWidth={1.5} strokeDasharray="6,4" />
+              <Line x1={0} y1={GRAPH_SIZE / 2} x2={GRAPH_SIZE} y2={GRAPH_SIZE / 2} stroke={c.border} strokeWidth={1.5} strokeDasharray="6,4" />
+
+              {/* Axis labels */}
+              <SvgText x={8} y={18} fill={c.textMuted} fontSize={10} fontWeight="600">HIGH CRED</SvgText>
+              <SvgText x={8} y={GRAPH_SIZE - 6} fill={c.textMuted} fontSize={10} fontWeight="600">LOW CRED</SvgText>
+              <SvgText x={8} y={GRAPH_SIZE / 2 + 4} fill={c.textMuted} fontSize={10}>LEFT</SvgText>
+              <SvgText x={GRAPH_SIZE - 36} y={GRAPH_SIZE / 2 + 4} fill={c.textMuted} fontSize={10}>RIGHT</SvgText>
+
+              {/* Result articles */}
+              {articles.map(a => {
+                const pos = toSvg(a.x, a.y);
+                return (
+                  <Circle
+                    key={a.id}
+                    cx={pos.cx} cy={pos.cy} r={5}
+                    fill={c.tint} opacity={0.75}
+                    onPress={() => setSelected(a)}
+                  />
+                );
+              })}
+
+              {/* Selection radius circle */}
               <Circle
-                key={a.id}
-                cx={pos.cx}
-                cy={pos.cy}
-                r={6}
-                fill={c.tint}
-                opacity={0.8}
-                onPress={() => setSelected(a)}
+                cx={pin.cx} cy={pin.cy}
+                r={svgRadius}
+                fill={c.tint} fillOpacity={0.08}
+                stroke={c.tint} strokeWidth={1.5}
+                strokeDasharray="6,4"
               />
-            );
-          })}
+              {/* Pin */}
+              <Circle cx={pin.cx} cy={pin.cy} r={10} fill={c.tint} />
+              <Circle cx={pin.cx} cy={pin.cy} r={5} fill="#fff" />
+            </Svg>
+          </View>
 
-          {/* Selection radius */}
-          <Circle
-            cx={svgCenter.cx}
-            cy={svgCenter.cy}
-            r={svgRadius}
-            fill={c.tint}
-            fillOpacity={0.08}
-            stroke={c.tint}
-            strokeWidth={1.5}
-            strokeDasharray="6,4"
-          />
-          <Circle
-            cx={svgCenter.cx}
-            cy={svgCenter.cy}
-            r={8}
-            fill={c.tint}
-          />
-        </Svg>
-      </View>
+          {/* Pin info + radius controls */}
+          <View style={s.pinInfo}>
+            <Text style={[s.pinInfoText, { color: c.textSecondary }]}>
+              Pin: {biasLabel} bias · {credLabel} credibility
+            </Text>
+          </View>
 
-      <View style={styles.controls}>
-        <Text style={[styles.controlLabel, { color: c.textSecondary }]}>
-          Radius: {(radius * 100).toFixed(0)}%
-        </Text>
-        <View style={styles.radiusRow}>
+          <View style={s.radiusRow}>
+            <Text style={[s.radiusLabel, { color: c.textMuted }]}>Radius: {Math.round(radius * 100)}%</Text>
+            <View style={s.radiusBtns}>
+              {[['−', -0.05], ['+', 0.05]].map(([label, delta]) => (
+                <TouchableOpacity
+                  key={label as string}
+                  style={[s.radiusBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
+                  onPress={() => setRadius(r => Math.max(0.1, Math.min(1, r + (delta as number))))}
+                >
+                  <Text style={[s.radiusBtnText, { color: c.text }]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+              <View style={s.zoomBtns}>
+                {[['−', -1], ['+', 1]].map(([label, delta]) => (
+                  <TouchableOpacity
+                    key={`z${label}`}
+                    style={[s.radiusBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
+                    onPress={() => setZoom(z => Math.max(1, Math.min(3, z + (delta as number))))}
+                    disabled={(delta === -1 && zoom <= 1) || (delta === 1 && zoom >= 3)}
+                  >
+                    <Text style={[s.radiusBtnText, { color: c.text }]}>Zoom {label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Fetch button */}
+        <View style={[s.section, { paddingBottom: 32 }]}>
           <TouchableOpacity
-            style={[styles.radiusBtn, { borderColor: c.border }]}
-            onPress={() => setRadius(r => Math.max(0.1, r - 0.1))}
+            style={[s.fetchBtn, { backgroundColor: c.tint }]}
+            onPress={fetchArticles}
+            disabled={loading}
           >
-            <Text style={{ color: c.text, fontSize: 18 }}>−</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.radiusBtn, { borderColor: c.border }]}
-            onPress={() => setRadius(r => Math.min(1, r + 0.1))}
-          >
-            <Text style={{ color: c.text, fontSize: 18 }}>+</Text>
+            {loading
+              ? <ActivityIndicator color={c.tintForeground} />
+              : <Text style={[s.fetchBtnText, { color: c.tintForeground }]}>Read →</Text>
+            }
           </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={[styles.searchBtn, { backgroundColor: c.tint }]}
-          onPress={fetchRecommendations}
-          disabled={loading}
-        >
-          {loading
-            ? <ActivityIndicator color={c.tintForeground} />
-            : <Text style={[styles.searchBtnText, { color: c.tintForeground }]}>
-                Find Articles
-              </Text>
-          }
-        </TouchableOpacity>
-      </View>
+      </ScrollView>
 
+      {/* Selected article popup */}
       {selected && (
-        <View style={[styles.selectedCard, { backgroundColor: c.card, borderColor: c.border }, Shadows.elevated]}>
-          <Text style={[styles.selectedTitle, { color: c.text }]} numberOfLines={2}>
-            {selected.title}
-          </Text>
-          <Text style={[styles.selectedPub, { color: c.textSecondary }]}>
-            {selected.publisher_name}
-          </Text>
-          <View style={styles.selectedActions}>
+        <View style={[s.popup, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Text style={[s.popupTitle, { color: c.text }]} numberOfLines={2}>{selected.title}</Text>
+          {selected.publisher_name && (
+            <Text style={[s.popupPub, { color: c.textMuted }]}>{selected.publisher_name}</Text>
+          )}
+          <View style={s.popupActions}>
             <TouchableOpacity onPress={() => setSelected(null)}>
-              <Text style={{ color: c.textMuted }}>Dismiss</Text>
+              <Text style={[{ color: c.textMuted, fontSize: 14 }]}>Dismiss</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.readBtn, { backgroundColor: c.tint }]}
+              style={[s.popupReadBtn, { backgroundColor: c.tint }]}
               onPress={() => { setSelected(null); router.push(`/article/${selected.id}`); }}
             >
-              <Text style={{ color: c.tintForeground, fontWeight: '600' }}>Read</Text>
+              <Text style={{ color: c.tintForeground, fontWeight: '600', fontSize: 14 }}>Read</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -172,51 +227,39 @@ export default function GraphScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+// Need React import for JSX fragment inside SVG
+import React from 'react';
+
+const s = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: Spacing['2xl'], paddingVertical: Spacing.lg },
-  title: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold },
-  subtitle: { fontSize: Typography.size.sm, marginTop: 2 },
-  graphWrap: {
-    marginHorizontal: Spacing['2xl'],
-    borderRadius: Radius.xl,
-    overflow: 'hidden',
-  },
-  controls: {
-    paddingHorizontal: Spacing['2xl'],
-    paddingTop: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  controlLabel: { fontSize: Typography.size.sm },
-  radiusRow: { flexDirection: 'row', gap: Spacing.sm },
+  header: { padding: 20, paddingBottom: 8 },
+  title: { fontSize: 22, fontWeight: '700' },
+  subtitle: { fontSize: 14, marginTop: 4, lineHeight: 20 },
+  section: { paddingHorizontal: 16, paddingTop: 16, gap: 10 },
+  sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  sectionSub: { fontSize: 13 },
+  graphWrap: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+  pinInfo: { alignItems: 'center' },
+  pinInfoText: { fontSize: 13 },
+  radiusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  radiusLabel: { fontSize: 13 },
+  radiusBtns: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' },
+  zoomBtns: { flexDirection: 'row', gap: 8 },
   radiusBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 8, borderWidth: 1,
   },
-  searchBtn: {
-    height: 48,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: Spacing.sm,
+  radiusBtnText: { fontSize: 14, fontWeight: '600' },
+  fetchBtn: { height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  fetchBtnText: { fontSize: 16, fontWeight: '700' },
+  popup: {
+    position: 'absolute', bottom: 20, left: 16, right: 16,
+    padding: 16, borderRadius: 16, borderWidth: 1, gap: 8,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
   },
-  searchBtnText: { fontWeight: Typography.weight.semibold },
-  selectedCard: {
-    position: 'absolute',
-    bottom: 100,
-    left: Spacing['2xl'],
-    right: Spacing['2xl'],
-    padding: Spacing.xl,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    gap: Spacing.sm,
-  },
-  selectedTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
-  selectedPub: { fontSize: Typography.size.sm },
-  selectedActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: Spacing.sm },
-  readBtn: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.sm, borderRadius: Radius.full },
+  popupTitle: { fontSize: 15, fontWeight: '600', lineHeight: 22 },
+  popupPub: { fontSize: 12 },
+  popupActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  popupReadBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 999 },
 });
