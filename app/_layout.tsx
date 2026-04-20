@@ -35,6 +35,7 @@ export default function RootLayout() {
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="article/[id]" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="article/ai-analysis" options={{ presentation: 'modal' }} />
           <Stack.Screen name="modal/profile" options={{ presentation: 'modal' }} />
           <Stack.Screen name="modal/user-profile" options={{ presentation: 'modal' }} />
           <Stack.Screen name="modal/saved-articles" options={{ presentation: 'modal' }} />
