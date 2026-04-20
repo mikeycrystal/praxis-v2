@@ -1,41 +1,34 @@
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
 import { router } from 'expo-router';
-import { Colors } from '@/constants/Colors';
-import { Radius, Typography, Spacing } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
 
 export default function VerifyEmailScreen() {
-  const c = Colors.light;
+  const { c } = useTheme();
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.inner}>
-        <Text style={[styles.emoji]}>📬</Text>
-        <Text style={[styles.title, { color: c.text }]}>Check your email</Text>
-        <Text style={[styles.body, { color: c.textSecondary }]}>
-          We sent a verification link to your email address. Click it to activate your account.
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <View style={s.inner}>
+        <Text style={s.emoji}>📬</Text>
+        <Text style={[s.title, { color: c.text }]}>Check your email</Text>
+        <Text style={[s.body, { color: c.textSecondary }]}>
+          We sent a verification link to your email address. Click it to activate your account, then sign in.
         </Text>
         <TouchableOpacity
-          style={[styles.button, { backgroundColor: c.tint }]}
+          style={[s.button, { backgroundColor: c.tint }]}
           onPress={() => router.replace('/(auth)/login')}
         >
-          <Text style={[styles.buttonText, { color: c.tintForeground }]}>Back to Sign In</Text>
+          <Text style={[s.buttonText, { color: c.tintForeground }]}>Back to Sign In</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
-  inner: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: Spacing['3xl'] },
-  emoji: { fontSize: 64, marginBottom: Spacing['2xl'] },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.bold, marginBottom: Spacing.md },
-  body: { fontSize: Typography.size.base, textAlign: 'center', lineHeight: 24, marginBottom: Spacing['3xl'] },
-  button: {
-    height: 52,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing['3xl'],
-  },
-  buttonText: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
+  inner: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, gap: 16 },
+  emoji: { fontSize: 60, marginBottom: 8 },
+  title: { fontSize: 24, fontWeight: '700' },
+  body: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  button: { height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, marginTop: 8 },
+  buttonText: { fontSize: 16, fontWeight: '600' },
 });
