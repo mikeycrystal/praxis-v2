@@ -1,14 +1,15 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ActivityIndicator,
-  TouchableOpacity, useColorScheme,
+  TouchableOpacity, Animated, Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
-import { ArticleCard } from '../components/news-feed/ArticleCard';
-import { Colors } from '@/constants/Colors';
-import { Typography, Spacing, Radius } from '@/constants/Theme';
+import { ArticleCard, CARD_WIDTH, CARD_HEIGHT } from '../components/news-feed/ArticleCard';
+import { useTheme } from '../hooks/useTheme';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export interface Article {
   id: number;
@@ -25,13 +26,13 @@ export interface Article {
 
 export default function FeedScreen() {
   const { profile, user } = useAuth();
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const { c, Radius, Typography, Spacing } = useTheme();
 
   const [articles, setArticles] = useState<Article[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
+  const [savedCount, setSavedCount] = useState(0);
 
   const fetchArticles = useCallback(async () => {
     setLoading(true);
@@ -52,137 +53,191 @@ export default function FeedScreen() {
       .from('saved_articles')
       .select('article_id')
       .eq('user_id', user.id);
-    if (data) setSavedIds(new Set(data.map((r: any) => r.article_id)));
+    if (data) {
+      const ids = new Set<number>(data.map((r: any) => r.article_id));
+      setSavedIds(ids);
+      setSavedCount(ids.size);
+    }
   }, [user]);
 
   useEffect(() => { fetchArticles(); }, [fetchArticles]);
   useEffect(() => { fetchSaved(); }, [fetchSaved]);
 
-  const markRead = async (articleId: number) => {
+  const markRead = useCallback(async (articleId: number) => {
     if (!user) return;
     await supabase.from('read_articles').upsert({
       user_id: user.id,
       article_id: articleId,
       read_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,article_id' });
+    await supabase.from('analytics_events').insert({
+      user_id: user.id,
+      event_name: 'article_view',
+      properties: { article_id: articleId },
     });
-  };
+  }, [user]);
 
-  const toggleSave = async (articleId: number) => {
+  const toggleSave = useCallback(async (articleId: number) => {
     if (!user) return;
     const isSaved = savedIds.has(articleId);
     if (isSaved) {
       await supabase.from('saved_articles').delete()
         .eq('user_id', user.id).eq('article_id', articleId);
       setSavedIds(prev => { const s = new Set(prev); s.delete(articleId); return s; });
+      setSavedCount(c => c - 1);
     } else {
       await supabase.from('saved_articles').insert({ user_id: user.id, article_id: articleId });
       setSavedIds(prev => new Set(prev).add(articleId));
+      setSavedCount(c => c + 1);
     }
-  };
+  }, [user, savedIds]);
 
-  const handleSwipeLeft = () => {
-    if (index < articles.length - 1) {
-      markRead(articles[index].id);
-      setIndex(i => i + 1);
-    }
-  };
-
-  const handleSwipeRight = () => {
-    if (index < articles.length - 1) {
-      markRead(articles[index].id);
-      setIndex(i => i + 1);
-    }
-  };
+  const advance = useCallback((articleId: number) => {
+    markRead(articleId);
+    setIndex(i => i + 1);
+  }, [markRead]);
 
   const current = articles[index];
+  const next = articles[index + 1];
+  const afterNext = articles[index + 2];
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+      <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
         <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
       </SafeAreaView>
     );
   }
 
-  if (!current) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-        <View style={styles.empty}>
-          <Text style={[styles.emptyText, { color: c.textSecondary }]}>
-            You're all caught up!
-          </Text>
-          <TouchableOpacity
-            style={[styles.refreshBtn, { backgroundColor: c.tint }]}
-            onPress={fetchArticles}
-          >
-            <Text style={{ color: c.tintForeground, fontWeight: '600' }}>Refresh</Text>
+  return (
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      {/* Header */}
+      <View style={s.header}>
+        <TouchableOpacity onPress={() => router.push('/modal/profile')} style={s.headerBtn}>
+          <Text style={[s.headerIcon, { color: c.icon }]}>👤</Text>
+        </TouchableOpacity>
+        <Text style={[s.headerTitle, { color: c.text }]}>Praxis</Text>
+        <View style={s.headerRight}>
+          <TouchableOpacity onPress={() => router.push('/modal/search')} style={s.headerBtn}>
+            <Text style={[s.headerIcon, { color: c.icon }]}>🔍</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push('/modal/saved-articles')} style={s.headerBtn}>
+            <Text style={[s.headerIcon, { color: c.icon }]}>🔖</Text>
+            {savedCount > 0 && (
+              <View style={[s.badge, { backgroundColor: c.tint }]}>
+                <Text style={s.badgeText}>{savedCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.logo, { color: c.text }]}>Praxis</Text>
-        <TouchableOpacity onPress={() => router.push('/modal/search')}>
-          <Text style={{ color: c.tint, fontSize: 22 }}>⌕</Text>
-        </TouchableOpacity>
       </View>
 
-      <View style={styles.cardArea}>
-        {/* Stack layers behind */}
-        {articles[index + 1] && (
-          <View style={[styles.stackBack, { backgroundColor: c.card, borderColor: c.border }]} />
-        )}
-        <ArticleCard
-          article={current}
-          isSaved={savedIds.has(current.id)}
-          onSave={() => toggleSave(current.id)}
-          onRead={() => router.push(`/article/${current.id}`)}
-          onSwipeLeft={handleSwipeLeft}
-          onSwipeRight={handleSwipeRight}
-        />
-      </View>
+      {!current ? (
+        <View style={s.empty}>
+          <Text style={[s.emptyEmoji]}>✅</Text>
+          <Text style={[s.emptyTitle, { color: c.text }]}>You're all caught up!</Text>
+          <Text style={[s.emptyBody, { color: c.textSecondary }]}>
+            Check your topics or come back later for more.
+          </Text>
+          <TouchableOpacity
+            style={[s.refreshBtn, { backgroundColor: c.tint }]}
+            onPress={fetchArticles}
+          >
+            <Text style={[s.refreshBtnText, { color: c.tintForeground }]}>Refresh Feed</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={s.cardStack}>
+          {/* Layer 3 — farthest back */}
+          {afterNext && (
+            <View style={[s.stackCard, s.stack3, {
+              backgroundColor: c.card, borderRadius: 32,
+              width: CARD_WIDTH - 32, height: CARD_HEIGHT,
+            }]} />
+          )}
+          {/* Layer 2 */}
+          {next && (
+            <View style={[s.stackCard, s.stack2, {
+              backgroundColor: c.card, borderRadius: 32,
+              width: CARD_WIDTH - 16, height: CARD_HEIGHT,
+            }]} />
+          )}
+          {/* Active card */}
+          <View style={s.activeCard}>
+            <ArticleCard
+              article={current}
+              isSaved={savedIds.has(current.id)}
+              onSave={() => toggleSave(current.id)}
+              onRead={() => router.push(`/article/${current.id}`)}
+              onAIAnalysis={() => router.push({ pathname: '/article/ai-analysis', params: { id: current.id } })}
+              onSwipeLeft={() => advance(current.id)}
+              onSwipeRight={() => { toggleSave(current.id); advance(current.id); }}
+              isFirst
+            />
+          </View>
+        </View>
+      )}
 
-      <View style={styles.counter}>
-        <Text style={[styles.counterText, { color: c.textMuted }]}>
-          {index + 1} / {articles.length}
-        </Text>
-      </View>
+      {/* Progress dots */}
+      {articles.length > 0 && current && (
+        <View style={s.dotsRow}>
+          {articles.slice(Math.max(0, index - 2), index + 5).map((_, i) => {
+            const isActive = Math.max(0, index - 2) + i === index;
+            return (
+              <View
+                key={i}
+                style={[s.dot, {
+                  backgroundColor: isActive ? c.tint : c.border,
+                  width: isActive ? 20 : 6,
+                }]}
+              />
+            );
+          })}
+        </View>
+      )}
+
+      {/* Swipe hint on first card */}
+      {index === 0 && current && (
+        <Text style={[s.swipeHint, { color: c.textMuted }]}>← Swipe to explore · Swipe right to save →</Text>
+      )}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: Spacing['2xl'],
-    paddingVertical: Spacing.md,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
-  logo: { fontSize: Typography.size.xl, fontWeight: '800' },
-  cardArea: { flex: 1, marginHorizontal: Spacing.lg, position: 'relative' },
-  stackBack: {
-    position: 'absolute',
-    bottom: -10,
-    left: 12,
-    right: 12,
-    height: 60,
-    borderRadius: 24,
-    borderWidth: 1,
-    opacity: 0.5,
+  headerTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
+  headerBtn: { padding: 8, position: 'relative' },
+  headerIcon: { fontSize: 20 },
+  headerRight: { flexDirection: 'row' },
+  badge: {
+    position: 'absolute', top: 4, right: 4,
+    minWidth: 16, height: 16, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
   },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
-  emptyText: { fontSize: Typography.size.lg },
-  refreshBtn: {
-    paddingHorizontal: Spacing['2xl'],
-    paddingVertical: Spacing.md,
-    borderRadius: Radius.md,
+  badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  cardStack: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  activeCard: { position: 'absolute' },
+  stackCard: { position: 'absolute', opacity: 0.6 },
+  stack2: { bottom: -8 },
+  stack3: { bottom: -16 },
+  dotsRow: {
+    flexDirection: 'row', justifyContent: 'center',
+    alignItems: 'center', gap: 5, paddingVertical: 10,
   },
-  counter: { alignItems: 'center', paddingBottom: Spacing.lg },
-  counterText: { fontSize: Typography.size.sm },
+  dot: { height: 6, borderRadius: 3 },
+  swipeHint: { textAlign: 'center', fontSize: 12, paddingBottom: 12 },
+  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40 },
+  emptyEmoji: { fontSize: 48, marginBottom: 4 },
+  emptyTitle: { fontSize: 22, fontWeight: '700' },
+  emptyBody: { fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  refreshBtn: { height: 48, borderRadius: 12, paddingHorizontal: 28, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  refreshBtnText: { fontSize: 15, fontWeight: '600' },
 });
