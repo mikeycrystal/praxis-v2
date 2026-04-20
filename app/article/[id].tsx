@@ -1,50 +1,30 @@
 import { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, useColorScheme, ActivityIndicator, Linking,
+  View, Text, Image, StyleSheet, SafeAreaView, ScrollView,
+  TouchableOpacity, ActivityIndicator, Linking,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Colors } from '@/constants/Colors';
-import { Typography, Spacing, Radius, Shadows } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
 
 export default function ArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
-
+  const { c, Radius } = useTheme();
   const [article, setArticle] = useState<any>(null);
   const [isSaved, setIsSaved] = useState(false);
-  const [insights, setInsights] = useState<string | null>(null);
-  const [loadingInsights, setLoadingInsights] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchArticle = async () => {
-      const { data } = await supabase
-        .from('article')
-        .select('*, publisher(name, domain)')
-        .eq('id', id)
-        .single();
-      setArticle(data);
+    Promise.all([
+      supabase.from('article').select('*, publisher(name, domain)').eq('id', id).single(),
+      user ? supabase.from('saved_articles').select('id').eq('user_id', user.id).eq('article_id', id).maybeSingle() : Promise.resolve({ data: null }),
+    ]).then(([{ data: art }, { data: saved }]) => {
+      setArticle(art);
+      setIsSaved(!!saved);
       setLoading(false);
-    };
-
-    const fetchSaved = async () => {
-      if (!user) return;
-      const { data } = await supabase
-        .from('saved_articles')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('article_id', id)
-        .maybeSingle();
-      setIsSaved(!!data);
-    };
-
-    fetchArticle();
-    fetchSaved();
+    });
   }, [id, user]);
 
   const toggleSave = async () => {
@@ -58,18 +38,9 @@ export default function ArticleScreen() {
     }
   };
 
-  const fetchInsights = async () => {
-    setLoadingInsights(true);
-    const { data, error } = await supabase.functions.invoke('ai-insights', {
-      body: { article_id: Number(id) },
-    });
-    if (!error && data?.insights) setInsights(data.insights);
-    setLoadingInsights(false);
-  };
-
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+      <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
         <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
       </SafeAreaView>
     );
@@ -78,101 +49,99 @@ export default function ArticleScreen() {
   if (!article) return null;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={{ color: c.tint, fontSize: Typography.size.lg }}>‹ Back</Text>
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <View style={s.topBar}>
+        <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+          <Text style={[s.backText, { color: c.tint }]}>‹ Back</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={toggleSave}>
-          <Text style={{ fontSize: 22, color: isSaved ? c.bookmarkActive : c.textMuted }}>
-            {isSaved ? '🔖' : '🔗'}
-          </Text>
-        </TouchableOpacity>
+        <View style={s.topActions}>
+          <TouchableOpacity
+            onPress={() => router.push({ pathname: '/article/ai-analysis', params: { id } })}
+            style={[s.topBtn, { backgroundColor: c.tint + '20' }]}
+          >
+            <Text style={{ fontSize: 16 }}>🧠</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={toggleSave} style={[s.topBtn, { backgroundColor: c.card }]}>
+            <Text style={{ fontSize: 16, color: isSaved ? c.bookmarkActive : c.textMuted }}>
+              {isSaved ? '🔖' : '🔗'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <Text style={[styles.publisher, { color: c.textSecondary }]}>
-          {article.publisher?.name ?? 'Unknown'} · {new Date(article.ts_pub).toLocaleDateString()}
-        </Text>
-        <Text style={[styles.title, { color: c.text }]}>{article.title}</Text>
-
-        {article.lede && (
-          <Text style={[styles.lede, { color: c.textSecondary }]}>{article.lede}</Text>
+      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        {article.image_url && (
+          <Image
+            source={{ uri: article.image_url }}
+            style={[s.heroImage, { borderRadius: Radius.xl }]}
+            resizeMode="cover"
+          />
         )}
 
+        <View style={s.meta}>
+          {article.topics?.[0] && (
+            <View style={[s.catBadge, { backgroundColor: c.tint + '20', borderColor: c.tint + '40' }]}>
+              <Text style={[s.catText, { color: c.tint }]}>{article.topics[0]}</Text>
+            </View>
+          )}
+          <Text style={[s.title, { color: c.text }]}>{article.title}</Text>
+          {article.lede && (
+            <Text style={[s.lede, { color: c.textSecondary }]}>{article.lede}</Text>
+          )}
+          <Text style={[s.byline, { color: c.textMuted }]}>
+            {article.publisher?.name ?? 'Unknown'}
+            {article.byline ? ` · ${article.byline}` : ''}
+            {' · '}
+            {new Date(article.ts_pub).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+          </Text>
+        </View>
+
         {article.body ? (
-          <Text style={[styles.body, { color: c.text }]}>{article.body}</Text>
+          <Text style={[s.body, { color: c.text }]}>{article.body}</Text>
         ) : (
           <TouchableOpacity
-            style={[styles.readFullBtn, { backgroundColor: c.tint }]}
+            style={[s.readFullBtn, { backgroundColor: c.tint }]}
             onPress={() => Linking.openURL(article.url)}
           >
-            <Text style={[styles.readFullBtnText, { color: c.tintForeground }]}>
-              Read full article
-            </Text>
+            <Text style={[s.readFullBtnText, { color: c.tintForeground }]}>Read Full Article ↗</Text>
           </TouchableOpacity>
         )}
 
-        {/* AI Insights */}
-        <View style={[styles.insightsCard, { backgroundColor: c.card, borderColor: c.border }, Shadows.subtle]}>
-          <Text style={[styles.insightsTitle, { color: c.text }]}>AI Insights</Text>
-          {insights ? (
-            <Text style={[styles.insightsText, { color: c.textSecondary }]}>{insights}</Text>
-          ) : (
-            <TouchableOpacity
-              style={[styles.insightsBtn, { backgroundColor: c.secondary }]}
-              onPress={fetchInsights}
-              disabled={loadingInsights}
-            >
-              {loadingInsights
-                ? <ActivityIndicator color={c.tint} size="small" />
-                : <Text style={[styles.insightsBtnText, { color: c.tint }]}>
-                    Generate insights
-                  </Text>
-              }
-            </TouchableOpacity>
-          )}
-        </View>
+        <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* Sticky CTA */}
+      <View style={[s.ctaBar, { backgroundColor: c.background, borderTopColor: c.border }]}>
+        <TouchableOpacity
+          style={[s.ctaBtn, { backgroundColor: c.tint }]}
+          onPress={() => Linking.openURL(article.url)}
+        >
+          <Text style={[s.ctaBtnText, { color: c.tintForeground }]}>Read Full Article ↗</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing['2xl'],
-    paddingVertical: Spacing.md,
-  },
-  backBtn: { padding: Spacing.sm },
-  content: { paddingHorizontal: Spacing['2xl'], paddingBottom: Spacing['4xl'], gap: Spacing.lg },
-  publisher: { fontSize: Typography.size.xs, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: '600' },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.extrabold, lineHeight: 32 },
-  lede: { fontSize: Typography.size.lg, lineHeight: 26, fontStyle: 'italic' },
-  body: { fontSize: Typography.size.base, lineHeight: 26 },
-  readFullBtn: {
-    height: 52,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  readFullBtnText: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
-  insightsCard: {
-    padding: Spacing.xl,
-    borderRadius: Radius.xl,
-    borderWidth: 1,
-    gap: Spacing.md,
-    marginTop: Spacing.lg,
-  },
-  insightsTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
-  insightsText: { fontSize: Typography.size.sm, lineHeight: 22 },
-  insightsBtn: {
-    paddingVertical: Spacing.md,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-  },
-  insightsBtnText: { fontSize: Typography.size.sm, fontWeight: Typography.weight.medium },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+  backBtn: { padding: 4 },
+  backText: { fontSize: 17 },
+  topActions: { flexDirection: 'row', gap: 8 },
+  topBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  content: { paddingHorizontal: 20, gap: 16, paddingBottom: 80 },
+  heroImage: { width: '100%', aspectRatio: 16 / 9 },
+  meta: { gap: 10 },
+  catBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1 },
+  catText: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  title: { fontSize: 24, fontWeight: '800', lineHeight: 31 },
+  lede: { fontSize: 16, lineHeight: 24, fontStyle: 'italic' },
+  byline: { fontSize: 12 },
+  body: { fontSize: 16, lineHeight: 26 },
+  readFullBtn: { height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  readFullBtnText: { fontSize: 16, fontWeight: '600' },
+  ctaBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, borderTopWidth: 1 },
+  ctaBtn: { height: 52, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  ctaBtnText: { fontSize: 16, fontWeight: '700' },
 });

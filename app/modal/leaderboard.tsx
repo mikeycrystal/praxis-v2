@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, SafeAreaView,
-  TouchableOpacity, useColorScheme, ActivityIndicator, Image,
+  TouchableOpacity, ActivityIndicator, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '../services/supabase';
-import { Colors } from '@/constants/Colors';
-import { Typography, Spacing, Radius } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
+import { useAuth } from '../context/AuthContext';
 
 export default function LeaderboardModal() {
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const { c } = useTheme();
+  const { user } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -26,11 +26,11 @@ export default function LeaderboardModal() {
   const medals = ['🥇', '🥈', '🥉'];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: c.text }]}>Leaderboard</Text>
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <View style={s.header}>
+        <Text style={[s.title, { color: c.text }]}>Leaderboard</Text>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={[styles.close, { color: c.tint }]}>Done</Text>
+          <Text style={[s.done, { color: c.tint }]}>Done</Text>
         </TouchableOpacity>
       </View>
 
@@ -40,64 +40,61 @@ export default function LeaderboardModal() {
         <FlatList
           data={users}
           keyExtractor={item => item.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item, index }) => (
-            <TouchableOpacity
-              style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
-              onPress={() => router.push({ pathname: '/modal/user-profile', params: { userId: item.id } })}
-            >
-              <Text style={styles.rank}>
-                {index < 3 ? medals[index] : `${index + 1}`}
-              </Text>
-              <View style={[styles.avatar, { backgroundColor: c.secondary }]}>
-                {item.avatar_url
-                  ? <Image source={{ uri: item.avatar_url }} style={styles.avatarImg} />
-                  : <Text style={{ color: c.textSecondary, fontWeight: '600' }}>
-                      {(item.full_name ?? item.username ?? '?')[0].toUpperCase()}
-                    </Text>
-                }
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.name, { color: c.text }]}>
-                  {item.full_name ?? item.username ?? 'Anonymous'}
+          contentContainerStyle={s.list}
+          renderItem={({ item, index }) => {
+            const isMe = item.id === user?.id;
+            return (
+              <TouchableOpacity
+                style={[
+                  s.row,
+                  { backgroundColor: isMe ? c.tint + '15' : c.card, borderColor: isMe ? c.tint + '50' : c.border },
+                ]}
+                onPress={() => router.push({ pathname: '/modal/user-profile', params: { userId: item.id } })}
+              >
+                <Text style={[s.rank, { color: index < 3 ? c.text : c.textMuted }]}>
+                  {index < 3 ? medals[index] : `${index + 1}`}
                 </Text>
-                <Text style={[styles.streak, { color: c.textSecondary }]}>
-                  🔥 {item.reading_streak} day streak
-                </Text>
-              </View>
-              <Text style={[styles.count, { color: c.tint }]}>{item.articles_read}</Text>
-            </TouchableOpacity>
-          )}
+                <View style={[s.avatar, { backgroundColor: c.secondary }]}>
+                  {item.avatar_url
+                    ? <Image source={{ uri: item.avatar_url }} style={s.avatarImg} />
+                    : <Text style={{ color: c.textMuted, fontWeight: '600' }}>
+                        {(item.full_name ?? item.username ?? '?')[0].toUpperCase()}
+                      </Text>
+                  }
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.name, { color: c.text }]}>
+                    {item.full_name ?? item.username ?? 'Anonymous'}{isMe ? ' (you)' : ''}
+                  </Text>
+                  <Text style={[s.streak, { color: c.textMuted }]}>🔥 {item.reading_streak} day streak</Text>
+                </View>
+                <Text style={[s.count, { color: c.tint }]}>{item.articles_read}</Text>
+              </TouchableOpacity>
+            );
+          }}
         />
       )}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing['2xl'],
-    paddingVertical: Spacing.lg,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 16,
   },
-  title: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold },
-  close: { fontSize: Typography.size.base },
-  list: { paddingHorizontal: Spacing['2xl'], gap: Spacing.sm },
+  title: { fontSize: 22, fontWeight: '700' },
+  done: { fontSize: 16 },
+  list: { paddingHorizontal: 16, gap: 8 },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    gap: Spacing.md,
+    flexDirection: 'row', alignItems: 'center',
+    padding: 14, borderRadius: 14, borderWidth: 1, gap: 12,
   },
-  rank: { width: 28, textAlign: 'center', fontSize: Typography.size.lg },
-  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  avatarImg: { width: 36, height: 36 },
-  name: { fontSize: Typography.size.base, fontWeight: Typography.weight.medium },
-  streak: { fontSize: Typography.size.xs, marginTop: 2 },
-  count: { fontSize: Typography.size.lg, fontWeight: Typography.weight.bold },
+  rank: { width: 28, textAlign: 'center', fontSize: 18, fontWeight: '700' },
+  avatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImg: { width: 38, height: 38 },
+  name: { fontSize: 15, fontWeight: '600' },
+  streak: { fontSize: 12, marginTop: 2 },
+  count: { fontSize: 20, fontWeight: '800' },
 });

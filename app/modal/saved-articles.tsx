@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, SafeAreaView,
-  TouchableOpacity, useColorScheme, ActivityIndicator,
+  TouchableOpacity, ActivityIndicator, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Colors } from '@/constants/Colors';
-import { Typography, Spacing, Radius } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
 
 export default function SavedArticlesModal() {
   const { user } = useAuth();
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const { c } = useTheme();
   const [articles, setArticles] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -20,7 +18,7 @@ export default function SavedArticlesModal() {
     if (!user) return;
     supabase
       .from('saved_articles')
-      .select('article_id, saved_at, article(id, title, lede, ts_pub, publisher(name))')
+      .select('article_id, saved_at, article(id, title, lede, ts_pub, image_url, publisher(name))')
       .eq('user_id', user.id)
       .order('saved_at', { ascending: false })
       .then(({ data }) => {
@@ -36,11 +34,11 @@ export default function SavedArticlesModal() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: c.text }]}>Saved Articles</Text>
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <View style={s.header}>
+        <Text style={[s.title, { color: c.text }]}>Saved Articles</Text>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={[styles.close, { color: c.tint }]}>Done</Text>
+          <Text style={[s.done, { color: c.tint }]}>Done</Text>
         </TouchableOpacity>
       </View>
 
@@ -50,25 +48,37 @@ export default function SavedArticlesModal() {
         <FlatList
           data={articles}
           keyExtractor={item => String(item.id)}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={s.list}
           ListEmptyComponent={
-            <Text style={[styles.empty, { color: c.textSecondary }]}>No saved articles yet.</Text>
+            <View style={s.empty}>
+              <Text style={{ fontSize: 40 }}>🔖</Text>
+              <Text style={[s.emptyText, { color: c.textSecondary }]}>No saved articles yet.</Text>
+              <Text style={[s.emptyHint, { color: c.textMuted }]}>
+                Tap the bookmark icon on any card to save it here.
+              </Text>
+            </View>
           }
           renderItem={({ item }) => (
             <TouchableOpacity
-              style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
+              style={[s.row, { backgroundColor: c.card, borderColor: c.border }]}
               onPress={() => router.push(`/article/${item.id}`)}
             >
+              {item.image_url && (
+                <Image source={{ uri: item.image_url }} style={s.thumb} resizeMode="cover" />
+              )}
               <View style={{ flex: 1 }}>
-                <Text style={[styles.publisher, { color: c.textSecondary }]}>
+                <Text style={[s.publisher, { color: c.textMuted }]}>
                   {item.publisher?.name ?? 'Unknown'}
                 </Text>
-                <Text style={[styles.articleTitle, { color: c.text }]} numberOfLines={2}>
+                <Text style={[s.articleTitle, { color: c.text }]} numberOfLines={2}>
                   {item.title}
                 </Text>
+                <Text style={[s.date, { color: c.textMuted }]}>
+                  {new Date(item.ts_pub).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </Text>
               </View>
-              <TouchableOpacity onPress={() => unsave(item.id)} style={styles.unsaveBtn}>
-                <Text style={{ color: c.bookmarkActive, fontSize: 20 }}>🔖</Text>
+              <TouchableOpacity onPress={() => unsave(item.id)} style={s.unsaveBtn}>
+                <Text style={[{ fontSize: 20 }, { color: c.bookmarkActive }]}>🔖</Text>
               </TouchableOpacity>
             </TouchableOpacity>
           )}
@@ -78,28 +88,25 @@ export default function SavedArticlesModal() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Spacing['2xl'],
-    paddingVertical: Spacing.lg,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 16,
   },
-  title: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold },
-  close: { fontSize: Typography.size.base },
-  list: { paddingHorizontal: Spacing['2xl'], gap: Spacing.sm },
-  empty: { textAlign: 'center', marginTop: Spacing['4xl'], fontSize: Typography.size.base },
+  title: { fontSize: 22, fontWeight: '700' },
+  done: { fontSize: 16 },
+  list: { paddingHorizontal: 16, gap: 8 },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 10 },
+  emptyText: { fontSize: 16, fontWeight: '600' },
+  emptyHint: { fontSize: 13, textAlign: 'center', paddingHorizontal: 40 },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    gap: Spacing.md,
+    flexDirection: 'row', alignItems: 'center',
+    padding: 12, borderRadius: 14, borderWidth: 1, gap: 12,
   },
-  publisher: { fontSize: Typography.size.xs, textTransform: 'uppercase', fontWeight: '600', marginBottom: 4 },
-  articleTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.medium, lineHeight: 22 },
-  unsaveBtn: { padding: Spacing.sm },
+  thumb: { width: 72, height: 72, borderRadius: 10 },
+  publisher: { fontSize: 11, textTransform: 'uppercase', fontWeight: '600', marginBottom: 3 },
+  articleTitle: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
+  date: { fontSize: 11, marginTop: 4 },
+  unsaveBtn: { padding: 6 },
 });

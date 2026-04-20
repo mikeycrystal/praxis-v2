@@ -1,35 +1,30 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, useColorScheme, ActivityIndicator, Image,
+  TouchableOpacity, ActivityIndicator, Image,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Colors } from '@/constants/Colors';
-import { Typography, Spacing, Radius, Shadows } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
 
 export default function UserProfileModal() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { user } = useAuth();
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
-
+  const { c } = useTheme();
   const [profile, setProfile] = useState<any>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetch = async () => {
-      const [{ data: p }, { data: f }] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', userId).single(),
-        user ? supabase.from('follows').select('id').eq('follower_id', user.id).eq('following_id', userId).maybeSingle() : Promise.resolve({ data: null }),
-      ]);
+    Promise.all([
+      supabase.from('profiles').select('*').eq('id', userId).single(),
+      user ? supabase.from('follows').select('id').eq('follower_id', user.id).eq('following_id', userId).maybeSingle() : Promise.resolve({ data: null }),
+    ]).then(([{ data: p }, { data: f }]) => {
       setProfile(p);
       setIsFollowing(!!f);
       setLoading(false);
-    };
-    fetch();
+    });
   }, [userId, user]);
 
   const toggleFollow = async () => {
@@ -45,99 +40,84 @@ export default function UserProfileModal() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
+      <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
         <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
       </SafeAreaView>
     );
   }
-
   if (!profile) return null;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.topBar}>
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <View style={s.topBar}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={{ color: c.tint, fontSize: Typography.size.lg }}>‹ Back</Text>
+          <Text style={[s.backText, { color: c.tint }]}>‹ Back</Text>
         </TouchableOpacity>
       </View>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={[styles.avatar, { backgroundColor: c.secondary }]}>
+      <ScrollView contentContainerStyle={s.content}>
+        <View style={[s.avatar, { backgroundColor: c.secondary }]}>
           {profile.avatar_url
-            ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImg} />
-            : <Text style={[styles.avatarInitial, { color: c.text }]}>
+            ? <Image source={{ uri: profile.avatar_url }} style={s.avatarImg} />
+            : <Text style={[s.avatarInitial, { color: c.text }]}>
                 {(profile.full_name ?? profile.username ?? '?')[0]?.toUpperCase()}
               </Text>
           }
         </View>
-        <Text style={[styles.name, { color: c.text }]}>
+        <Text style={[s.name, { color: c.text }]}>
           {profile.full_name ?? profile.username ?? 'Anonymous'}
         </Text>
         {profile.bio && (
-          <Text style={[styles.bio, { color: c.textSecondary }]}>{profile.bio}</Text>
+          <Text style={[s.bio, { color: c.textSecondary }]}>{profile.bio}</Text>
         )}
 
         {user?.id !== userId && (
           <TouchableOpacity
-            style={[
-              styles.followBtn,
-              { backgroundColor: isFollowing ? c.secondary : c.tint, borderColor: c.border },
-            ]}
+            style={[s.followBtn, {
+              backgroundColor: isFollowing ? c.secondary : c.tint,
+              borderColor: c.border,
+            }]}
             onPress={toggleFollow}
           >
-            <Text style={[styles.followBtnText, { color: isFollowing ? c.textSecondary : c.tintForeground }]}>
-              {isFollowing ? 'Following' : 'Follow'}
+            <Text style={[s.followBtnText, { color: isFollowing ? c.textSecondary : c.tintForeground }]}>
+              {isFollowing ? '✓ Following' : 'Follow'}
             </Text>
           </TouchableOpacity>
         )}
 
-        <View style={styles.statsRow}>
-          <View style={styles.stat}>
-            <Text style={[styles.statNum, { color: c.text }]}>{profile.articles_read}</Text>
-            <Text style={[styles.statLabel, { color: c.textSecondary }]}>Articles Read</Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: c.border }]} />
-          <View style={styles.stat}>
-            <Text style={[styles.statNum, { color: c.text }]}>{profile.reading_streak}</Text>
-            <Text style={[styles.statLabel, { color: c.textSecondary }]}>Day Streak</Text>
-          </View>
-          <View style={[styles.divider, { backgroundColor: c.border }]} />
-          <View style={styles.stat}>
-            <Text style={[styles.statNum, { color: c.text }]}>{profile.followers_count}</Text>
-            <Text style={[styles.statLabel, { color: c.textSecondary }]}>Followers</Text>
-          </View>
+        <View style={[s.statsCard, { backgroundColor: c.card, borderColor: c.border }]}>
+          {[
+            { label: 'Articles Read', value: profile.articles_read ?? 0 },
+            { label: 'Day Streak', value: profile.reading_streak ?? 0 },
+            { label: 'Followers', value: profile.followers_count ?? 0 },
+          ].map((stat, i, arr) => (
+            <View key={stat.label} style={[s.stat, i < arr.length - 1 && { borderRightWidth: 1, borderRightColor: c.border }]}>
+              <Text style={[s.statNum, { color: c.text }]}>{stat.value}</Text>
+              <Text style={[s.statLabel, { color: c.textMuted }]}>{stat.label}</Text>
+            </View>
+          ))}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
-  topBar: { paddingHorizontal: Spacing['2xl'], paddingVertical: Spacing.md },
-  content: { alignItems: 'center', paddingHorizontal: Spacing['2xl'], paddingTop: Spacing.xl, gap: Spacing.md },
-  avatar: { width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  avatarImg: { width: 88, height: 88 },
-  avatarInitial: { fontSize: Typography.size['3xl'], fontWeight: Typography.weight.bold },
-  name: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold },
-  bio: { fontSize: Typography.size.sm, textAlign: 'center' },
-  followBtn: {
-    paddingHorizontal: Spacing['2xl'],
-    paddingVertical: Spacing.md,
-    borderRadius: Radius.full,
-    borderWidth: 1,
-    marginTop: Spacing.sm,
+  topBar: { paddingHorizontal: 16, paddingVertical: 14 },
+  backText: { fontSize: 17 },
+  content: { alignItems: 'center', paddingHorizontal: 24, paddingTop: 12, gap: 12 },
+  avatar: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImg: { width: 96, height: 96 },
+  avatarInitial: { fontSize: 36, fontWeight: '700' },
+  name: { fontSize: 22, fontWeight: '700' },
+  bio: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  followBtn: { paddingHorizontal: 28, paddingVertical: 10, borderRadius: 999, borderWidth: 1, marginTop: 4 },
+  followBtnText: { fontSize: 15, fontWeight: '600' },
+  statsCard: {
+    flexDirection: 'row', borderRadius: 16, borderWidth: 1,
+    overflow: 'hidden', width: '100%', marginTop: 16,
   },
-  followBtnText: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xl,
-    marginTop: Spacing.xl,
-    paddingVertical: Spacing.xl,
-    paddingHorizontal: Spacing['2xl'],
-  },
-  stat: { alignItems: 'center', flex: 1 },
-  statNum: { fontSize: Typography.size.xl, fontWeight: Typography.weight.bold },
-  statLabel: { fontSize: Typography.size.xs, marginTop: 2 },
-  divider: { width: 1, height: 30 },
+  stat: { flex: 1, alignItems: 'center', paddingVertical: 20 },
+  statNum: { fontSize: 24, fontWeight: '800' },
+  statLabel: { fontSize: 12, marginTop: 3 },
 });

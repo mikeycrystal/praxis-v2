@@ -1,24 +1,24 @@
 import { useState } from 'react';
 import {
   View, Text, TextInput, FlatList, StyleSheet, SafeAreaView,
-  TouchableOpacity, useColorScheme, ActivityIndicator, Image,
+  TouchableOpacity, ActivityIndicator, Image,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { Colors } from '@/constants/Colors';
-import { Typography, Spacing, Radius } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
 
-type SearchResult = { type: 'article'; id: number; title: string; publisher: string }
+type SearchResult =
+  | { type: 'article'; id: number; title: string; publisher: string }
   | { type: 'user'; id: string; full_name: string; username: string; avatar_url: string | null };
 
 export default function SearchModal() {
   const { user } = useAuth();
-  const scheme = useColorScheme();
-  const c = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const { c } = useTheme();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
 
   const search = async (q: string) => {
     setQuery(q);
@@ -52,13 +52,14 @@ export default function SearchModal() {
   const follow = async (userId: string) => {
     if (!user) return;
     await supabase.from('follows').upsert({ follower_id: user.id, following_id: userId });
+    setFollowedIds(prev => new Set(prev).add(userId));
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <View style={s.header}>
         <TextInput
-          style={[styles.input, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
+          style={[s.input, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
           placeholder="Search articles, people..."
           placeholderTextColor={c.textMuted}
           value={query}
@@ -66,53 +67,61 @@ export default function SearchModal() {
           autoFocus
         />
         <TouchableOpacity onPress={() => router.back()}>
-          <Text style={[styles.cancel, { color: c.tint }]}>Cancel</Text>
+          <Text style={[s.cancel, { color: c.tint }]}>Cancel</Text>
         </TouchableOpacity>
       </View>
 
-      {loading && <ActivityIndicator color={c.tint} style={{ marginTop: Spacing.xl }} />}
+      {loading && <ActivityIndicator color={c.tint} style={{ marginTop: 24 }} />}
+
+      {!loading && query.length >= 2 && results.length === 0 && (
+        <Text style={[s.noResults, { color: c.textMuted }]}>No results for "{query}"</Text>
+      )}
 
       <FlatList
         data={results}
         keyExtractor={item => `${item.type}-${item.id}`}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={s.list}
         renderItem={({ item }) => {
           if (item.type === 'article') {
             return (
               <TouchableOpacity
-                style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
+                style={[s.row, { backgroundColor: c.card, borderColor: c.border }]}
                 onPress={() => { router.back(); router.push(`/article/${item.id}`); }}
               >
-                <Text style={{ fontSize: 16 }}>📰</Text>
+                <Text style={{ fontSize: 18 }}>📰</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.rowTitle, { color: c.text }]} numberOfLines={1}>{item.title}</Text>
-                  <Text style={[styles.rowSub, { color: c.textSecondary }]}>{item.publisher}</Text>
+                  <Text style={[s.rowTitle, { color: c.text }]} numberOfLines={1}>{item.title}</Text>
+                  <Text style={[s.rowSub, { color: c.textMuted }]}>{item.publisher}</Text>
                 </View>
               </TouchableOpacity>
             );
           }
+          const isFollowed = followedIds.has(item.id);
           return (
             <TouchableOpacity
-              style={[styles.row, { backgroundColor: c.card, borderColor: c.border }]}
+              style={[s.row, { backgroundColor: c.card, borderColor: c.border }]}
               onPress={() => { router.back(); router.push({ pathname: '/modal/user-profile', params: { userId: item.id } }); }}
             >
-              <View style={[styles.avatar, { backgroundColor: c.secondary }]}>
+              <View style={[s.avatar, { backgroundColor: c.secondary }]}>
                 {item.avatar_url
-                  ? <Image source={{ uri: item.avatar_url }} style={styles.avatarImg} />
-                  : <Text style={{ color: c.textSecondary, fontWeight: '600' }}>
+                  ? <Image source={{ uri: item.avatar_url }} style={s.avatarImg} />
+                  : <Text style={{ color: c.textMuted, fontWeight: '600', fontSize: 15 }}>
                       {(item.full_name ?? item.username ?? '?')[0].toUpperCase()}
                     </Text>
                 }
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.rowTitle, { color: c.text }]}>{item.full_name}</Text>
-                <Text style={[styles.rowSub, { color: c.textSecondary }]}>@{item.username}</Text>
+                <Text style={[s.rowTitle, { color: c.text }]}>{item.full_name}</Text>
+                <Text style={[s.rowSub, { color: c.textMuted }]}>@{item.username}</Text>
               </View>
               <TouchableOpacity
-                style={[styles.followBtn, { backgroundColor: c.tint }]}
+                style={[s.followBtn, { backgroundColor: isFollowed ? c.secondary : c.tint }]}
                 onPress={() => follow(item.id)}
+                disabled={isFollowed}
               >
-                <Text style={{ color: c.tintForeground, fontSize: Typography.size.xs, fontWeight: '600' }}>Follow</Text>
+                <Text style={{ color: isFollowed ? c.textMuted : c.tintForeground, fontSize: 12, fontWeight: '600' }}>
+                  {isFollowed ? 'Following' : 'Follow'}
+                </Text>
               </TouchableOpacity>
             </TouchableOpacity>
           );
@@ -122,36 +131,26 @@ export default function SearchModal() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: Spacing['2xl'],
-    paddingVertical: Spacing.lg,
-    gap: Spacing.md,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 14, gap: 12,
   },
   input: {
-    flex: 1,
-    height: 44,
-    borderWidth: 1,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.lg,
-    fontSize: Typography.size.base,
+    flex: 1, height: 44, borderWidth: 1, borderRadius: 999,
+    paddingHorizontal: 16, fontSize: 15,
   },
-  cancel: { fontSize: Typography.size.base },
-  list: { paddingHorizontal: Spacing['2xl'], gap: Spacing.sm },
+  cancel: { fontSize: 15 },
+  noResults: { textAlign: 'center', marginTop: 32, fontSize: 14 },
+  list: { paddingHorizontal: 16, gap: 8 },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: Spacing.lg,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    gap: Spacing.md,
+    flexDirection: 'row', alignItems: 'center',
+    padding: 14, borderRadius: 14, borderWidth: 1, gap: 12,
   },
-  rowTitle: { fontSize: Typography.size.base, fontWeight: Typography.weight.medium },
-  rowSub: { fontSize: Typography.size.xs, marginTop: 2 },
-  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  avatarImg: { width: 36, height: 36 },
-  followBtn: { paddingHorizontal: Spacing.md, paddingVertical: 6, borderRadius: Radius.full },
+  rowTitle: { fontSize: 15, fontWeight: '500' },
+  rowSub: { fontSize: 12, marginTop: 2 },
+  avatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImg: { width: 38, height: 38 },
+  followBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999 },
 });
