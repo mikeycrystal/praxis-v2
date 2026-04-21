@@ -5,8 +5,7 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
-import { Colors } from '@/constants/Colors';
-import { Radius, Typography, Spacing } from '@/constants/Theme';
+import { useTheme } from '../hooks/useTheme';
 
 const TOPICS = [
   'Politics', 'Technology', 'Business', 'Science', 'Health',
@@ -16,9 +15,9 @@ const TOPICS = [
 
 export default function OnboardingScreen() {
   const { updateProfile } = useAuth();
+  const { c, Radius } = useTheme();
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const c = Colors.light;
 
   const toggle = (topic: string) => {
     setSelected(prev =>
@@ -37,48 +36,55 @@ export default function OnboardingScreen() {
     }
   };
 
+  const ready = selected.length >= 3;
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: c.text }]}>What interests you?</Text>
-        <Text style={[styles.subtitle, { color: c.textSecondary }]}>
+    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+      <View style={s.header}>
+        <Text style={[s.title, { color: c.text }]}>What interests you?</Text>
+        <Text style={[s.subtitle, { color: c.textMuted }]}>
           Pick at least 3 topics to personalize your feed.
         </Text>
+        <View style={[s.progress, { backgroundColor: c.secondary }]}>
+          <View style={[s.progressFill, { backgroundColor: c.tint, width: `${Math.min(selected.length / 3 * 100, 100)}%` }]} />
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={s.grid} showsVerticalScrollIndicator={false}>
         {TOPICS.map(topic => {
           const active = selected.includes(topic);
           return (
             <TouchableOpacity
               key={topic}
               style={[
-                styles.chip,
-                { borderColor: active ? c.tint : c.border, backgroundColor: active ? c.tint : c.card },
+                s.chip,
+                { borderColor: active ? c.tint : c.border, backgroundColor: active ? c.tint + '20' : c.card },
               ]}
               onPress={() => toggle(topic)}
             >
-              <Text style={[styles.chipText, { color: active ? c.tintForeground : c.text }]}>
-                {topic}
-              </Text>
+              {active && <Text style={[s.check, { color: c.tint }]}>✓ </Text>}
+              <Text style={[s.chipText, { color: active ? c.tint : c.textSecondary }]}>{topic}</Text>
             </TouchableOpacity>
           );
         })}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={s.footer}>
+        <Text style={[s.countText, { color: c.textMuted }]}>
+          {selected.length < 3
+            ? `Select ${3 - selected.length} more to continue`
+            : `${selected.length} topics selected`
+          }
+        </Text>
         <TouchableOpacity
-          style={[
-            styles.button,
-            { backgroundColor: selected.length >= 3 ? c.tint : c.secondary },
-          ]}
+          style={[s.button, { backgroundColor: ready ? c.tint : c.secondary }]}
           onPress={finish}
-          disabled={selected.length < 3 || loading}
+          disabled={!ready || loading}
         >
           {loading
             ? <ActivityIndicator color={c.tintForeground} />
-            : <Text style={[styles.buttonText, { color: selected.length >= 3 ? c.tintForeground : c.textMuted }]}>
-                Get Started ({selected.length} selected)
+            : <Text style={[s.buttonText, { color: ready ? c.tintForeground : c.textMuted }]}>
+                Get Started →
               </Text>
           }
         </TouchableOpacity>
@@ -87,31 +93,23 @@ export default function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: Spacing['3xl'], paddingTop: Spacing['3xl'], paddingBottom: Spacing.xl },
-  title: { fontSize: Typography.size['2xl'], fontWeight: Typography.weight.bold, marginBottom: Spacing.sm },
-  subtitle: { fontSize: Typography.size.base, lineHeight: 22 },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: Spacing.xl,
-    gap: Spacing.sm,
-    paddingBottom: Spacing['3xl'],
-  },
+  header: { paddingHorizontal: 20, paddingTop: 32, paddingBottom: 16, gap: 8 },
+  title: { fontSize: 26, fontWeight: '800' },
+  subtitle: { fontSize: 14, lineHeight: 20 },
+  progress: { height: 4, borderRadius: 2, overflow: 'hidden', marginTop: 8 },
+  progressFill: { height: 4, borderRadius: 2 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 16, gap: 8, paddingBottom: 24 },
   chip: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.full,
-    borderWidth: 1.5,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 9,
+    borderRadius: 999, borderWidth: 1.5,
   },
-  chipText: { fontSize: Typography.size.sm, fontWeight: Typography.weight.medium },
-  footer: { padding: Spacing['3xl'] },
-  button: {
-    height: 54,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonText: { fontSize: Typography.size.base, fontWeight: Typography.weight.semibold },
+  check: { fontSize: 13, fontWeight: '700' },
+  chipText: { fontSize: 14, fontWeight: '500' },
+  footer: { padding: 20, gap: 10 },
+  countText: { textAlign: 'center', fontSize: 13 },
+  button: { height: 54, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  buttonText: { fontSize: 16, fontWeight: '700' },
 });
