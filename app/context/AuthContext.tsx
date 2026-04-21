@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
+import { registerPushToken, unregisterPushToken } from '../utils/notifications';
 
 export interface Profile {
   id: string;
@@ -60,6 +61,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .single();
     setProfile(data);
     setLoading(false);
+    // Register push token whenever we load a profile (no-op if already registered)
+    registerPushToken(userId);
   };
 
   const signIn = async (email: string, password: string) => {
@@ -77,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    if (session?.user) await unregisterPushToken(session.user.id);
     await supabase.auth.signOut();
   };
 
