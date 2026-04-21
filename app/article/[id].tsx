@@ -43,7 +43,13 @@ export default function ArticleScreen() {
       setIsSaved(!!saved);
       setIsLiked(!!liked);
       setLikeCount(count ?? 0);
-      setComments((cmts ?? []) as Comment[]);
+      setComments(((cmts ?? []) as any[]).map(c => ({
+        id: c.id,
+        user_id: c.user_id,
+        body: c.body,
+        created_at: c.created_at,
+        profiles: c.profiles,
+      })));
       setLoading(false);
     });
   }, [id, user]);
@@ -83,7 +89,7 @@ export default function ArticleScreen() {
       .select('id, user_id, body, created_at, profiles(full_name, username, avatar_url)')
       .single();
     if (data) {
-      setComments(prev => [...prev, data as Comment]);
+      setComments(prev => [...prev, data as any]);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
     }
     setSubmittingComment(false);

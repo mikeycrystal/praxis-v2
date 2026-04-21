@@ -30,7 +30,7 @@ function RootRedirect() {
 }
 
 function PushNotificationHandler() {
-  const notifResponseRef = useRef<Notifications.Subscription>();
+  const notifResponseRef = useRef<Notifications.Subscription | null>(null);
 
   useEffect(() => {
     notifResponseRef.current = Notifications.addNotificationResponseReceivedListener(response => {

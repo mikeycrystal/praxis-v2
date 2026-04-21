@@ -73,16 +73,17 @@ export default function FeedScreen() {
     }, { onConflict: 'user_id,article_id' });
     // Only increment/update streak if this is a new read (not a duplicate)
     if (!error) {
-      await Promise.all([
-        supabase.rpc('increment_articles_read', { uid: user.id }).catch(() => {}),
-        supabase.rpc('update_reading_streak', { uid: user.id }).catch(() => {}),
+      await Promise.allSettled([
+        supabase.rpc('increment_articles_read', { uid: user.id }),
+        supabase.rpc('update_reading_streak', { uid: user.id }),
       ]);
     }
-    await supabase.from('analytics_events').insert({
+    // Fire-and-forget analytics event
+    supabase.from('analytics_events').insert({
       user_id: user.id,
       event_name: 'article_view',
       properties: { article_id: articleId },
-    }).catch(() => {});
+    });
     // Check for newly earned badges (fire-and-forget)
     supabase.functions.invoke('award-badge', { body: { userId: user.id } }).catch(() => {});
   }, [user]);
