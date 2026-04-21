@@ -99,10 +99,30 @@ export default function FeedScreen() {
     }
   }, [user, savedIds]);
 
+  // Auto-load more articles when 3 cards away from the end
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadMore = useCallback(async () => {
+    if (loadingMore || loading) return;
+    setLoadingMore(true);
+    const topics = profile?.topics?.length ? profile.topics : ['Technology'];
+    const { data, error } = await supabase.functions.invoke('get-articles', {
+      body: { topics, limit: 20, exclude_ids: articles.map(a => a.id) },
+    });
+    if (!error && data?.articles?.length) {
+      setArticles(prev => [...prev, ...data.articles]);
+    }
+    setLoadingMore(false);
+  }, [loadingMore, loading, profile?.topics, articles]);
+
   const advance = useCallback((articleId: number) => {
     markRead(articleId);
-    setIndex(i => i + 1);
-  }, [markRead]);
+    setIndex(i => {
+      const next = i + 1;
+      // Load more when 3 cards from the end
+      if (next >= articles.length - 3) loadMore();
+      return next;
+    });
+  }, [markRead, articles.length, loadMore]);
 
   const current = articles[index];
   const next = articles[index + 1];

@@ -3,6 +3,8 @@ import { Stack, router, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { OfflineBanner } from './components/OfflineBanner';
 
 function RootRedirect() {
   const { session, profile, loading } = useAuth();
@@ -28,9 +30,11 @@ function RootRedirect() {
 
 export default function RootLayout() {
   return (
+    <ErrorBoundary>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <RootRedirect />
+        <OfflineBanner />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
@@ -49,5 +53,6 @@ export default function RootLayout() {
         <StatusBar style="auto" />
       </AuthProvider>
     </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
