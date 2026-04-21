@@ -21,7 +21,7 @@
     "production": {
       "autoIncrement": true,
       "channel": "production",
-      "node": "20.18.1",
+      "node": "20.19.4",
       "env": {
         "APP_ENV": "production"
       },
