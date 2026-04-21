@@ -1,7 +1,8 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Stack, router, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
@@ -28,12 +29,33 @@ function RootRedirect() {
   return null;
 }
 
+function PushNotificationHandler() {
+  const notifResponseRef = useRef<Notifications.Subscription>();
+
+  useEffect(() => {
+    notifResponseRef.current = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data as Record<string, any>;
+      if (data?.type === 'follow' && data?.followerId) {
+        router.push({ pathname: '/modal/user-profile', params: { userId: data.followerId } });
+      } else if (data?.type === 'message' && data?.senderId) {
+        router.push({ pathname: '/chat/[id]', params: { userId: data.senderId } });
+      } else if (data?.type === 'badge') {
+        router.push('/(tabs)/profile');
+      }
+    });
+    return () => notifResponseRef.current?.remove();
+  }, []);
+
+  return null;
+}
+
 export default function RootLayout() {
   return (
     <ErrorBoundary>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <RootRedirect />
+        <PushNotificationHandler />
         <OfflineBanner />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" />

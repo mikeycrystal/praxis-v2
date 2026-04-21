@@ -128,6 +128,10 @@ export default function ChatScreen() {
       recipient_id: userId,
       body: text,
     });
+    // Fire-and-forget push notification to recipient
+    supabase.functions.invoke('notify-message', {
+      body: { senderId: user.id, recipientId: userId, message: text },
+    }).catch(() => {});
     setSending(false);
   };
 
