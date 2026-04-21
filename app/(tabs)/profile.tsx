@@ -17,7 +17,7 @@ export default function ProfileScreen() {
     if (!profile) return;
     supabase
       .from('user_badges')
-      .select('*, badges(*)')
+      .select('badge_id, name, icon, description, earned_at')
       .eq('user_id', profile.id)
       .then(({ data }) => { if (data) setBadges(data); });
   }, [profile]);
@@ -124,10 +124,10 @@ export default function ProfileScreen() {
             <Text style={[s.cardLabel, { color: c.textMuted }]}>BADGES</Text>
             <View style={s.badgeGrid}>
               {badges.map(b => (
-                <View key={b.id} style={[s.badge, { backgroundColor: c.secondary }]}>
-                  <Text style={{ fontSize: 22 }}>{b.badges?.icon ?? '🏅'}</Text>
+                <View key={b.badge_id} style={[s.badge, { backgroundColor: c.secondary }]}>
+                  <Text style={{ fontSize: 22 }}>{b.icon ?? '🏅'}</Text>
                   <Text style={[s.badgeName, { color: c.textMuted }]} numberOfLines={1}>
-                    {b.badges?.name ?? 'Badge'}
+                    {b.name ?? 'Badge'}
                   </Text>
                 </View>
               ))}
