@@ -7,30 +7,36 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "praxis",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FFF5D7"
+      "backgroundColor": "#14161B"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.praxis.newsapp",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "This app uses the camera to let you take profile photos.",
-        "NSPhotoLibraryUsageDescription": "This app uses the photo library to let you select profile photos."
+        "NSCameraUsageDescription": "Praxis uses your camera to let you set a profile photo.",
+        "NSPhotoLibraryUsageDescription": "Praxis uses your photo library to let you choose a profile photo.",
+        "NSUserNotificationUsageDescription": "Praxis sends you notifications for new followers, messages, and badge milestones."
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FFF5D7"
+        "backgroundColor": "#14161B"
       },
       "package": "com.praxis.newsapp",
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -40,6 +46,14 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#3B82F6",
+          "sounds": []
+        }
+      ],
       [
         "expo-build-properties",
         {
@@ -54,7 +68,8 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-image-picker"
     ],
     "experiments": {
       "typedRoutes": true
