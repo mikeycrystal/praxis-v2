@@ -44,6 +44,7 @@ export default function RootLayout() {
           <Stack.Screen name="modal/edit-profile" options={{ presentation: 'modal' }} />
           <Stack.Screen name="modal/change-password" options={{ presentation: 'modal' }} />
           <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="modal/reading-activity" options={{ presentation: 'modal' }} />
         </Stack>
         <StatusBar style="auto" />
       </AuthProvider>

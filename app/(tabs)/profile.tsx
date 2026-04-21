@@ -101,7 +101,7 @@ export default function ProfileScreen() {
         <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
           <Text style={[s.cardLabel, { color: c.textMuted }]}>QUICK ACTIONS</Text>
           {[
-            { icon: '🔔', label: 'Notifications', onPress: () => {} },
+            { icon: '📊', label: 'Reading Activity', onPress: () => router.push('/modal/reading-activity') },
             { icon: '📚', label: 'Reading Preferences', onPress: () => router.push('/(tabs)/topics') },
             { icon: '🔒', label: 'Privacy Settings', onPress: () => {} },
             { icon: 'ℹ️', label: 'About Praxis', onPress: () => {} },
