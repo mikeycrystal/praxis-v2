@@ -119,10 +119,20 @@ export function ArticleCard({
           </View>
         )}
         <View style={s.actionBtns}>
-          <TouchableOpacity style={[s.actionBtn, { backgroundColor: 'rgba(59,130,246,0.2)' }]} onPress={onAIAnalysis}>
+          <TouchableOpacity
+            style={[s.actionBtn, { backgroundColor: 'rgba(59,130,246,0.2)' }]}
+            onPress={onAIAnalysis}
+            accessibilityLabel="AI analysis"
+            accessibilityRole="button"
+          >
             <Text style={{ fontSize: 16 }}>🧠</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[s.actionBtn, { backgroundColor: 'rgba(0,0,0,0.35)' }]} onPress={onSave}>
+          <TouchableOpacity
+            style={[s.actionBtn, { backgroundColor: 'rgba(0,0,0,0.35)' }]}
+            onPress={onSave}
+            accessibilityLabel={isSaved ? 'Remove bookmark' : 'Save article'}
+            accessibilityRole="button"
+          >
             <Text style={{ fontSize: 16 }}>{isSaved ? '🔖' : '🔗'}</Text>
           </TouchableOpacity>
         </View>
@@ -130,7 +140,12 @@ export function ArticleCard({
 
       {/* Bottom content */}
       <View style={s.content}>
-        <TouchableOpacity onPress={onRead} activeOpacity={0.9}>
+        <TouchableOpacity
+          onPress={onRead}
+          activeOpacity={0.9}
+          accessibilityLabel={`Read: ${article.title}`}
+          accessibilityRole="button"
+        >
           <Text style={s.title} numberOfLines={3}>{article.title}</Text>
         </TouchableOpacity>
         {article.lede ? (

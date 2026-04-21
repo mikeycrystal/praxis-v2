@@ -1,0 +1,45 @@
+# Supabase local dev config — matches the hosted project at cglrznkcrgwalnwzkhfj.supabase.co
+# Run `supabase start` to spin up local services (Docker required)
+# Run `supabase db push` to push migrations to the hosted project
+
+project_id = "cglrznkcrgwalnwzkhfj"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "praxis://auth"
+additional_redirect_urls = ["praxis://auth/reset-password"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[functions]
+# Edge Functions are deployed via: supabase functions deploy <name>
+verify_jwt = false
