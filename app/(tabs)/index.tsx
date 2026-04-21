@@ -71,9 +71,12 @@ export default function FeedScreen() {
       article_id: articleId,
       read_at: new Date().toISOString(),
     }, { onConflict: 'user_id,article_id' });
-    // Only increment if this is a new read (not a duplicate)
+    // Only increment/update streak if this is a new read (not a duplicate)
     if (!error) {
-      await supabase.rpc('increment_articles_read', { uid: user.id }).catch(() => {});
+      await Promise.all([
+        supabase.rpc('increment_articles_read', { uid: user.id }).catch(() => {}),
+        supabase.rpc('update_reading_streak', { uid: user.id }).catch(() => {}),
+      ]);
     }
     await supabase.from('analytics_events').insert({
       user_id: user.id,
