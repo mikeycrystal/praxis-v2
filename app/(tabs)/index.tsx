@@ -108,12 +108,17 @@ export default function FeedScreen() {
   const loadMore = useCallback(async () => {
     if (loadingMore || loading) return;
     setLoadingMore(true);
-    const topics = profile?.topics?.length ? profile.topics : ['Technology'];
-    const { data, error } = await supabase.functions.invoke('get-articles', {
-      body: { topics, limit: 20, exclude_ids: articles.map(a => a.id) },
-    });
-    if (!error && data?.articles?.length) {
-      setArticles(prev => [...prev, ...data.articles]);
+    try {
+      const topics = profile?.topics?.length ? profile.topics : ['Technology'];
+      const excludeIds = articles && Array.isArray(articles) ? articles.map(a => a?.id).filter(id => id != null) : [];
+      const { data, error } = await supabase.functions.invoke('get-articles', {
+        body: { topics, limit: 20, exclude_ids: excludeIds },
+      });
+      if (!error && data?.articles?.length) {
+        setArticles(prev => [...prev, ...data.articles]);
+      }
+    } catch (e) {
+      console.error('[FeedScreen] Error loading more articles:', e);
     }
     setLoadingMore(false);
   }, [loadingMore, loading, profile?.topics, articles]);
@@ -123,14 +128,25 @@ export default function FeedScreen() {
     setIndex(i => {
       const next = i + 1;
       // Load more when 3 cards from the end
-      if (next >= articles.length - 3) loadMore();
+      if (next >= articles.length - 3 && articles.length > 0) loadMore();
       return next;
     });
   }, [markRead, articles.length, loadMore]);
 
-  const current = articles[index];
-  const next = articles[index + 1];
-  const afterNext = articles[index + 2];
+  // Safely access articles with null checks
+  let current: Article | undefined;
+  let next: Article | undefined;
+  let afterNext: Article | undefined;
+
+  try {
+    if (articles && Array.isArray(articles) && articles.length > 0) {
+      current = articles[index] || undefined;
+      next = articles[index + 1] || undefined;
+      afterNext = articles[index + 2] || undefined;
+    }
+  } catch (e) {
+    console.error('[FeedScreen] Error accessing articles array:', e, { index, articlesLength: articles?.length });
+  }
 
   if (loading) {
     return (
@@ -212,18 +228,42 @@ export default function FeedScreen() {
       {/* Progress dots */}
       {articles.length > 0 && current && (
         <View style={s.dotsRow}>
-          {articles.slice(Math.max(0, index - 2), index + 5).map((_, i) => {
-            const isActive = Math.max(0, index - 2) + i === index;
-            return (
-              <View
-                key={i}
-                style={[s.dot, {
-                  backgroundColor: isActive ? c.tint : c.border,
-                  width: isActive ? 20 : 6,
-                }]}
-              />
-            );
-          })}
+          {(() => {
+            try {
+              if (!Array.isArray(articles) || articles.length === 0) {
+                console.warn('[FeedScreen] Articles array invalid for dots:', { isArray: Array.isArray(articles), length: articles?.length });
+                return null;
+              }
+              const startIdx = Math.max(0, index - 2);
+              const endIdx = Math.min(articles.length, index + 5);
+              const dotArticles = articles.slice(startIdx, endIdx);
+
+              if (!Array.isArray(dotArticles)) {
+                console.error('[FeedScreen] Slice result is not an array');
+                return null;
+              }
+
+              return dotArticles.map((article, i) => {
+                if (!article) {
+                  console.warn('[FeedScreen] Article at index is null:', { i, startIdx });
+                  return null;
+                }
+                const isActive = startIdx + i === index;
+                return (
+                  <View
+                    key={`dot-${i}`}
+                    style={[s.dot, {
+                      backgroundColor: isActive ? c.tint : c.border,
+                      width: isActive ? 20 : 6,
+                    }]}
+                  />
+                );
+              });
+            } catch (e) {
+              console.error('[FeedScreen] Error rendering progress dots:', e, { index, articlesLength: articles?.length });
+              return null;
+            }
+          })()}
         </View>
       )}
 

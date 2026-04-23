@@ -39,17 +39,33 @@ export default function ArticleScreen() {
       supabase.from('likes').select('id', { count: 'exact', head: true }).eq('article_id', id),
       supabase.from('comments').select('id, user_id, body, created_at, profiles(full_name, username, avatar_url)').eq('article_id', id).order('created_at', { ascending: true }),
     ]).then(([{ data: art }, { data: saved }, { data: liked }, { count }, { data: cmts }]) => {
-      setArticle(art);
-      setIsSaved(!!saved);
-      setIsLiked(!!liked);
-      setLikeCount(count ?? 0);
-      setComments(((cmts ?? []) as any[]).map(c => ({
-        id: c.id,
-        user_id: c.user_id,
-        body: c.body,
-        created_at: c.created_at,
-        profiles: c.profiles,
-      })));
+      try {
+        setArticle(art);
+        setIsSaved(!!saved);
+        setIsLiked(!!liked);
+        setLikeCount(count ?? 0);
+
+        // Safely process comments
+        let processedComments: Comment[] = [];
+        if (Array.isArray(cmts)) {
+          processedComments = cmts
+            .filter(c => c != null && typeof c === 'object' && c.id != null)
+            .map(c => ({
+              id: c.id,
+              user_id: c.user_id || '',
+              body: c.body || '',
+              created_at: c.created_at || new Date().toISOString(),
+              profiles: c.profiles || null,
+            }));
+        }
+        setComments(processedComments);
+        setLoading(false);
+      } catch (e) {
+        console.error('[ArticleScreen] Error processing article data:', e);
+        setLoading(false);
+      }
+    }).catch(err => {
+      console.error('[ArticleScreen] Error fetching article:', err);
       setLoading(false);
     });
   }, [id, user]);
@@ -67,14 +83,18 @@ export default function ArticleScreen() {
 
   const toggleLike = async () => {
     if (!user) return;
-    if (isLiked) {
-      await supabase.from('likes').delete().eq('user_id', user.id).eq('article_id', id);
-      setIsLiked(false);
-      setLikeCount(c => Math.max(0, c - 1));
-    } else {
-      await supabase.from('likes').insert({ user_id: user.id, article_id: Number(id) });
-      setIsLiked(true);
-      setLikeCount(c => c + 1);
+    try {
+      if (isLiked) {
+        await supabase.from('likes').delete().eq('user_id', user.id).eq('article_id', id);
+        setIsLiked(false);
+        setLikeCount(c => Math.max(0, typeof c === 'number' ? c - 1 : 0));
+      } else {
+        await supabase.from('likes').insert({ user_id: user.id, article_id: Number(id) });
+        setIsLiked(true);
+        setLikeCount(c => typeof c === 'number' ? c + 1 : 1);
+      }
+    } catch (e) {
+      console.error('[ArticleScreen] Error toggling like:', e);
     }
   };
 
@@ -83,14 +103,29 @@ export default function ArticleScreen() {
     const text = commentText.trim();
     setCommentText('');
     setSubmittingComment(true);
-    const { data } = await supabase
-      .from('comments')
-      .insert({ user_id: user.id, article_id: Number(id), body: text })
-      .select('id, user_id, body, created_at, profiles(full_name, username, avatar_url)')
-      .single();
-    if (data) {
-      setComments(prev => [...prev, data as any]);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+    try {
+      const { data } = await supabase
+        .from('comments')
+        .insert({ user_id: user.id, article_id: Number(id), body: text })
+        .select('id, user_id, body, created_at, profiles(full_name, username, avatar_url)')
+        .single();
+      if (data && typeof data === 'object' && data.id != null) {
+        const newComment: Comment = {
+          id: data.id,
+          user_id: data.user_id || user.id,
+          body: data.body || text,
+          created_at: data.created_at || new Date().toISOString(),
+          profiles: data.profiles || null,
+        };
+        setComments(prev => {
+          if (!Array.isArray(prev)) return [newComment];
+          return [...prev, newComment];
+        });
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+      }
+    } catch (e) {
+      console.error('[ArticleScreen] Error submitting comment:', e);
+      setCommentText(text); // Restore comment text on error
     }
     setSubmittingComment(false);
   };
@@ -190,29 +225,50 @@ export default function ArticleScreen() {
           {/* Comments section */}
           <View style={s.commentsSection}>
             <Text style={[s.commentsTitle, { color: c.text }]}>
-              Comments {comments.length > 0 ? `(${comments.length})` : ''}
+              Comments {comments && Array.isArray(comments) && comments.length > 0 ? `(${comments.length})` : ''}
             </Text>
-            {comments.length === 0 && (
+            {(!comments || comments.length === 0) && (
               <Text style={[s.noComments, { color: c.textMuted }]}>Be the first to comment.</Text>
             )}
-            {comments.map(comment => {
-              const name = comment.profiles?.full_name ?? comment.profiles?.username ?? 'Anonymous';
-              const initial = name[0]?.toUpperCase() ?? '?';
-              return (
-                <View key={comment.id} style={[s.commentRow, { borderColor: c.border }]}>
-                  <View style={[s.commentAvatar, { backgroundColor: c.secondary }]}>
-                    <Text style={{ color: c.textMuted, fontSize: 12, fontWeight: '600' }}>{initial}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.commentName, { color: c.text }]}>{name}</Text>
-                    <Text style={[s.commentBody, { color: c.textSecondary }]}>{comment.body}</Text>
-                    <Text style={[s.commentTime, { color: c.textMuted }]}>
-                      {new Date(comment.created_at).toLocaleDateString()}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
+            {(() => {
+              try {
+                if (!Array.isArray(comments) || comments.length === 0) {
+                  return null;
+                }
+                return comments.map((comment, idx) => {
+                  if (!comment || typeof comment !== 'object') {
+                    console.warn('[ArticleScreen] Invalid comment at index:', idx, comment);
+                    return null;
+                  }
+                  try {
+                    const name = comment.profiles?.full_name ?? comment.profiles?.username ?? 'Anonymous';
+                    const initial = (typeof name === 'string' && name.length > 0) ? name[0]?.toUpperCase() ?? '?' : '?';
+                    const safeCreatedAt = comment.created_at ? new Date(comment.created_at).toLocaleDateString() : 'Unknown date';
+
+                    return (
+                      <View key={`comment-${comment.id || idx}`} style={[s.commentRow, { borderColor: c.border }]}>
+                        <View style={[s.commentAvatar, { backgroundColor: c.secondary }]}>
+                          <Text style={{ color: c.textMuted, fontSize: 12, fontWeight: '600' }}>{initial}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[s.commentName, { color: c.text }]}>{name || 'Anonymous'}</Text>
+                          <Text style={[s.commentBody, { color: c.textSecondary }]}>{comment.body || '(empty comment)'}</Text>
+                          <Text style={[s.commentTime, { color: c.textMuted }]}>
+                            {safeCreatedAt}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  } catch (e) {
+                    console.error('[ArticleScreen] Error rendering comment:', e, comment);
+                    return null;
+                  }
+                });
+              } catch (e) {
+                console.error('[ArticleScreen] Error rendering comments list:', e, { commentsLength: comments?.length });
+                return null;
+              }
+            })()}
           </View>
 
           <View style={{ height: 100 }} />

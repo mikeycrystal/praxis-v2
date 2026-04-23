@@ -1,0 +1,68 @@
+★ eas-cli@18.7.0 is now available.
+To upgrade, run:
+npm install -g eas-cli
+Proceeding with outdated version.
+
+
+⚠️ Detected that your app uses Expo Go for development, this is not recommended when building production apps.
+Learn more: https://expo.fyi/why-not-build-expo-go-for-production
+To suppress this warning, set EAS_BUILD_NO_EXPO_GO_WARNING=true.
+
+Resolved "production" environment for the build. Learn more: https://docs.expo.dev/eas/environment-variables/#setting-the-environment-for-your-builds
+Environment variables with visibility "Plain text" and "Sensitive" loaded from the "production" environment on EAS: GOOGLE_SERVICES_PLIST.
+Environment variables loaded from the "production" build profile "env" configuration: APP_ENV.
+
+- Incrementing buildNumber from 84 to 85.
+✔ Incremented buildNumber from 84 to 85.
+
+
+ios.buildNumber field in app config is ignored when version source is set to remote, but this value will still be in the manifest available via expo-constants. It's recommended to remove this value from app config.
+✔ Using remote iOS credentials (Expo server)
+
+Distribution Certificate is not validated for non-interactive builds.
+Skipping Provisioning Profile validation on Apple Servers because we aren't authenticated.
+
+Project Credentials Configuration
+
+Project                   @mikeycrystal/praxis
+Bundle Identifier         com.praxis.newsapp
+                          
+App Store Configuration   
+                          
+Distribution Certificate  
+Serial Number             2B86434647118632894292C5E41C58A6
+Expiration Date           Mon, 05 Apr 2027 10:52:40 EDT
+Apple Team                RPMRX5X5ZZ (Praxis Media, Inc (Company/Organization))
+Updated                   17 days ago
+                          
+Provisioning Profile      
+Developer Portal ID       TD4QC5JTSX
+Status                    active
+Expiration                Mon, 05 Apr 2027 10:52:40 EDT
+Apple Team                RPMRX5X5ZZ (Praxis Media, Inc (Company/Organization))
+Updated                   7 days ago
+                          
+All credentials are ready to build @mikeycrystal/praxis (com.praxis.newsapp)
+
+
+Compressing project files and uploading to EAS Build. Learn more: https://expo.fyi/eas-build-archive
+- Uploading to EAS Build (0 / 381 KB)
+✔ Uploaded to EAS 
+- Computing project fingerprint
+✔ Computed project fingerprint
+
+See logs: https://expo.dev/accounts/mikeycrystal/projects/praxis/builds/7fecb334-faf0-466b-bfaf-5f7873848285
+
+Waiting for build to complete. You can press Ctrl+C to exit.
+- Waiting for build to complete.
+  Build queued...
+
+Start builds sooner in the priority queue.
+Sign up for a paid plan at https://expo.dev/accounts/mikeycrystal/settings/billing
+
+Waiting in Free tier queue
+
+- Build is about to start
+✔ Build finished
+🍏 iOS app:
+https://expo.dev/artifacts/eas/gNd25tmNnMTfRXQ6zmSp6X.ipa
