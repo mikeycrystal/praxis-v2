@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 
 export default function LoginScreen() {
-  const { signIn } = useAuth();
+  const { signIn, continueAsGuest } = useAuth();
   const { c, Radius, Typography, Spacing } = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -26,6 +26,11 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleContinueAsGuest = () => {
+    continueAsGuest();
+    router.replace('/(tabs)');
   };
 
   return (
@@ -108,6 +113,14 @@ export default function LoginScreen() {
               : <Text style={[s.buttonText, { color: c.tintForeground }]}>Sign In</Text>
             }
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[s.guestButton, { borderColor: c.inputBorder, backgroundColor: c.card }]}
+            onPress={handleContinueAsGuest}
+            disabled={loading}
+          >
+            <Text style={[s.guestButtonText, { color: c.textSecondary }]}>Continue as Guest</Text>
+          </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -141,4 +154,12 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 4,
   },
   buttonText: { fontSize: 16, fontWeight: '600' },
+  guestButton: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guestButtonText: { fontSize: 15, fontWeight: '600' },
 });

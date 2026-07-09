@@ -29,7 +29,8 @@ function conversationId(a: string, b: string) {
 }
 
 export default function ChatScreen() {
-  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const userId = id;
   const { user } = useAuth();
   const { c } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);

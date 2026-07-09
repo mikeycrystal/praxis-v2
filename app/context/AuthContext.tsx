@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { registerPushToken, unregisterPushToken } from '../utils/notifications';
+import { readGuestMode, writeGuestMode } from '../lib/guestMode';
 
 export interface Profile {
   id: string;
@@ -23,6 +24,8 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  isGuestMode: boolean;
+  continueAsGuest: () => void;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -35,16 +38,24 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [isGuestMode, setIsGuestMode] = useState(() => readGuestMode());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user) fetchProfile(session.user.id);
-      else setLoading(false);
+      else {
+        setProfile(null);
+        setLoading(false);
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        writeGuestMode(false);
+        setIsGuestMode(false);
+      }
       setSession(session);
       if (session?.user) fetchProfile(session.user.id);
       else { setProfile(null); setLoading(false); }
@@ -66,11 +77,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    writeGuestMode(false);
+    setIsGuestMode(false);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
+    writeGuestMode(false);
+    setIsGuestMode(false);
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -82,6 +97,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     if (session?.user) await unregisterPushToken(session.user.id);
     await supabase.auth.signOut();
+  };
+
+  const continueAsGuest = () => {
+    writeGuestMode(true);
+    setIsGuestMode(true);
+    setProfile(null);
+    setLoading(false);
   };
 
   const refreshProfile = async () => {
@@ -104,6 +126,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user: session?.user ?? null,
       profile,
       loading,
+      isGuestMode,
+      continueAsGuest,
       signIn,
       signUp,
       signOut,

@@ -109,16 +109,16 @@ export default function SocialScreen() {
 
   // Realtime: refresh convs when new message arrives
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     const channel = supabase
-      .channel('social-messages')
+      .channel(`social-messages:${user.id}:${Date.now()}`)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `recipient_id=eq.${user.id}`,
       }, () => { fetchConversations(); })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, fetchConversations]);
+    return () => { void supabase.removeChannel(channel); };
+  }, [user?.id, fetchConversations]);
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
@@ -151,7 +151,7 @@ export default function SocialScreen() {
       </View>
       <TouchableOpacity
         style={[s.msgBtn, { backgroundColor: c.secondary }]}
-        onPress={() => router.push({ pathname: '/chat/[id]', params: { userId: item.id } })}
+        onPress={() => router.push({ pathname: '/chat/[id]', params: { id: item.id } })}
       >
         <Text style={{ fontSize: 16 }}>💬</Text>
       </TouchableOpacity>
@@ -161,7 +161,7 @@ export default function SocialScreen() {
   const renderConversation = ({ item }: { item: Conversation }) => (
     <TouchableOpacity
       style={[s.userRow, { backgroundColor: c.card, borderColor: c.border }]}
-      onPress={() => router.push({ pathname: '/chat/[id]', params: { userId: item.userId } })}
+      onPress={() => router.push({ pathname: '/chat/[id]', params: { id: item.userId } })}
     >
       <View style={[s.avatar, { backgroundColor: c.secondary }]}>
         {item.avatar_url

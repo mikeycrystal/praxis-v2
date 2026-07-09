@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, Image, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Linking, TextInput,
@@ -17,21 +17,67 @@ interface Comment {
   profiles: { full_name: string | null; username: string | null; avatar_url: string | null } | null;
 }
 
+const normalizeCommentProfile = (
+  value: Comment['profiles'] | Comment['profiles'][] | undefined,
+): Comment['profiles'] => {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return value ?? null;
+};
+
 export default function ArticleScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const {
+    id,
+    title: fallbackTitle,
+    lede: fallbackLede,
+    image_url: fallbackImageUrl,
+    url: fallbackUrl,
+    publisher_name: fallbackPublisherName,
+    ts_pub: fallbackPublishedAt,
+  } = useLocalSearchParams<{
+    id: string;
+    title?: string;
+    lede?: string;
+    image_url?: string;
+    url?: string;
+    publisher_name?: string;
+    ts_pub?: string;
+  }>();
   const { user } = useAuth();
   const { c, Radius } = useTheme();
-  const [article, setArticle] = useState<any>(null);
+  const fallbackArticle = useMemo(() => ({
+    id: Number(id),
+    title: fallbackTitle ?? 'Untitled',
+    lede: fallbackLede ?? '',
+    image_url: fallbackImageUrl ?? null,
+    url: fallbackUrl ?? '',
+    ts_pub: fallbackPublishedAt ?? new Date().toISOString(),
+    publisher: fallbackPublisherName
+      ? { name: fallbackPublisherName, domain: '' }
+      : null,
+    topics: [],
+  }), [fallbackImageUrl, fallbackLede, fallbackPublishedAt, fallbackPublisherName, fallbackTitle, fallbackUrl, id]);
+  const [article, setArticle] = useState<any>(fallbackArticle);
   const [isSaved, setIsSaved] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
+    let isActive = true;
+
+    setArticle(fallbackArticle);
+    setIsSaved(false);
+    setIsLiked(false);
+    setLikeCount(0);
+    setComments([]);
+    setLoading(true);
+
     Promise.all([
       supabase.from('article').select('*, publisher(name, domain)').eq('id', id).single(),
       user ? supabase.from('saved_articles').select('id').eq('user_id', user.id).eq('article_id', id).maybeSingle() : Promise.resolve({ data: null }),
@@ -40,7 +86,9 @@ export default function ArticleScreen() {
       supabase.from('comments').select('id, user_id, body, created_at, profiles(full_name, username, avatar_url)').eq('article_id', id).order('created_at', { ascending: true }),
     ]).then(([{ data: art }, { data: saved }, { data: liked }, { count }, { data: cmts }]) => {
       try {
-        setArticle(art);
+        if (!isActive) return;
+
+        setArticle(art ?? fallbackArticle);
         setIsSaved(!!saved);
         setIsLiked(!!liked);
         setLikeCount(count ?? 0);
@@ -55,29 +103,51 @@ export default function ArticleScreen() {
               user_id: c.user_id || '',
               body: c.body || '',
               created_at: c.created_at || new Date().toISOString(),
-              profiles: c.profiles || null,
+              profiles: normalizeCommentProfile(c.profiles),
             }));
         }
         setComments(processedComments);
         setLoading(false);
       } catch (e) {
         console.error('[ArticleScreen] Error processing article data:', e);
+        if (!isActive) return;
         setLoading(false);
       }
     }).catch(err => {
       console.error('[ArticleScreen] Error fetching article:', err);
+      if (!isActive) return;
+      setArticle(fallbackArticle);
       setLoading(false);
     });
-  }, [id, user]);
+
+    return () => {
+      isActive = false;
+    };
+  }, [fallbackArticle, id, user]);
 
   const toggleSave = async () => {
     if (!user) return;
+    const nextSavedState = !isSaved;
+    setIsSaved(nextSavedState);
+
     if (isSaved) {
-      await supabase.from('saved_articles').delete().eq('user_id', user.id).eq('article_id', id);
-      setIsSaved(false);
+      const { error } = await supabase
+        .from('saved_articles')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('article_id', id);
+      if (error) {
+        setIsSaved(!nextSavedState);
+        console.error('[ArticleScreen] Error removing saved article:', error);
+      }
     } else {
-      await supabase.from('saved_articles').insert({ user_id: user.id, article_id: Number(id) });
-      setIsSaved(true);
+      const { error } = await supabase
+        .from('saved_articles')
+        .insert({ user_id: user.id, article_id: Number(id) });
+      if (error && (error as { code?: string }).code !== '23505') {
+        setIsSaved(!nextSavedState);
+        console.error('[ArticleScreen] Error saving article:', error);
+      }
     }
   };
 
@@ -115,7 +185,7 @@ export default function ArticleScreen() {
           user_id: data.user_id || user.id,
           body: data.body || text,
           created_at: data.created_at || new Date().toISOString(),
-          profiles: data.profiles || null,
+          profiles: normalizeCommentProfile(data.profiles),
         };
         setComments(prev => {
           if (!Array.isArray(prev)) return [newComment];
@@ -130,7 +200,7 @@ export default function ArticleScreen() {
     setSubmittingComment(false);
   };
 
-  if (loading) {
+  if (loading && !article) {
     return (
       <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
         <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
