@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet,
   SafeAreaView, ScrollView, ActivityIndicator,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 
@@ -16,8 +16,10 @@ const TOPICS = [
 export default function OnboardingScreen() {
   const { updateProfile } = useAuth();
   const { c, Radius } = useTheme();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const returnTo = typeof params.returnTo === 'string' ? params.returnTo : '/';
 
   const toggle = (topic: string) => {
     setSelected(prev =>
@@ -30,7 +32,7 @@ export default function OnboardingScreen() {
     setLoading(true);
     try {
       await updateProfile({ topics: selected, onboarding_complete: true });
-      router.replace('/(tabs)');
+      router.replace(returnTo as any);
     } catch {
       setLoading(false);
     }

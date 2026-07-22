@@ -7,6 +7,13 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
+import {
+  readSavedArticles,
+  removeSavedArticle,
+  subscribeSavedArticles,
+  upsertSavedArticle,
+} from '../lib/savedArticles';
+import { shareArticle } from '../lib/shareArticle';
 import { useTheme } from '../hooks/useTheme';
 
 interface Comment {
@@ -80,16 +87,18 @@ export default function ArticleScreen() {
 
     Promise.all([
       supabase.from('article').select('*, publisher(name, domain)').eq('id', id).single(),
+      readSavedArticles(user?.id),
       user ? supabase.from('saved_articles').select('id').eq('user_id', user.id).eq('article_id', id).maybeSingle() : Promise.resolve({ data: null }),
       user ? supabase.from('likes').select('id').eq('user_id', user.id).eq('article_id', id).maybeSingle() : Promise.resolve({ data: null }),
       supabase.from('likes').select('id', { count: 'exact', head: true }).eq('article_id', id),
       supabase.from('comments').select('id, user_id, body, created_at, profiles(full_name, username, avatar_url)').eq('article_id', id).order('created_at', { ascending: true }),
-    ]).then(([{ data: art }, { data: saved }, { data: liked }, { count }, { data: cmts }]) => {
+    ]).then(([{ data: art }, localSaved, { data: saved }, { data: liked }, { count }, { data: cmts }]) => {
       try {
         if (!isActive) return;
 
         setArticle(art ?? fallbackArticle);
-        setIsSaved(!!saved);
+        const isSavedLocally = localSaved.some((savedArticle) => savedArticle.id === Number(id));
+        setIsSaved(Boolean(saved) || isSavedLocally);
         setIsLiked(!!liked);
         setLikeCount(count ?? 0);
 
@@ -125,10 +134,33 @@ export default function ArticleScreen() {
     };
   }, [fallbackArticle, id, user]);
 
+  useEffect(() => {
+    const unsubscribe = subscribeSavedArticles(user?.id, (savedArticles) => {
+      setIsSaved(savedArticles.some((savedArticle) => savedArticle.id === Number(id)));
+    });
+
+    return unsubscribe;
+  }, [id, user?.id]);
+
   const toggleSave = async () => {
-    if (!user) return;
     const nextSavedState = !isSaved;
     setIsSaved(nextSavedState);
+
+    if (isSaved) {
+      await removeSavedArticle(user?.id, Number(id));
+    } else {
+      await upsertSavedArticle(user?.id, {
+        id: Number(id),
+        title: article.title,
+        lede: article.lede,
+        image_url: article.image_url,
+        url: article.url,
+        ts_pub: article.ts_pub,
+        publisher: article.publisher ?? null,
+      });
+    }
+
+    if (!user) return;
 
     if (isSaved) {
       const { error } = await supabase
@@ -137,18 +169,25 @@ export default function ArticleScreen() {
         .eq('user_id', user.id)
         .eq('article_id', id);
       if (error) {
-        setIsSaved(!nextSavedState);
-        console.error('[ArticleScreen] Error removing saved article:', error);
+        console.error('[ArticleScreen] Error removing saved article remotely:', error);
       }
     } else {
       const { error } = await supabase
         .from('saved_articles')
         .insert({ user_id: user.id, article_id: Number(id) });
       if (error && (error as { code?: string }).code !== '23505') {
-        setIsSaved(!nextSavedState);
-        console.error('[ArticleScreen] Error saving article:', error);
+        console.error('[ArticleScreen] Error saving article remotely:', error);
       }
     }
+  };
+
+  const handleShare = async () => {
+    await shareArticle({
+      title: article.title,
+      lede: article.lede,
+      url: article.url,
+      publisher: article.publisher ?? null,
+    });
   };
 
   const toggleLike = async () => {
@@ -223,11 +262,14 @@ export default function ArticleScreen() {
           >
             <Text style={{ fontSize: 16 }}>🧠</Text>
           </TouchableOpacity>
+          <TouchableOpacity onPress={handleShare} style={[s.topBtn, { backgroundColor: c.card }]}>
+            <Text style={{ fontSize: 16 }}>↗️</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={toggleLike} style={[s.topBtn, { backgroundColor: c.card }]}>
             <Text style={{ fontSize: 16 }}>{isLiked ? '❤️' : '🤍'}</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={toggleSave} style={[s.topBtn, { backgroundColor: c.card }]}>
-            <Text style={{ fontSize: 16 }}>{isSaved ? '🔖' : '🔗'}</Text>
+            <Text style={{ fontSize: 16 }}>{isSaved ? '🔖' : '📑'}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -273,6 +315,11 @@ export default function ArticleScreen() {
             <TouchableOpacity style={s.engBtn} onPress={toggleLike}>
               <Text style={{ fontSize: 18 }}>{isLiked ? '❤️' : '🤍'}</Text>
               <Text style={[s.engCount, { color: c.textMuted }]}>{likeCount}</Text>
+            </TouchableOpacity>
+            <View style={[s.engDivider, { backgroundColor: c.border }]} />
+            <TouchableOpacity style={s.engBtn} onPress={handleShare}>
+              <Text style={{ fontSize: 18 }}>↗️</Text>
+              <Text style={[s.engCount, { color: c.textMuted }]}>Share</Text>
             </TouchableOpacity>
             <View style={[s.engDivider, { backgroundColor: c.border }]} />
             <View style={s.engBtn}>

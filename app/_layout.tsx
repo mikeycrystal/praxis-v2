@@ -1,6 +1,6 @@
 import './lib/webRuntimePolyfills';
 import { useEffect, useRef } from 'react';
-import { Stack, router, useSegments } from 'expo-router';
+import { Stack, router, useGlobalSearchParams, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Notifications from 'expo-notifications';
@@ -8,27 +8,37 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { NewsPreferencesProvider } from './context/NewsPreferencesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
+import { buildHref } from './lib/buildHref';
 
 function RootRedirect() {
   const { session, profile, loading, isGuestMode } = useAuth();
   const segments = useSegments();
+  const params = useGlobalSearchParams<{ returnTo?: string }>();
 
   useEffect(() => {
     if (loading) return;
 
     const inAuth = segments[0] === '(auth)';
     const inTabs = segments[0] === '(tabs)';
+    const inModal = segments[0] === 'modal';
+    const inArticle = segments[0] === 'article';
+    const inChat = segments[0] === 'chat';
+    const tabAliasSegments = new Set(['saved', 'graph', 'profile', 'social', 'topics']);
+    const inTabAlias = tabAliasSegments.has(segments[0] ?? '');
+    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat;
 
     if (!session && !isGuestMode) {
-      if (!inAuth) router.replace('/(auth)/login');
+      if (!inAuth) router.replace('/login');
     } else if (!session && isGuestMode) {
-      if (!inTabs) router.replace('/(tabs)');
+      if (!inAppShell && !inAuth) router.replace('/');
     } else if (session && profile && !profile.onboarding_complete) {
-      router.replace('/(auth)/onboarding');
-    } else if (session && !inTabs) {
-      router.replace('/(tabs)');
+      const returnTo = typeof params.returnTo === 'string' ? params.returnTo : undefined;
+      router.replace(buildHref('/onboarding', returnTo ? { returnTo } : undefined));
+    } else if (session && !inAppShell) {
+      const returnTo = typeof params.returnTo === 'string' ? params.returnTo : null;
+      router.replace((returnTo || '/') as any);
     }
-  }, [session, profile, loading, segments, isGuestMode]);
+  }, [session, profile, loading, segments, isGuestMode, params.returnTo]);
 
   return null;
 }
@@ -44,7 +54,7 @@ function PushNotificationHandler() {
       } else if (data?.type === 'message' && data?.senderId) {
         router.push({ pathname: '/chat/[id]', params: { id: data.senderId } });
       } else if (data?.type === 'badge') {
-        router.push('/(tabs)/profile');
+        router.push('/profile');
       }
     });
     return () => notifResponseRef.current?.remove();
@@ -73,11 +83,13 @@ export default function RootLayout() {
             <Stack.Screen name="modal/search" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/leaderboard" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/edit-profile" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="modal/account-settings" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="modal/follow-list" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/change-password" options={{ presentation: 'modal' }} />
             <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
             <Stack.Screen name="modal/reading-activity" options={{ presentation: 'modal' }} />
           </Stack>
-          <StatusBar style="auto" />
+          <StatusBar style="dark" />
         </NewsPreferencesProvider>
       </AuthProvider>
     </GestureHandlerRootView>

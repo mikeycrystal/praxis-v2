@@ -7,16 +7,22 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
+import { buildHref } from '../lib/buildHref';
 
 export default function UserProfileModal() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
-  const { user } = useAuth();
+  const { isGuestMode, user } = useAuth();
   const { c } = useTheme();
   const [profile, setProfile] = useState<any>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (isGuestMode || !user) {
+      router.replace(buildHref('/login', { returnTo: '/social' }));
+      return;
+    }
+
     Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       user ? supabase.from('follows').select('id').eq('follower_id', user.id).eq('following_id', userId).maybeSingle() : Promise.resolve({ data: null }),
@@ -25,7 +31,7 @@ export default function UserProfileModal() {
       setIsFollowing(!!f);
       setLoading(false);
     });
-  }, [userId, user]);
+  }, [isGuestMode, userId, user]);
 
   const toggleFollow = async () => {
     if (!user) return;

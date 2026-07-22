@@ -17,6 +17,11 @@ export interface Profile {
   followers_count: number;
   following_count: number;
   onboarding_complete: boolean;
+  created_at?: string | null;
+  current_streak?: number | null;
+  followers?: number | null;
+  following?: number | null;
+  longest_streak?: number | null;
 }
 
 interface AuthContextType {
@@ -77,21 +82,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    writeGuestMode(false);
-    setIsGuestMode(false);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    writeGuestMode(false);
+    setIsGuestMode(false);
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
-    writeGuestMode(false);
-    setIsGuestMode(false);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: { data: { full_name: fullName, email_confirmed: true } },
     });
     if (error) throw error;
+
+    writeGuestMode(false);
+    setIsGuestMode(false);
+
+    if (!data.session) {
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (signInError) throw signInError;
+    }
   };
 
   const signOut = async () => {

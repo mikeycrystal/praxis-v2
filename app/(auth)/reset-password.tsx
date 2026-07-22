@@ -45,7 +45,7 @@ export default function ResetPasswordScreen() {
     setLoading(false);
     if (err) { setError(err.message); return; }
     setDone(true);
-    setTimeout(() => router.replace('/(tabs)'), 2000);
+    setTimeout(() => router.replace('/login'), 2000);
   };
 
   if (done) {
@@ -54,7 +54,7 @@ export default function ResetPasswordScreen() {
         <View style={s.inner}>
           <Text style={{ fontSize: 52 }}>✅</Text>
           <Text style={[s.title, { color: c.text }]}>Password updated!</Text>
-          <Text style={[s.sub, { color: c.textSecondary }]}>Redirecting you to the app…</Text>
+          <Text style={[s.sub, { color: c.textSecondary }]}>Redirecting you to sign in…</Text>
         </View>
       </SafeAreaView>
     );

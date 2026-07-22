@@ -15,9 +15,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { Article } from '../../hooks/useFeedArticles';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(SCREEN_WIDTH - 76, 350);
-const CARD_HEIGHT = CARD_WIDTH * (4 / 3);
+const CARD_HEIGHT = Math.min(
+  CARD_WIDTH * 1.6,
+  Math.max(CARD_WIDTH * 1.32, SCREEN_HEIGHT - 340),
+);
 const FALLBACK_CARD_BG = '#D8D1C2';
 const CARD_GRADIENT_MID = 'rgba(16, 14, 16, 0.42)';
 const CARD_GRADIENT_END = 'rgba(5, 5, 7, 0.98)';

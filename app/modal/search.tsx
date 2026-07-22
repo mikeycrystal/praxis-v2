@@ -1,132 +1,315 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, TextInput, FlatList, StyleSheet, SafeAreaView,
-  TouchableOpacity, ActivityIndicator, Image,
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  StyleSheet,
+  SafeAreaView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Image,
+  ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
-import { supabase } from '../services/supabase';
-import { useAuth } from '../context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
+import {
+  getMockTrendingTopics,
+  searchMockArticles,
+} from '../lib/mockPreviewData';
+import {
+  readSavedArticles,
+  subscribeSavedArticles,
+  type SavedArticleSnapshot,
+} from '../lib/savedArticles';
+import { useAuth } from '../context/AuthContext';
 
-type SearchResult =
-  | { type: 'article'; id: number; title: string; publisher: string }
-  | { type: 'user'; id: string; full_name: string; username: string; avatar_url: string | null };
+type LocalArticleResult = {
+  type: 'article';
+  id: number;
+  title: string;
+  publisher: string;
+  lede: string;
+  image_url: string | null;
+  ts_pub: string;
+  url: string;
+  matchLabel: string;
+};
+
+const SEARCH_DEBOUNCE_MS = 140;
+
+const humanizeMatchLabel = (matches: string[]) => {
+  if (matches.includes('topics')) return 'Topic match';
+  if (matches.includes('publisher') || matches.includes('source')) return 'Source match';
+  if (matches.includes('lede')) return 'Summary match';
+  return 'Headline match';
+};
+
+const formatPublishedLabel = (dateString: string) => {
+  const timestamp = new Date(dateString).getTime();
+  if (!Number.isFinite(timestamp)) return 'Preview article';
+
+  return new Date(timestamp).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+};
 
 export default function SearchModal() {
   const { user } = useAuth();
   const { c } = useTheme();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResult[]>([]);
+  const [results, setResults] = useState<LocalArticleResult[]>([]);
+  const [savedArticles, setSavedArticles] = useState<SavedArticleSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [followedIds, setFollowedIds] = useState<Set<string>>(new Set());
 
-  const search = async (q: string) => {
-    setQuery(q);
-    if (q.length < 2) { setResults([]); return; }
+  const trendingTopics = useMemo(
+    () => getMockTrendingTopics().slice(0, 6).map((topic) => topic.name),
+    [],
+  );
+
+  useEffect(() => {
+    let isActive = true;
+
+    void readSavedArticles(user?.id).then((articles) => {
+      if (!isActive) return;
+      setSavedArticles(articles);
+    });
+
+    const unsubscribe = subscribeSavedArticles(user?.id, (articles) => {
+      setSavedArticles(articles);
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+
+    if (trimmed.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
 
-    const [{ data: articles }, { data: users }] = await Promise.all([
-      supabase
-        .from('article')
-        .select('id, title, publisher(name)')
-        .textSearch('ts_lex', q, { type: 'websearch' })
-        .limit(8),
-      supabase
-        .from('profiles')
-        .select('id, full_name, username, avatar_url')
-        .or(`full_name.ilike.%${q}%,username.ilike.%${q}%`)
-        .limit(5),
-    ]);
+    const timeout = setTimeout(() => {
+      const mockMatches = searchMockArticles(trimmed, 12).map((result) => ({
+        type: 'article' as const,
+        id: result.article.id,
+        title: result.article.title,
+        publisher: result.article.publisher,
+        lede: result.article.lede,
+        image_url: result.article.image_url,
+        ts_pub: result.article.ts_pub,
+        url: result.article.url,
+        matchLabel: humanizeMatchLabel(result.matches),
+      }));
 
-    const articleResults: SearchResult[] = (articles ?? []).map((a: any) => ({
-      type: 'article', id: a.id, title: a.title, publisher: a.publisher?.name ?? '',
-    }));
-    const userResults: SearchResult[] = (users ?? []).map((u: any) => ({
-      type: 'user', id: u.id, full_name: u.full_name, username: u.username, avatar_url: u.avatar_url,
-    }));
+      const savedMatches = savedArticles
+        .filter((article) => {
+          const searchable = [
+            article.title,
+            article.lede,
+            article.publisher?.name ?? '',
+          ].join(' ').toLowerCase();
+          return searchable.includes(trimmed.toLowerCase());
+        })
+        .map((article) => ({
+          type: 'article' as const,
+          id: article.id,
+          title: article.title,
+          publisher: article.publisher?.name ?? 'Saved article',
+          lede: article.lede,
+          image_url: article.image_url,
+          ts_pub: article.ts_pub,
+          url: article.url,
+          matchLabel: 'Saved article',
+        }));
 
-    setResults([...userResults, ...articleResults]);
-    setLoading(false);
+      const merged = new Map<number, LocalArticleResult>();
+      [...savedMatches, ...mockMatches].forEach((article) => {
+        if (!merged.has(article.id)) {
+          merged.set(article.id, article);
+        }
+      });
+
+      setResults(Array.from(merged.values()));
+      setLoading(false);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timeout);
+  }, [query, savedArticles]);
+
+  const openArticle = (article: LocalArticleResult) => {
+    router.back();
+    router.push({
+      pathname: '/article/[id]',
+      params: {
+        id: String(article.id),
+        title: article.title,
+        lede: article.lede,
+        image_url: article.image_url ?? '',
+        url: article.url,
+        publisher_name: article.publisher,
+        ts_pub: article.ts_pub,
+      },
+    });
   };
 
-  const follow = async (userId: string) => {
-    if (!user) return;
-    await supabase.from('follows').upsert({ follower_id: user.id, following_id: userId });
-    setFollowedIds(prev => new Set(prev).add(userId));
-  };
+  const hasQuery = query.trim().length >= 2;
+  const recentSaved = savedArticles.slice(0, 3);
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
       <View style={s.header}>
-        <TextInput
-          style={[s.input, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
-          placeholder="Search articles, people..."
-          placeholderTextColor={c.textMuted}
-          value={query}
-          onChangeText={search}
-          autoFocus
-        />
+        <View style={[s.inputShell, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Ionicons name="search-outline" size={18} color={c.textMuted} />
+          <TextInput
+            style={[s.input, { color: c.text }]}
+            placeholder="Search articles, topics, publishers..."
+            placeholderTextColor={c.textMuted}
+            value={query}
+            onChangeText={setQuery}
+            autoFocus
+            returnKeyType="search"
+          />
+          {query.length > 0 ? (
+            <TouchableOpacity onPress={() => setQuery('')} style={s.clearBtn}>
+              <Ionicons name="close" size={14} color={c.textMuted} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={[s.cancel, { color: c.tint }]}>Cancel</Text>
         </TouchableOpacity>
       </View>
 
-      {loading && <ActivityIndicator color={c.tint} style={{ marginTop: 24 }} />}
+      {!hasQuery ? (
+        <ScrollView
+          contentContainerStyle={s.discoveryContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={s.section}>
+            <Text style={[s.sectionTitle, { color: c.text }]}>Suggested topics</Text>
+            <View style={s.topicWrap}>
+              {trendingTopics.map((topic) => (
+                <TouchableOpacity
+                  key={topic}
+                  style={[s.topicChip, { backgroundColor: c.card, borderColor: c.border }]}
+                  onPress={() => setQuery(topic)}
+                >
+                  <Text style={[s.topicText, { color: c.text }]}>{topic}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
-      {!loading && query.length >= 2 && results.length === 0 && (
-        <Text style={[s.noResults, { color: c.textMuted }]}>No results for "{query}"</Text>
-      )}
-
-      <FlatList
-        data={results}
-        keyExtractor={item => `${item.type}-${item.id}`}
-        contentContainerStyle={s.list}
-        renderItem={({ item }) => {
-          if (item.type === 'article') {
-            return (
-              <TouchableOpacity
-                style={[s.row, { backgroundColor: c.card, borderColor: c.border }]}
-                onPress={() => { router.back(); router.push(`/article/${item.id}`); }}
-              >
-                <Text style={{ fontSize: 18 }}>📰</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.rowTitle, { color: c.text }]} numberOfLines={1}>{item.title}</Text>
-                  <Text style={[s.rowSub, { color: c.textMuted }]}>{item.publisher}</Text>
-                </View>
-              </TouchableOpacity>
-            );
-          }
-          const isFollowed = followedIds.has(item.id);
-          return (
-            <TouchableOpacity
-              style={[s.row, { backgroundColor: c.card, borderColor: c.border }]}
-              onPress={() => { router.back(); router.push({ pathname: '/modal/user-profile', params: { userId: item.id } }); }}
-            >
-              <View style={[s.avatar, { backgroundColor: c.secondary }]}>
-                {item.avatar_url
-                  ? <Image source={{ uri: item.avatar_url }} style={s.avatarImg} />
-                  : <Text style={{ color: c.textMuted, fontWeight: '600', fontSize: 15 }}>
-                      {(item.full_name ?? item.username ?? '?')[0].toUpperCase()}
+          <View style={s.section}>
+            <Text style={[s.sectionTitle, { color: c.text }]}>Saved articles</Text>
+            {recentSaved.length > 0 ? (
+              recentSaved.map((article) => (
+                <TouchableOpacity
+                  key={article.id}
+                  style={[s.savedRow, { backgroundColor: c.card, borderColor: c.border }]}
+                  onPress={() =>
+                    openArticle({
+                      type: 'article',
+                      id: article.id,
+                      title: article.title,
+                      publisher: article.publisher?.name ?? 'Saved article',
+                      lede: article.lede,
+                      image_url: article.image_url,
+                      ts_pub: article.ts_pub,
+                      url: article.url,
+                      matchLabel: 'Saved article',
+                    })
+                  }
+                >
+                  <View style={s.savedCopy}>
+                    <Text style={[s.savedTitle, { color: c.text }]} numberOfLines={2}>
+                      {article.title}
                     </Text>
-                }
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[s.rowTitle, { color: c.text }]}>{item.full_name}</Text>
-                <Text style={[s.rowSub, { color: c.textMuted }]}>@{item.username}</Text>
-              </View>
-              <TouchableOpacity
-                style={[s.followBtn, { backgroundColor: isFollowed ? c.secondary : c.tint }]}
-                onPress={() => follow(item.id)}
-                disabled={isFollowed}
-              >
-                <Text style={{ color: isFollowed ? c.textMuted : c.tintForeground, fontSize: 12, fontWeight: '600' }}>
-                  {isFollowed ? 'Following' : 'Follow'}
+                    <Text style={[s.savedMeta, { color: c.textMuted }]} numberOfLines={1}>
+                      {article.publisher?.name ?? 'Saved article'}
+                    </Text>
+                  </View>
+                  <Ionicons name="bookmark" size={16} color={c.tint} />
+                </TouchableOpacity>
+              ))
+            ) : (
+              <Text style={[s.helperText, { color: c.textMuted }]}>
+                Your saved stories will show up here for quick access.
+              </Text>
+            )}
+          </View>
+
+          <View style={s.section}>
+            <Text style={[s.sectionTitle, { color: c.text }]}>Search mode</Text>
+            <Text style={[s.helperText, { color: c.textMuted }]}>
+              Search is currently using local preview and saved-article data so it stays useful in safe mode.
+            </Text>
+          </View>
+        </ScrollView>
+      ) : null}
+
+      {loading ? (
+        <ActivityIndicator color={c.tint} style={{ marginTop: 28 }} />
+      ) : null}
+
+      {!loading && hasQuery && results.length === 0 ? (
+        <View style={s.emptyState}>
+          <Text style={[s.emptyTitle, { color: c.text }]}>No local matches</Text>
+          <Text style={[s.helperText, { color: c.textMuted }]}>
+            Try a topic like “AI”, “Courts”, or a publisher name.
+          </Text>
+        </View>
+      ) : null}
+
+      {!loading && hasQuery ? (
+        <FlatList
+          data={results}
+          keyExtractor={(item) => `${item.type}-${item.id}`}
+          contentContainerStyle={s.list}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[s.resultRow, { backgroundColor: c.card, borderColor: c.border }]}
+              onPress={() => openArticle(item)}
+            >
+              {item.image_url ? (
+                <Image source={{ uri: item.image_url }} style={s.thumb} resizeMode="cover" />
+              ) : (
+                <View style={[s.thumbFallback, { backgroundColor: c.secondary }]}>
+                  <Ionicons name="newspaper-outline" size={18} color={c.textMuted} />
+                </View>
+              )}
+              <View style={s.resultCopy}>
+                <View style={s.resultMetaRow}>
+                  <Text style={[s.resultPublisher, { color: c.textMuted }]} numberOfLines={1}>
+                    {item.publisher}
+                  </Text>
+                  <Text style={[s.resultDivider, { color: c.textMuted }]}>•</Text>
+                  <Text style={[s.resultMatch, { color: c.tint }]}>{item.matchLabel}</Text>
+                </View>
+                <Text style={[s.resultTitle, { color: c.text }]} numberOfLines={2}>
+                  {item.title}
                 </Text>
-              </TouchableOpacity>
+                <Text style={[s.resultLede, { color: c.textMuted }]} numberOfLines={2}>
+                  {item.lede}
+                </Text>
+                <Text style={[s.resultDate, { color: c.textMuted }]}>
+                  {formatPublishedLabel(item.ts_pub)}
+                </Text>
+              </View>
             </TouchableOpacity>
-          );
-        }}
-      />
+          )}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -134,23 +317,154 @@ export default function SearchModal() {
 const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14, gap: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  inputShell: {
+    flex: 1,
+    height: 46,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   input: {
-    flex: 1, height: 44, borderWidth: 1, borderRadius: 999,
-    paddingHorizontal: 16, fontSize: 15,
+    flex: 1,
+    fontSize: 15,
+  },
+  clearBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cancel: { fontSize: 15 },
-  noResults: { textAlign: 'center', marginTop: 32, fontSize: 14 },
-  list: { paddingHorizontal: 16, gap: 8 },
-  row: {
-    flexDirection: 'row', alignItems: 'center',
-    padding: 14, borderRadius: 14, borderWidth: 1, gap: 12,
+  discoveryContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 28,
+    gap: 18,
   },
-  rowTitle: { fontSize: 15, fontWeight: '500' },
-  rowSub: { fontSize: 12, marginTop: 2 },
-  avatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  avatarImg: { width: 38, height: 38 },
-  followBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 999 },
+  section: {
+    gap: 10,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  topicWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  topicChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  topicText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  savedRow: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  savedCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  savedTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  savedMeta: {
+    fontSize: 12,
+  },
+  helperText: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 42,
+    paddingHorizontal: 28,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  list: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    gap: 10,
+  },
+  resultRow: {
+    flexDirection: 'row',
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 12,
+  },
+  thumb: {
+    width: 76,
+    height: 76,
+    borderRadius: 12,
+  },
+  thumbFallback: {
+    width: 76,
+    height: 76,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  resultMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  resultPublisher: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    flexShrink: 1,
+  },
+  resultDivider: {
+    fontSize: 10,
+  },
+  resultMatch: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  resultTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 21,
+  },
+  resultLede: {
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  resultDate: {
+    fontSize: 11,
+    marginTop: 2,
+  },
 });

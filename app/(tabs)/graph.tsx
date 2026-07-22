@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, PanResponder, Alert, Image as RNImage, useWindowDimensions } from 'react-native';
 import Svg, { Circle, Image as SvgImage, Line, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { Link, router, useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useNewsPreferences } from '../context/NewsPreferencesContext';
@@ -11,14 +11,15 @@ import {
   DEFAULT_GRAPH_POSITION,
   DEFAULT_GRAPH_RADIUS,
   DigestPreset,
-  getDigestStorageKey,
   GraphPoint,
   isDefaultGraphSelection,
+  readDigestPresets,
   readActiveQuery,
   readRecommendationRequest,
   readTopNewsGraphFilter,
   RecommendationRequestState,
   TopNewsGraphFilterState,
+  writeDigestPresets,
   writeTopNewsGraphFilter,
 } from '../lib/newsPreferences';
 import {
@@ -28,10 +29,15 @@ import {
   readCachedTrendingTopics,
 } from '../lib/discoveryData';
 import {
+  readReadingActivitySummary,
+  subscribeReadingActivity,
+} from '../lib/readingActivity';
+import {
   getMockTopicArticles,
   SAFE_MODE_TOPIC_NAMES,
   SAFE_MODE_TRENDING_TOPIC_NAMES,
 } from '../lib/mockPreviewData';
+import { buildHref } from '../lib/buildHref';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
 
 const logoAp = require('../../assets/logos/ap.png');
@@ -293,7 +299,7 @@ const buildSafeModePrefetchedArticles = ({
   });
 
 export default function GraphScreen() {
-  const { user, profile } = useAuth();
+  const { isGuestMode, user, profile } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const {
     preferences,
@@ -327,6 +333,7 @@ export default function GraphScreen() {
     );
   }, [graphViewport.height, graphViewport.width, windowHeight, windowWidth]);
   const graphHeight = graphWidth;
+  const graphSizeRef = useRef({ width: graphWidth, height: graphHeight });
   const centerX = graphWidth / 2;
   const centerY = graphHeight / 2;
   const readPersistedGraphState = useCallback(
@@ -361,6 +368,7 @@ export default function GraphScreen() {
   const [digestName, setDigestName] = useState('');
   const [isApplying, setIsApplying] = useState(false);
   const [isTopicsLoading, setIsTopicsLoading] = useState(false);
+  const [localStreakCount, setLocalStreakCount] = useState(0);
   const [seedTopics, setSeedTopics] = useState<string[]>(FALLBACK_TOPICS);
   const [allTopics, setAllTopics] = useState<string[]>(FALLBACK_TOPICS);
   const [trendingTopics, setTrendingTopics] = useState<string[]>(FALLBACK_TRENDING_TOPICS);
@@ -390,12 +398,17 @@ export default function GraphScreen() {
     radius: initialGraphState.radius,
   });
 
+  useEffect(() => {
+    graphSizeRef.current = { width: graphWidth, height: graphHeight };
+  }, [graphHeight, graphWidth]);
+
   const syncGraphStateFromPreferences = useCallback(() => {
     const nextGraphState = readPersistedGraphState();
+    const currentGraphSize = graphSizeRef.current;
     const nextPin = graphPointToCanvas(
       nextGraphState.graphPosition,
-      graphWidth,
-      graphHeight,
+      currentGraphSize.width,
+      currentGraphSize.height,
     );
 
     setSelectedTopics(nextGraphState.selectedTopics);
@@ -413,7 +426,7 @@ export default function GraphScreen() {
     setSearch('');
     setIsDropdownOpen(false);
     setIsApplying(false);
-  }, [graphHeight, graphWidth, readPersistedGraphState]);
+  }, [readPersistedGraphState]);
 
   useFocusEffect(
     useCallback(() => {
@@ -438,80 +451,67 @@ export default function GraphScreen() {
   ]);
 
   useEffect(() => {
-    if (!user?.id || typeof window === 'undefined') {
+    if (!user?.id) {
       setDigests([]);
       return;
     }
 
     try {
-      const raw = window.localStorage.getItem(getDigestStorageKey(user.id));
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          const normalizedDigests = parsed
-            .map((digest: any) => {
-              if (
-                typeof digest?.id !== 'string' ||
-                typeof digest?.name !== 'string' ||
-                !Array.isArray(digest?.topics) ||
-                typeof digest?.radius !== 'number'
-              ) {
-                return null;
-              }
+      const normalizedDigests = readDigestPresets(user.id)
+        .map((digest: any) => {
+          if (
+            typeof digest?.id !== 'string' ||
+            typeof digest?.name !== 'string' ||
+            !Array.isArray(digest?.topics) ||
+            typeof digest?.radius !== 'number'
+          ) {
+            return null;
+          }
 
-              if (
-                typeof digest?.position?.x === 'number' &&
-                typeof digest?.position?.y === 'number'
-              ) {
-                return {
-                  id: digest.id,
-                  name: digest.name,
-                  topics: digest.topics
-                    .filter((value: unknown) => typeof value === 'string')
-                    .map((value: string) => normalizeTopicId(value)),
-                  position: digest.position,
-                  radius: digest.radius,
-                  createdAt: typeof digest?.createdAt === 'number' ? digest.createdAt : Date.now(),
-                } satisfies DigestPreset;
-              }
+          if (
+            typeof digest?.position?.x === 'number' &&
+            typeof digest?.position?.y === 'number'
+          ) {
+            return {
+              id: digest.id,
+              name: digest.name,
+              topics: digest.topics
+                .filter((value: unknown) => typeof value === 'string')
+                .map((value: string) => normalizeTopicId(value)),
+              position: digest.position,
+              radius: digest.radius,
+              createdAt: typeof digest?.createdAt === 'number' ? digest.createdAt : Date.now(),
+            } satisfies DigestPreset;
+          }
 
-              if (
-                typeof digest?.pinX === 'number' &&
-                typeof digest?.pinY === 'number'
-              ) {
-                return {
-                  id: digest.id,
-                  name: digest.name,
-                  topics: digest.topics
-                    .filter((value: unknown) => typeof value === 'string')
-                    .map((value: string) => normalizeTopicId(value)),
-                  position: canvasToGraphPoint(digest.pinX, digest.pinY, graphWidth, graphHeight),
-                  radius: digest.radius,
-                  createdAt: typeof digest?.createdAt === 'number' ? digest.createdAt : Date.now(),
-                } satisfies DigestPreset;
-              }
+          if (
+            typeof digest?.pinX === 'number' &&
+            typeof digest?.pinY === 'number'
+          ) {
+            return {
+              id: digest.id,
+              name: digest.name,
+              topics: digest.topics
+                .filter((value: unknown) => typeof value === 'string')
+                .map((value: string) => normalizeTopicId(value)),
+              position: canvasToGraphPoint(digest.pinX, digest.pinY, graphWidth, graphHeight),
+              radius: digest.radius,
+              createdAt: typeof digest?.createdAt === 'number' ? digest.createdAt : Date.now(),
+            } satisfies DigestPreset;
+          }
 
-              return null;
-            })
-            .filter(Boolean) as DigestPreset[];
+          return null;
+        })
+        .filter(Boolean) as DigestPreset[];
 
-          setDigests(normalizedDigests);
-        } else {
-          setDigests([]);
-        }
-      } else {
-        setDigests([]);
-      }
+      setDigests(normalizedDigests);
     } catch {}
   }, [graphHeight, graphWidth, user?.id]);
 
   const persistDigests = (nextDigests: DigestPreset[]) => {
     setDigests(nextDigests);
-    if (user?.id && typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        getDigestStorageKey(user.id),
-        JSON.stringify(nextDigests),
-      );
+    if (user?.id) {
+      writeDigestPresets(user.id, nextDigests);
     }
   };
 
@@ -629,6 +629,24 @@ export default function GraphScreen() {
       }
     };
   }, [loadTopics]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    void readReadingActivitySummary(user?.id).then((summary) => {
+      if (!isActive) return;
+      setLocalStreakCount(summary.currentStreak);
+    });
+
+    const unsubscribe = subscribeReadingActivity(user?.id, (summary) => {
+      setLocalStreakCount(summary.currentStreak);
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
+  }, [user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -885,7 +903,7 @@ export default function GraphScreen() {
           prefetchedArticles,
         });
 
-        router.navigate('/(tabs)');
+        router.navigate('/');
         return;
       }
 
@@ -893,7 +911,7 @@ export default function GraphScreen() {
       closeDropdown();
       applyTopNewsPreferences(nextTopNewsGraphFilter);
 
-      router.navigate('/(tabs)');
+      router.navigate('/');
     } catch (error) {
       console.warn('[GraphScreen] Failed to apply changes', error);
       setIsApplying(false);
@@ -1000,29 +1018,55 @@ export default function GraphScreen() {
       <Pressable onPress={isDropdownOpen ? closeDropdown : undefined}>
       <View style={[s.header, { borderBottomColor: PAGE.border }]}>
         <View style={s.headerLeft}>
-          <TouchableOpacity
-            style={s.headerIcon}
-            onPress={() => router.push('/modal/profile')}
-            accessibilityRole="button"
-            accessibilityLabel="Open profile"
-          >
-            <Ionicons name="person-outline" size={20} color={PAGE.text} />
-          </TouchableOpacity>
-          <View style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}>
-            <Ionicons name="flame-outline" size={15} color="#8DAE73" />
-            <Text style={s.streakText}>{profile?.reading_streak ?? 3}</Text>
-          </View>
+          {isGuestMode || !user ? (
+            <Link href={buildHref('/login', { returnTo: '/graph' })} asChild>
+              <TouchableOpacity
+                style={s.signInBtn}
+                accessibilityRole="link"
+                accessibilityLabel="Sign in"
+              >
+                <Text style={s.signInText}>Sign In</Text>
+              </TouchableOpacity>
+            </Link>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={s.headerIcon}
+                onPress={() => router.push('/modal/profile')}
+                accessibilityRole="button"
+                accessibilityLabel="Open profile"
+              >
+                <Ionicons name="person-outline" size={20} color={PAGE.text} />
+              </TouchableOpacity>
+              <View style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}>
+                <Ionicons name="flame-outline" size={15} color="#8DAE73" />
+                <Text style={s.streakText}>{Math.max(profile?.reading_streak ?? 0, localStreakCount)}</Text>
+              </View>
+            </>
+          )}
         </View>
         <Text style={s.headerTitle}>Praxis</Text>
         <View style={s.headerRight}>
-          <TouchableOpacity
-            style={s.headerIcon}
-            onPress={() => router.push('/modal/saved-articles')}
-            accessibilityRole="button"
-            accessibilityLabel="Open saved articles"
-          >
-            <Ionicons name="bookmark-outline" size={20} color={PAGE.text} />
-          </TouchableOpacity>
+          {isGuestMode || !user ? (
+            <Link href={buildHref('/login', { returnTo: '/saved' })} asChild>
+              <TouchableOpacity
+                style={s.headerIcon}
+                accessibilityRole="link"
+                accessibilityLabel="Sign in to view saved articles"
+              >
+                <Ionicons name="bookmark-outline" size={20} color={PAGE.text} />
+              </TouchableOpacity>
+            </Link>
+          ) : (
+            <TouchableOpacity
+              style={s.headerIcon}
+              onPress={() => router.push('saved' as any)}
+              accessibilityRole="button"
+              accessibilityLabel="Open saved articles"
+            >
+              <Ionicons name="bookmark-outline" size={20} color={PAGE.text} />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={s.headerIcon}
             onPress={() => router.push('/modal/search')}
@@ -1167,7 +1211,7 @@ export default function GraphScreen() {
                   <TouchableOpacity
                     key={topic}
                     style={s.dropdownTopicChip}
-                    onPressIn={() => handleTopicSelect(topic)}
+                    onPress={() => handleTopicSelect(topic)}
                     accessibilityRole="button"
                     accessibilityLabel={`Select topic ${topic}`}
                     testID={`graph-topic-${topicToTestId(topic)}`}
@@ -1212,7 +1256,7 @@ export default function GraphScreen() {
               {selectedTopics.map((topic) => (
                 <TouchableOpacity
                   key={topic}
-                  onPressIn={() => removeTopic(topic)}
+                  onPress={() => removeTopic(topic)}
                   activeOpacity={0.82}
                   style={[
                     s.selectedTopicPill,
@@ -1242,7 +1286,7 @@ export default function GraphScreen() {
               {promptTerms.map((term) => (
                 <TouchableOpacity
                   key={term}
-                  onPressIn={() => removePrompt(term)}
+                  onPress={() => removePrompt(term)}
                   activeOpacity={0.82}
                   style={s.promptPill}
                   accessibilityRole="button"
@@ -1271,7 +1315,7 @@ export default function GraphScreen() {
                 <TouchableOpacity
                   key={topic}
                   style={s.topicChip}
-                  onPressIn={() => handleTopicSelect(topic)}
+                  onPress={() => handleTopicSelect(topic)}
                   accessibilityRole="button"
                   accessibilityLabel={`Select trending topic ${topic}`}
                   testID={`graph-trending-${topicToTestId(topic)}`}
@@ -1485,7 +1529,7 @@ export default function GraphScreen() {
                 style={s.dialogPrimaryButton}
                 onPress={() => {
                   setShowSignInDialog(false);
-                  router.push('/(auth)/login');
+                  router.push(buildHref('/login', { returnTo: '/graph' }));
                 }}
               >
                 <Text style={s.dialogPrimaryText}>Sign in</Text>
@@ -1546,6 +1590,16 @@ const s = StyleSheet.create({
     height: 38,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  signInBtn: {
+    minHeight: 38,
+    justifyContent: 'center',
+    paddingRight: 8,
+  },
+  signInText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: PAGE.text,
   },
   streakPill: {
     height: 34,

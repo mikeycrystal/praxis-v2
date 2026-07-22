@@ -3,18 +3,21 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
+import { buildHref } from '../lib/buildHref';
 
 export default function RegisterScreen() {
   const { signUp } = useAuth();
   const { c, Radius, Typography } = useTheme();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const returnTo = typeof params.returnTo === 'string' ? params.returnTo : '/';
 
   const handleRegister = async () => {
     if (!fullName || !email || !password) return;
@@ -25,7 +28,6 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       await signUp(email.trim(), password, fullName.trim());
-      router.replace('/(auth)/verify-email');
     } catch (err: any) {
       Alert.alert('Sign up failed', err.message);
     } finally {
@@ -51,7 +53,11 @@ export default function RegisterScreen() {
                 { borderRadius: Radius.md },
                 tab === 'signup' && { backgroundColor: c.card },
               ]}
-              onPress={() => { if (tab === 'signin') router.replace('/(auth)/login'); }}
+              onPress={() => {
+                if (tab === 'signin') {
+                  router.replace(buildHref('/login', returnTo ? { returnTo } : undefined));
+                }
+              }}
             >
               <Text style={[s.tabText, {
                 color: tab === 'signup' ? c.text : c.textMuted,

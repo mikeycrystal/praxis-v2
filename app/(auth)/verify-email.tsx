@@ -1,9 +1,12 @@
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../hooks/useTheme';
+import { buildHref } from '../lib/buildHref';
 
 export default function VerifyEmailScreen() {
   const { c } = useTheme();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
+  const returnTo = typeof params.returnTo === 'string' ? params.returnTo : undefined;
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
       <View style={s.inner}>
@@ -14,7 +17,7 @@ export default function VerifyEmailScreen() {
         </Text>
         <TouchableOpacity
           style={[s.button, { backgroundColor: c.tint }]}
-          onPress={() => router.replace('/(auth)/login')}
+          onPress={() => router.replace(buildHref('/login', returnTo ? { returnTo } : undefined))}
         >
           <Text style={[s.buttonText, { color: c.tintForeground }]}>Back to Sign In</Text>
         </TouchableOpacity>

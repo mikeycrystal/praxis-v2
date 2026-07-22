@@ -50,6 +50,7 @@ export const RECOMMENDATION_REQUEST_STORAGE_KEY = 'recommendationRequest';
 export const TOP_NEWS_ACTIVE_STORAGE_KEY = 'isTopNewsActive';
 
 const MEMORY_STORE_KEY = '__PRAXIS_NEWS_PREFERENCES_STORE__';
+const digestPresetListeners = new Map<string, Set<(digests: DigestPreset[]) => void>>();
 
 const getMemoryStore = () => {
   const scope = globalThis as typeof globalThis & {
@@ -319,6 +320,57 @@ export const writeIsTopNewsActive = (isActive: boolean) => {
 
 export const getDigestStorageKey = (userId: string | null) =>
   userId ? `news_digests_${userId}` : 'news_digests';
+
+export const readDigestPresets = (userId: string | null): DigestPreset[] => {
+  const parsed = readStorageJson<unknown[]>(getDigestStorageKey(userId));
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed.filter((digest): digest is DigestPreset => {
+    if (typeof digest !== 'object' || digest === null) return false;
+
+    const candidate = digest as DigestPreset;
+    return (
+      typeof candidate.id === 'string' &&
+      typeof candidate.name === 'string' &&
+      Array.isArray(candidate.topics) &&
+      typeof candidate.radius === 'number'
+    );
+  });
+};
+
+export const writeDigestPresets = (
+  userId: string | null,
+  digests: DigestPreset[],
+) => {
+  const storageKey = getDigestStorageKey(userId);
+  writeStorageJson(storageKey, digests);
+
+  const scopedListeners = digestPresetListeners.get(storageKey);
+  if (scopedListeners?.size) {
+    const snapshot = readDigestPresets(userId);
+    scopedListeners.forEach((listener) => listener(snapshot));
+  }
+};
+
+export const subscribeDigestPresets = (
+  userId: string | null,
+  listener: (digests: DigestPreset[]) => void,
+) => {
+  const storageKey = getDigestStorageKey(userId);
+  const scopedListeners = digestPresetListeners.get(storageKey) ?? new Set();
+  scopedListeners.add(listener);
+  digestPresetListeners.set(storageKey, scopedListeners);
+  listener(readDigestPresets(userId));
+
+  return () => {
+    const nextListeners = digestPresetListeners.get(storageKey);
+    if (!nextListeners) return;
+    nextListeners.delete(listener);
+    if (nextListeners.size === 0) {
+      digestPresetListeners.delete(storageKey);
+    }
+  };
+};
 
 export const buildFeedPreferenceSignature = ({
   activeQuery,

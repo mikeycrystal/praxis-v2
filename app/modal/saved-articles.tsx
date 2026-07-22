@@ -1,89 +1,336 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, SafeAreaView,
-  TouchableOpacity, ActivityIndicator, Image,
+  TouchableOpacity, ActivityIndicator, Alert,
+  TextInput, type GestureResponderEvent,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useSegments } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../hooks/useTheme';
+import { buildHref } from '../lib/buildHref';
+import {
+  mergeSavedArticles,
+  readSavedArticles,
+  removeSavedArticle,
+  subscribeSavedArticles,
+  type SavedArticleSnapshot,
+} from '../lib/savedArticles';
+import { shareArticle } from '../lib/shareArticle';
 
 export default function SavedArticlesModal() {
-  const { user } = useAuth();
-  const { c } = useTheme();
-  const [articles, setArticles] = useState<any[]>([]);
+  const { isGuestMode, user } = useAuth();
+  const segments = useSegments();
+  const [articles, setArticles] = useState<SavedArticleSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const isSavedPage = segments[0] === '(tabs)';
+  const c = {
+    background: '#F7F3EA',
+    card: '#FBF7F0',
+    surface: '#FFFDFC',
+    text: '#2E2A25',
+    textSecondary: '#5D554C',
+    textMuted: '#8E857A',
+    tint: '#D9802E',
+    border: '#E7DEC9',
+    icon: '#736A61',
+    bookmarkActive: '#D9802E',
+  };
 
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from('saved_articles')
-      .select('article_id, saved_at, article(id, title, lede, ts_pub, image_url, publisher(name))')
-      .eq('user_id', user.id)
-      .order('saved_at', { ascending: false })
-      .then(({ data }) => {
-        setArticles((data ?? []).map((r: any) => r.article).filter(Boolean));
-        setLoading(false);
-      });
+  const loadSavedArticles = useCallback(async () => {
+    setLoading(true);
+    const localSaved = await readSavedArticles(user?.id);
+    setArticles(localSaved);
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('saved_articles')
+        .select('article_id, saved_at, article:article_id(id, title, lede, ts_pub, image_url, url, publisher(name, domain))')
+        .eq('user_id', user.id)
+        .order('saved_at', { ascending: false });
+
+      if (error) throw error;
+
+      const merged = await mergeSavedArticles(
+        user.id,
+        (data ?? []).map((row: any) => ({
+          id: row.article_id,
+          saved_at: row.saved_at,
+          title: row.article?.title,
+          lede: row.article?.lede,
+          ts_pub: row.article?.ts_pub,
+          image_url: row.article?.image_url,
+          url: row.article?.url,
+          publisher: row.article?.publisher ?? null,
+        })),
+      );
+
+      setArticles(merged);
+    } catch (error) {
+      console.warn('[SavedArticlesModal] Failed to refresh remote saved articles', error);
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
 
+  useEffect(() => {
+    if (isGuestMode || !user) {
+      router.replace(buildHref('/login', { returnTo: '/saved' }));
+    }
+  }, [isGuestMode, user]);
+
+  useEffect(() => {
+    void loadSavedArticles();
+  }, [loadSavedArticles]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeSavedArticles(user?.id, (nextArticles) => {
+      setArticles(nextArticles);
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, [user?.id]);
+
   const unsave = async (articleId: number) => {
+    await removeSavedArticle(user?.id, articleId);
+
     if (!user) return;
-    await supabase.from('saved_articles').delete().eq('user_id', user.id).eq('article_id', articleId);
-    setArticles(prev => prev.filter(a => a.id !== articleId));
+
+    const { error } = await supabase
+      .from('saved_articles')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('article_id', articleId);
+
+    if (error) {
+      console.warn('[SavedArticlesModal] Failed to remove remote bookmark', error);
+      Alert.alert(
+        'Saved on this device',
+        'We removed the bookmark locally, but the cloud copy could not be updated right now.',
+      );
+    }
   };
+
+  const shareSavedArticle = async (article: SavedArticleSnapshot) => {
+    await shareArticle({
+      title: article.title,
+      lede: article.lede,
+      url: article.url,
+      publisher: article.publisher,
+    });
+  };
+
+  const openSavedArticle = (article: SavedArticleSnapshot) => {
+    const openArticle = () => {
+      router.push({
+        pathname: '/article/[id]',
+        params: {
+          id: String(article.id),
+          title: article.title,
+          lede: article.lede,
+          image_url: article.image_url ?? '',
+          url: article.url,
+          publisher_name: article.publisher?.name ?? '',
+          ts_pub: article.ts_pub,
+        },
+      });
+    };
+
+    if (isSavedPage) {
+      openArticle();
+      return;
+    }
+
+    router.back();
+    setTimeout(openArticle, 0);
+  };
+
+  const stopRowPress = (event: GestureResponderEvent) => {
+    event.stopPropagation?.();
+  };
+
+  const filteredArticles = useMemo(() => {
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed) return articles;
+
+    return articles.filter((article) => {
+      const searchable = [
+        article.title,
+        article.lede,
+        article.publisher?.name ?? '',
+      ].join(' ').toLowerCase();
+
+      return searchable.includes(trimmed);
+    });
+  }, [articles, searchQuery]);
+
+  const countLabel = `${filteredArticles.length} ${filteredArticles.length === 1 ? 'article' : 'articles'}${searchQuery.trim() ? ' found' : ''}`;
+
+  const formatSavedDate = (savedAt: string) => (
+    new Date(savedAt).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
+  );
+
+  if (isGuestMode || !user) {
+    return (
+      <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+        <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
       <View style={s.header}>
-        <Text style={[s.title, { color: c.text }]}>Saved Articles</Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={[s.done, { color: c.tint }]}>Done</Text>
-        </TouchableOpacity>
+        <View style={s.headerTitleRow}>
+          <TouchableOpacity onPress={() => router.back()} style={s.backButton}>
+            <Ionicons name="arrow-back" size={20} color={c.text} />
+          </TouchableOpacity>
+          <View style={[s.headerIconWrap, { backgroundColor: `${c.tint}18` }]}>
+            <Ionicons name="bookmark" size={16} color={c.tint} />
+          </View>
+          <Text style={[s.title, { color: c.text }]}>Saved Articles</Text>
+        </View>
+        {!isSavedPage ? (
+          <TouchableOpacity onPress={() => router.back()}>
+            <Text style={[s.done, { color: c.tint }]}>Done</Text>
+          </TouchableOpacity>
+        ) : <View style={s.doneSpacer} />}
       </View>
+
+      <View style={s.searchSection}>
+        <View style={[s.searchShell, { backgroundColor: c.card, borderColor: c.border }]}>
+          <Ionicons name="search-outline" size={18} color={c.textMuted} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search your collection..."
+            placeholderTextColor={c.textMuted}
+            style={[s.searchInput, { color: c.text }]}
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={s.clearButton}>
+              <Text style={[s.clearText, { color: c.textMuted }]}>Clear</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+
+      {!loading ? (
+        <View style={s.countRow}>
+          <Text style={[s.countText, { color: c.textMuted }]}>{countLabel}</Text>
+        </View>
+      ) : null}
 
       {loading ? (
         <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
+      ) : filteredArticles.length === 0 ? (
+        <View style={s.empty}>
+          <View style={[s.emptyIconWrap, { backgroundColor: `${c.tint}12` }]}>
+            <Ionicons
+              name={searchQuery.trim() ? 'search-outline' : 'bookmark'}
+              size={34}
+              color={c.tint}
+            />
+          </View>
+          <Text style={[s.emptyText, { color: c.textSecondary }]}>
+            {searchQuery.trim() ? 'No results found' : 'No saved articles yet'}
+          </Text>
+          <Text style={[s.emptyHint, { color: c.textMuted }]}>
+            {searchQuery.trim()
+              ? `We couldn't find any articles matching "${searchQuery.trim()}".`
+              : 'Articles you save will appear here for easy access later.'}
+          </Text>
+          {searchQuery.trim() ? (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={[s.emptyAction, { borderColor: c.border, backgroundColor: c.card }]}
+            >
+              <Text style={[s.emptyActionText, { color: c.text }]}>Clear search</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : (
         <FlatList
-          data={articles}
+          data={filteredArticles}
           keyExtractor={item => String(item.id)}
           contentContainerStyle={s.list}
-          ListEmptyComponent={
-            <View style={s.empty}>
-              <Text style={{ fontSize: 40 }}>🔖</Text>
-              <Text style={[s.emptyText, { color: c.textSecondary }]}>No saved articles yet.</Text>
-              <Text style={[s.emptyHint, { color: c.textMuted }]}>
-                Tap the bookmark icon on any card to save it here.
-              </Text>
-            </View>
-          }
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.row, { backgroundColor: c.card, borderColor: c.border }]}
-              onPress={() => router.push(`/article/${item.id}`)}
+              onPress={() => openSavedArticle(item)}
             >
-              {item.image_url && (
-                <Image source={{ uri: item.image_url }} style={s.thumb} resizeMode="cover" />
-              )}
-              <View style={{ flex: 1 }}>
-                <Text style={[s.publisher, { color: c.textMuted }]}>
-                  {item.publisher?.name ?? 'Unknown'}
-                </Text>
+              <View style={s.copy}>
+                <View style={s.metaRow}>
+                  <Text style={[s.publisher, { color: c.tint }]}>
+                    {item.publisher?.name ?? 'Unknown'}
+                  </Text>
+                  <Text style={[s.metaDot, { color: c.textMuted }]}>·</Text>
+                  <Text style={[s.date, { color: c.textMuted }]}>
+                    {formatSavedDate(item.saved_at)}
+                  </Text>
+                </View>
                 <Text style={[s.articleTitle, { color: c.text }]} numberOfLines={2}>
                   {item.title}
                 </Text>
-                <Text style={[s.date, { color: c.textMuted }]}>
-                  {new Date(item.ts_pub).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                </Text>
+                {item.lede ? (
+                  <Text style={[s.lede, { color: c.textMuted }]} numberOfLines={2}>
+                    {item.lede}
+                  </Text>
+                ) : null}
+                <View style={s.actionRow}>
+                  <TouchableOpacity
+                    onPress={() => openSavedArticle(item)}
+                    style={[s.readButton, { borderColor: c.border, backgroundColor: c.background }]}
+                  >
+                    <Ionicons name="open-outline" size={15} color={c.text} />
+                    <Text style={[s.readButtonText, { color: c.text }]}>Read Article</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={(event) => {
+                      stopRowPress(event);
+                      void shareSavedArticle(item);
+                    }}
+                    style={[s.iconButton, { backgroundColor: c.background }]}
+                  >
+                    <Ionicons name="share-social-outline" size={16} color={c.icon} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={(event) => {
+                      stopRowPress(event);
+                      void unsave(item.id);
+                    }}
+                    style={[s.iconButton, { backgroundColor: c.background }]}
+                  >
+                    <Ionicons name="bookmark" size={18} color={c.bookmarkActive} />
+                  </TouchableOpacity>
+                </View>
+                <Text style={[s.savedLabel, { color: c.textMuted }]}>Saved to your collection</Text>
               </View>
-              <TouchableOpacity onPress={() => unsave(item.id)} style={s.unsaveBtn}>
-                <Text style={[{ fontSize: 20 }, { color: c.bookmarkActive }]}>🔖</Text>
-              </TouchableOpacity>
             </TouchableOpacity>
           )}
         />
       )}
+
+      {!loading && !searchQuery.trim() ? (
+        <View style={s.footerNote}>
+          <Text style={[s.footerText, { color: c.textMuted }]}>
+            {isGuestMode || !user
+              ? 'Bookmarks are being saved on this device in guest mode.'
+              : 'Bookmarks stay available locally and will sync to your account when possible.'}
+          </Text>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -92,21 +339,94 @@ const s = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 16,
+    paddingHorizontal: 20, paddingTop: 18, paddingBottom: 10,
   },
-  title: { fontSize: 22, fontWeight: '700' },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -8,
+  },
+  headerIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontSize: 26, fontWeight: '800', letterSpacing: -0.4 },
   done: { fontSize: 16 },
-  list: { paddingHorizontal: 16, gap: 8 },
-  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 80, gap: 10 },
-  emptyText: { fontSize: 16, fontWeight: '600' },
-  emptyHint: { fontSize: 13, textAlign: 'center', paddingHorizontal: 40 },
-  row: {
-    flexDirection: 'row', alignItems: 'center',
-    padding: 12, borderRadius: 14, borderWidth: 1, gap: 12,
+  doneSpacer: { width: 44 },
+  searchSection: { paddingHorizontal: 20, paddingBottom: 8 },
+  searchShell: {
+    height: 46,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  thumb: { width: 72, height: 72, borderRadius: 10 },
-  publisher: { fontSize: 11, textTransform: 'uppercase', fontWeight: '600', marginBottom: 3 },
-  articleTitle: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
-  date: { fontSize: 11, marginTop: 4 },
-  unsaveBtn: { padding: 6 },
+  searchInput: { flex: 1, fontSize: 15 },
+  clearButton: { paddingHorizontal: 4, paddingVertical: 2 },
+  clearText: { fontSize: 12, fontWeight: '600' },
+  countRow: { paddingHorizontal: 20, paddingBottom: 10 },
+  countText: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+  list: { paddingHorizontal: 20, paddingBottom: 24, gap: 12 },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingTop: 96, paddingHorizontal: 28, gap: 12 },
+  emptyIconWrap: {
+    width: 78,
+    height: 78,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: { fontSize: 22, fontWeight: '700' },
+  emptyHint: { fontSize: 15, lineHeight: 22, textAlign: 'center', maxWidth: 290 },
+  emptyAction: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  emptyActionText: { fontSize: 14, fontWeight: '600' },
+  footerNote: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 8 },
+  footerText: { fontSize: 12, lineHeight: 18, textAlign: 'center' },
+  row: {
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  copy: { gap: 10 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  publisher: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  metaDot: { fontSize: 14, lineHeight: 14 },
+  articleTitle: { fontSize: 18, fontWeight: '800', lineHeight: 26, letterSpacing: -0.2 },
+  lede: { fontSize: 14, lineHeight: 22 },
+  date: { fontSize: 12.5, fontWeight: '500' },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 4 },
+  readButton: {
+    flex: 1,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  readButtonText: { fontSize: 13.5, fontWeight: '700' },
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedLabel: { fontSize: 12, lineHeight: 18 },
 });

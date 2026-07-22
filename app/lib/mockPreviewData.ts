@@ -19,6 +19,12 @@ export interface MockGraphFilter {
   radius: number;
 }
 
+export interface MockSearchResult {
+  article: MockPreviewArticle;
+  score: number;
+  matches: string[];
+}
+
 const DEFAULT_LIMIT = 20;
 
 export const SAFE_MODE_TOPIC_NAMES = [
@@ -548,3 +554,70 @@ export const getMockPersonalizedArticles = (
   excludeArticleIds: number[] = [],
   limit = DEFAULT_LIMIT,
 ) => getMockTopicArticles(topics, excludeArticleIds, null, limit);
+
+export const searchMockArticles = (
+  query: string,
+  limit = 10,
+): MockSearchResult[] => {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.length < 2) return [];
+
+  const queryTokens = tokenizeQuery(normalizedQuery);
+  const rawTokens = normalizedQuery
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  return MOCK_PREVIEW_ARTICLES
+    .map((article) => {
+      const haystacks = [
+        { key: 'title', value: article.title },
+        { key: 'publisher', value: article.publisher },
+        { key: 'source', value: article.source },
+        { key: 'lede', value: article.lede },
+        { key: 'topics', value: article.topics.join(' ') },
+        { key: 'category', value: article.category },
+      ];
+
+      let score = 0;
+      const matches = new Set<string>();
+
+      haystacks.forEach(({ key, value }) => {
+        const normalizedValue = value.toLowerCase();
+
+        if (normalizedValue.includes(normalizedQuery)) {
+          score += key === 'title' ? 8 : key === 'topics' ? 6 : 4;
+          matches.add(key);
+        }
+
+        queryTokens.forEach((token) => {
+          if (!normalizedValue.includes(token)) return;
+          score += key === 'title' ? 3 : key === 'topics' ? 2 : 1;
+          matches.add(key);
+        });
+
+        rawTokens.forEach((token) => {
+          if (token.length < 2 || !normalizedValue.includes(token)) return;
+          score += 0.5;
+          matches.add(key);
+        });
+      });
+
+      return {
+        article,
+        score,
+        matches: [...matches],
+        publishedAt: new Date(article.ts_pub).getTime(),
+      };
+    })
+    .filter((result) => result.score > 0)
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return right.score - left.score;
+      }
+
+      return right.publishedAt - left.publishedAt;
+    })
+    .slice(0, limit)
+    .map(({ article, score, matches }) => ({ article, score, matches }));
+};

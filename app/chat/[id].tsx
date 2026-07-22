@@ -8,6 +8,7 @@ import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { buildHref } from '../lib/buildHref';
 
 interface Message {
   id: number;
@@ -31,7 +32,7 @@ function conversationId(a: string, b: string) {
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const userId = id;
-  const { user } = useAuth();
+  const { isGuestMode, user } = useAuth();
   const { c } = useTheme();
   const [messages, setMessages] = useState<Message[]>([]);
   const [otherUser, setOtherUser] = useState<OtherUser | null>(null);
@@ -41,6 +42,12 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const convId = user ? conversationId(user.id, userId) : '';
+
+  useEffect(() => {
+    if (isGuestMode || !user) {
+      router.replace(buildHref('/login', { returnTo: `/chat/${userId}` }));
+    }
+  }, [isGuestMode, user, userId]);
 
   // Load other user profile
   useEffect(() => {
@@ -179,6 +186,14 @@ export default function ChatScreen() {
       </>
     );
   };
+
+  if (isGuestMode || !user) {
+    return (
+      <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+        <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>

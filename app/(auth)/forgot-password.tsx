@@ -3,15 +3,18 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
+import { buildHref } from '../lib/buildHref';
 
 export default function ForgotPasswordScreen() {
   const { c, Radius } = useTheme();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const returnTo = typeof params.returnTo === 'string' ? params.returnTo : undefined;
 
   const handleReset = async () => {
     if (!email) return;
@@ -40,7 +43,7 @@ export default function ForgotPasswordScreen() {
             </Text>
             <TouchableOpacity
               style={[s.button, { backgroundColor: c.tint }]}
-              onPress={() => router.replace('/(auth)/login')}
+              onPress={() => router.replace(buildHref('/login', returnTo ? { returnTo } : undefined))}
             >
               <Text style={[s.buttonText, { color: c.tintForeground }]}>Back to Sign In</Text>
             </TouchableOpacity>

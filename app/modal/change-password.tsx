@@ -4,6 +4,7 @@ import {
   SafeAreaView, ScrollView, ActivityIndicator, Alert,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
 
@@ -13,38 +14,23 @@ interface Requirement {
 }
 
 const REQUIREMENTS: Requirement[] = [
-  { label: 'At least 8 characters', test: pw => pw.length >= 8 },
-  { label: 'Uppercase letter', test: pw => /[A-Z]/.test(pw) },
-  { label: 'Lowercase letter', test: pw => /[a-z]/.test(pw) },
-  { label: 'Number', test: pw => /[0-9]/.test(pw) },
-  { label: 'Special character (!@#$%^&*)', test: pw => /[!@#$%^&*(),.?":{}|<>]/.test(pw) },
+  { label: 'At least 6 characters', test: pw => pw.length >= 6 },
 ];
 
 export default function ChangePasswordModal() {
   const { c, Radius } = useTheme();
-  const [current, setCurrent] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const meetsAll = REQUIREMENTS.every(r => r.test(newPw)) && newPw === confirm && newPw !== current;
+  const meetsAll = REQUIREMENTS.every(r => r.test(newPw)) && newPw === confirm;
 
   const handleSave = async () => {
     if (!meetsAll) return;
     setLoading(true);
     try {
-      // Verify current password by attempting sign-in
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user?.email) throw new Error('Not authenticated');
-
-      const { error: verifyError } = await supabase.auth.signInWithPassword({
-        email: user.email, password: current,
-      });
-      if (verifyError) throw new Error('Current password is incorrect.');
-
       const { error } = await supabase.auth.updateUser({ password: newPw });
       if (error) throw error;
 
@@ -74,24 +60,6 @@ export default function ChangePasswordModal() {
       </View>
 
       <ScrollView contentContainerStyle={s.content}>
-        {/* Current password */}
-        <View>
-          <Text style={[s.label, { color: c.textSecondary }]}>Current Password</Text>
-          <View style={[s.pwWrap, { backgroundColor: c.card, borderColor: c.border }]}>
-            <TextInput
-              style={[s.pwInput, { color: c.text }]}
-              value={current}
-              onChangeText={setCurrent}
-              secureTextEntry={!showCurrent}
-              placeholder="••••••••"
-              placeholderTextColor={c.textMuted}
-            />
-            <TouchableOpacity onPress={() => setShowCurrent(v => !v)} style={s.eyeBtn}>
-              <Text style={{ color: c.textMuted, fontSize: 16 }}>{showCurrent ? '🙈' : '👁'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* New password */}
         <View>
           <Text style={[s.label, { color: c.textSecondary }]}>New Password</Text>
@@ -105,7 +73,7 @@ export default function ChangePasswordModal() {
               placeholderTextColor={c.textMuted}
             />
             <TouchableOpacity onPress={() => setShowNew(v => !v)} style={s.eyeBtn}>
-              <Text style={{ color: c.textMuted, fontSize: 16 }}>{showNew ? '🙈' : '👁'}</Text>
+              <Ionicons name={showNew ? 'eye-off-outline' : 'eye-outline'} size={18} color={c.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
@@ -123,7 +91,7 @@ export default function ChangePasswordModal() {
               placeholderTextColor={c.textMuted}
             />
             <TouchableOpacity onPress={() => setShowConfirm(v => !v)} style={s.eyeBtn}>
-              <Text style={{ color: c.textMuted, fontSize: 16 }}>{showConfirm ? '🙈' : '👁'}</Text>
+              <Ionicons name={showConfirm ? 'eye-off-outline' : 'eye-outline'} size={18} color={c.textMuted} />
             </TouchableOpacity>
           </View>
         </View>

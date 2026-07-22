@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, Image, StyleSheet, SafeAreaView, ActivityIndicator,
-  TouchableOpacity, Dimensions, Share, Animated, PanResponder, Alert,
+  TouchableOpacity, Dimensions, Animated, Easing, PanResponder, Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +13,20 @@ import { useFeedArticles, type Article } from '../hooks/useFeedArticles';
 import {
   buildFeedPreferenceSignature,
 } from '../lib/newsPreferences';
+import {
+  mergeSavedArticles,
+  readSavedArticles,
+  removeSavedArticle,
+  subscribeSavedArticles,
+  upsertSavedArticle,
+} from '../lib/savedArticles';
+import {
+  logArticleRead,
+  readReadingActivitySummary,
+  subscribeReadingActivity,
+} from '../lib/readingActivity';
+import { buildHref } from '../lib/buildHref';
+import { shareArticle as shareArticleFromPraxis } from '../lib/shareArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, CARD_WIDTH, CARD_HEIGHT } from '../components/news-feed/ArticleCard';
 
@@ -110,7 +124,7 @@ function StackPreviewCard({
 }
 
 export default function FeedScreen() {
-  const { profile, user } = useAuth();
+  const { isGuestMode, profile, user } = useAuth();
   const {
     preferences,
     applyTopNewsPreferences,
@@ -160,6 +174,7 @@ export default function FeedScreen() {
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
   const [savedCount, setSavedCount] = useState(0);
   const [flippedArticleId, setFlippedArticleId] = useState<number | null>(null);
+  const [localStreakCount, setLocalStreakCount] = useState(0);
   const swipeX = useRef(new Animated.Value(0)).current;
   const swipeY = useRef(new Animated.Value(0)).current;
   const queuedReadIdsRef = useRef<Set<number>>(new Set());
@@ -200,15 +215,41 @@ export default function FeedScreen() {
   }, [activeQuery]);
 
   const fetchSaved = useCallback(async () => {
+    const localSaved = await readSavedArticles(user?.id);
+    const localIds = new Set<number>(localSaved.map((article) => article.id));
+    setSavedIds(localIds);
+    setSavedCount(localIds.size);
+
     if (!user) return;
-    const { data } = await supabase
-      .from('saved_articles')
-      .select('article_id')
-      .eq('user_id', user.id);
-    if (data) {
-      const ids = new Set<number>(data.map((r: any) => r.article_id));
-      setSavedIds(ids);
-      setSavedCount(ids.size);
+
+    try {
+      const { data, error } = await supabase
+        .from('saved_articles')
+        .select('article_id, saved_at, article:article_id(id, title, lede, ts_pub, image_url, url, publisher(name, domain))')
+        .eq('user_id', user.id)
+        .order('saved_at', { ascending: false });
+
+      if (error) throw error;
+
+      const merged = await mergeSavedArticles(
+        user.id,
+        (data ?? []).map((row: any) => ({
+          id: row.article_id,
+          saved_at: row.saved_at,
+          title: row.article?.title,
+          lede: row.article?.lede,
+          ts_pub: row.article?.ts_pub,
+          image_url: row.article?.image_url,
+          url: row.article?.url,
+          publisher: row.article?.publisher ?? null,
+        })),
+      );
+
+      const nextIds = new Set<number>(merged.map((article) => article.id));
+      setSavedIds(nextIds);
+      setSavedCount(nextIds.size);
+    } catch (error) {
+      console.warn('[FeedScreen] Failed to refresh saved articles from remote', error);
     }
   }, [user]);
 
@@ -338,6 +379,34 @@ export default function FeedScreen() {
   useEffect(() => { fetchSaved(); }, [fetchSaved]);
 
   useEffect(() => {
+    const unsubscribe = subscribeSavedArticles(user?.id, (articles) => {
+      const nextIds = new Set<number>(articles.map((article) => article.id));
+      setSavedIds(nextIds);
+      setSavedCount(nextIds.size);
+    });
+
+    return unsubscribe;
+  }, [user?.id]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    void readReadingActivitySummary(user?.id).then((summary) => {
+      if (!isActive) return;
+      setLocalStreakCount(summary.currentStreak);
+    });
+
+    const unsubscribe = subscribeReadingActivity(user?.id, (summary) => {
+      setLocalStreakCount(summary.currentStreak);
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     setLoadedArticlesCount((prev) => {
       let nextCount = prev;
 
@@ -444,20 +513,26 @@ export default function FeedScreen() {
   ]);
 
   const handleEditQuery = useCallback(() => {
-    router.navigate('/(tabs)/graph');
+    router.navigate('/graph');
   }, []);
 
-  const markRead = useCallback((articleId: number) => {
-    if (!user) return;
-    if (queuedReadIdsRef.current.has(articleId)) return;
+  const markRead = useCallback((article: Article) => {
+    void logArticleRead(user?.id, {
+      id: article.id,
+      topics: article.topics,
+      title: article.title,
+    });
 
-    queuedReadIdsRef.current.add(articleId);
+    if (!user) return;
+    if (queuedReadIdsRef.current.has(article.id)) return;
+
+    queuedReadIdsRef.current.add(article.id);
 
     void (async () => {
       try {
         const { error } = await supabase.from('read_articles').insert({
           user_id: user.id,
-          article_id: articleId,
+          article_id: article.id,
           read_at: new Date().toISOString(),
         });
 
@@ -476,7 +551,7 @@ export default function FeedScreen() {
         void supabase.from('analytics_events').insert({
           user_id: user.id,
           event_name: 'article_view',
-          properties: { article_id: articleId },
+          properties: { article_id: article.id },
         }).then(({ error: analyticsError }) => {
           if (analyticsError) {
             console.warn('[FeedScreen] Failed to track article view', analyticsError);
@@ -487,27 +562,34 @@ export default function FeedScreen() {
           console.warn('[FeedScreen] Failed to check badges after read', badgeError);
         });
       } catch (error) {
-        queuedReadIdsRef.current.delete(articleId);
+        queuedReadIdsRef.current.delete(article.id);
         console.warn('[FeedScreen] Failed to mark article read', error);
       }
     })();
   }, [user]);
 
   const toggleSave = useCallback(async (articleId: number) => {
-    if (!user) return;
     const isSaved = savedIds.has(articleId);
-    setSavedIds((prev) => {
-      const next = new Set(prev);
-      if (isSaved) {
-        next.delete(articleId);
-      } else {
-        next.add(articleId);
-      }
-      return next;
-    });
-    setSavedCount((count) => Math.max(0, count + (isSaved ? -1 : 1)));
+    const article = articles.find((item) => item.id === articleId);
+    if (!article) return;
+
+    if (isSaved) {
+      await removeSavedArticle(user?.id, articleId);
+    } else {
+      await upsertSavedArticle(user?.id, {
+        id: article.id,
+        title: article.title,
+        lede: article.lede,
+        image_url: article.image_url,
+        url: article.url,
+        ts_pub: article.ts_pub,
+        publisher: article.publisher ?? null,
+      });
+    }
 
     try {
+      if (!user) return;
+
       if (isSaved) {
         const { error } = await supabase.from('saved_articles').delete()
           .eq('user_id', user.id)
@@ -522,31 +604,17 @@ export default function FeedScreen() {
         }
       }
     } catch (error) {
-      setSavedIds((prev) => {
-        const next = new Set(prev);
-        if (isSaved) {
-          next.add(articleId);
-        } else {
-          next.delete(articleId);
-        }
-        return next;
-      });
-      setSavedCount((count) => Math.max(0, count + (isSaved ? 1 : -1)));
-      console.warn('[FeedScreen] Failed to update bookmark state', error);
+      console.warn('[FeedScreen] Remote bookmark sync failed; kept local bookmark state', error);
     }
-  }, [user, savedIds]);
+  }, [articles, savedIds, user]);
 
   const shareArticle = useCallback(async (article: Article) => {
-    if (!article.url) return;
-    try {
-      await Share.share({
-        message: `${article.title}\n\n${article.url}`,
-        url: article.url,
-        title: article.title,
-      });
-    } catch (error) {
-      console.warn('[FeedScreen] Share failed:', error);
-    }
+    await shareArticleFromPraxis({
+      title: article.title,
+      lede: article.meta?.summary || article.lede,
+      url: article.url,
+      publisher: article.publisher,
+    });
   }, []);
 
   const loadingMore = isStreaming && !loading;
@@ -583,8 +651,8 @@ export default function FeedScreen() {
     safeIndex,
   ]);
 
-  const advance = useCallback((articleId: number) => {
-    markRead(articleId);
+  const advance = useCallback((article: Article) => {
+    markRead(article);
     const nextIndex = index + 1;
 
     if (nextIndex >= loadedArticlesCount && articles.length > loadedArticlesCount) {
@@ -607,22 +675,24 @@ export default function FeedScreen() {
     ]).start();
   }, [swipeX, swipeY]);
 
-  const commitSwipeLeft = useCallback((articleId: number) => {
+  const commitSwipeLeft = useCallback((article: Article) => {
     Animated.timing(swipeX, {
       toValue: -SCREEN_WIDTH * 1.2,
-      duration: 220,
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
       swipeX.setValue(0);
       swipeY.setValue(0);
-      advance(articleId);
+      advance(article);
     });
   }, [advance, swipeX, swipeY]);
 
   const commitSwipeRight = useCallback(() => {
     Animated.timing(swipeX, {
       toValue: SCREEN_WIDTH * 1.2,
-      duration: 220,
+      duration: 190,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
       swipeX.setValue(0);
@@ -678,47 +748,47 @@ export default function FeedScreen() {
   });
   const nextCardOpacity = swipeX.interpolate({
     inputRange: [-140, 0, 140],
-    outputRange: [0.96, 0.7, 0.7],
+    outputRange: [1, 0.7, 0.7],
     extrapolate: 'clamp',
   });
   const nextCardTranslate = swipeX.interpolate({
     inputRange: [-140, 0, 140],
-    outputRange: [-12, 0, 0],
+    outputRange: [-14, 0, 0],
     extrapolate: 'clamp',
   });
   const nextCardScale = swipeX.interpolate({
     inputRange: [-140, 0, 140],
-    outputRange: [0.985, 0.95, 0.95],
+    outputRange: [1, 0.95, 0.95],
     extrapolate: 'clamp',
   });
   const thirdCardOpacity = swipeX.interpolate({
     inputRange: [-150, 0, 150],
-    outputRange: [0.58, 0.4, 0.4],
+    outputRange: [0.7, 0.4, 0.4],
     extrapolate: 'clamp',
   });
   const thirdCardTranslate = swipeX.interpolate({
     inputRange: [-150, 0, 150],
-    outputRange: [-10, 0, 0],
+    outputRange: [-12, 0, 0],
     extrapolate: 'clamp',
   });
   const thirdCardScale = swipeX.interpolate({
     inputRange: [-150, 0, 150],
-    outputRange: [0.93, 0.9, 0.9],
+    outputRange: [0.95, 0.9, 0.9],
     extrapolate: 'clamp',
   });
   const fourthCardOpacity = swipeX.interpolate({
     inputRange: [-160, 0, 160],
-    outputRange: [0.32, 0.2, 0.2],
+    outputRange: [0.4, 0.2, 0.2],
     extrapolate: 'clamp',
   });
   const fourthCardTranslate = swipeX.interpolate({
     inputRange: [-160, 0, 160],
-    outputRange: [-8, 0, 0],
+    outputRange: [-10, 0, 0],
     extrapolate: 'clamp',
   });
   const fourthCardScale = swipeX.interpolate({
     inputRange: [-160, 0, 160],
-    outputRange: [0.87, 0.85, 0.85],
+    outputRange: [0.9, 0.85, 0.85],
     extrapolate: 'clamp',
   });
 
@@ -753,7 +823,7 @@ export default function FeedScreen() {
         const absX = Math.abs(dx);
         const shouldCommit = (Math.abs(vx) > 0.28 && absX > 38) || absX > 70;
         if (shouldCommit && dx < 0 && canSwipeLeft && current) {
-          commitSwipeLeft(current.id);
+          commitSwipeLeft(current);
           return;
         }
         if (shouldCommit && dx > 0 && canSwipeRight) {
@@ -790,16 +860,26 @@ export default function FeedScreen() {
       {/* Header */}
       <View style={[s.header, { borderBottomColor: c.border }]}>
         <View style={s.headerLeft}>
-          <TouchableOpacity
-            onPress={() => router.push('/modal/profile')}
-            style={s.headerBtn}
-          >
-            <Ionicons name="person-outline" size={20} color={c.icon} />
-          </TouchableOpacity>
-          <View style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}>
-            <Ionicons name="flame-outline" size={15} color="#8DAE73" />
-            <Text style={s.streakText}>{profile?.reading_streak ?? 3}</Text>
-          </View>
+          {isGuestMode || !user ? (
+            <Link href={buildHref('/login', { returnTo: '/' })} asChild>
+              <TouchableOpacity style={s.signInBtn} accessibilityRole="link">
+                <Text style={[s.signInText, { color: c.text }]}>Sign In</Text>
+              </TouchableOpacity>
+            </Link>
+          ) : (
+            <>
+              <TouchableOpacity
+                onPress={() => router.push('/modal/profile')}
+                style={s.headerBtn}
+              >
+                <Ionicons name="person-outline" size={20} color={c.icon} />
+              </TouchableOpacity>
+              <View style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}>
+                <Ionicons name="flame-outline" size={15} color="#8DAE73" />
+                <Text style={s.streakText}>{Math.max(profile?.reading_streak ?? 0, localStreakCount)}</Text>
+              </View>
+            </>
+          )}
         </View>
 
         <View style={s.headerCenter}>
@@ -807,17 +887,34 @@ export default function FeedScreen() {
         </View>
 
         <View style={s.headerRight}>
-          <TouchableOpacity
-            onPress={() => router.push('/modal/saved-articles')}
-            style={s.headerBtn}
-          >
-            <Ionicons name="bookmark-outline" size={18} color={c.icon} />
-            {savedCount > 0 && (
-              <View style={[s.badge, { backgroundColor: c.tint }]}>
-                <Text style={s.badgeText}>{savedCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          {isGuestMode || !user ? (
+            <Link href={buildHref('/login', { returnTo: '/saved' })} asChild>
+              <TouchableOpacity
+                style={s.headerBtn}
+                accessibilityRole="link"
+                accessibilityLabel="Sign in to view saved articles"
+              >
+                <Ionicons name="bookmark-outline" size={18} color={c.icon} />
+                {savedCount > 0 && (
+                  <View style={[s.badge, { backgroundColor: c.tint }]}>
+                    <Text style={s.badgeText}>{savedCount}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Link>
+          ) : (
+            <TouchableOpacity
+              onPress={() => router.push('saved' as any)}
+              style={s.headerBtn}
+            >
+              <Ionicons name="bookmark-outline" size={18} color={c.icon} />
+              {savedCount > 0 && (
+                <View style={[s.badge, { backgroundColor: c.tint }]}>
+                  <Text style={s.badgeText}>{savedCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             onPress={() => router.push('/modal/search')}
             style={s.headerBtn}
@@ -991,7 +1088,7 @@ export default function FeedScreen() {
                 onSave={() => toggleSave(current.id)}
                 onShare={() => shareArticle(current)}
                 onRead={() => {
-                  markRead(current.id);
+                  markRead(current);
                   router.push({
                     pathname: '/article/[id]',
                     params: {
@@ -1106,6 +1203,15 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
   },
+  signInBtn: {
+    minHeight: 38,
+    justifyContent: 'center',
+    paddingRight: 8,
+  },
+  signInText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
   streakPill: {
     height: 34,
     borderRadius: 17,
@@ -1163,7 +1269,7 @@ const s = StyleSheet.create({
   badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   cardStack: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 0, paddingBottom: 24 },
   deckFrame: {
-    width: CARD_WIDTH + 76,
+    width: CARD_WIDTH,
     height: CARD_HEIGHT + 14,
     position: 'relative',
   },
@@ -1310,19 +1416,19 @@ const s = StyleSheet.create({
   stack2: {
     position: 'absolute',
     top: 2,
-    left: 22,
+    left: 14,
     zIndex: 8,
   },
   stack3: {
     position: 'absolute',
     top: 6,
-    left: 42,
+    left: 26,
     zIndex: 7,
   },
   stack4: {
     position: 'absolute',
     top: 10,
-    left: 58,
+    left: 36,
     zIndex: 6,
   },
   dotsRow: {

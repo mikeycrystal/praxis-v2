@@ -3,24 +3,29 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
+import { buildHref } from '../lib/buildHref';
 
 export default function LoginScreen() {
   const { signIn, continueAsGuest } = useAuth();
   const { c, Radius, Typography, Spacing } = useTheme();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'signin' | 'signup'>('signin');
+  const returnTo = typeof params.returnTo === 'string' ? params.returnTo : '/';
 
   const handleLogin = async () => {
     if (!email || !password) return;
     setLoading(true);
     try {
       await signIn(email.trim(), password);
+      router.replace(returnTo as any);
     } catch (err: any) {
       Alert.alert('Sign in failed', err.message);
     } finally {
@@ -30,7 +35,7 @@ export default function LoginScreen() {
 
   const handleContinueAsGuest = () => {
     continueAsGuest();
-    router.replace('/(tabs)');
+    router.replace('/');
   };
 
   return (
@@ -53,7 +58,7 @@ export default function LoginScreen() {
                 activeTab === tab && { backgroundColor: c.card },
               ]}
               onPress={() => {
-                if (tab === 'signup') router.replace('/(auth)/register');
+                if (tab === 'signup') router.replace(buildHref('/register', returnTo ? { returnTo } : undefined));
                 else setActiveTab(tab);
               }}
             >
@@ -94,12 +99,18 @@ export default function LoginScreen() {
                 secureTextEntry={!showPassword}
               />
               <TouchableOpacity onPress={() => setShowPassword(v => !v)} style={s.eyeBtn}>
-                <Text style={{ color: c.textMuted, fontSize: 16 }}>{showPassword ? '🙈' : '👁'}</Text>
+                <Ionicons
+                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={18}
+                  color={c.textMuted}
+                />
               </TouchableOpacity>
             </View>
           </View>
 
-          <TouchableOpacity onPress={() => router.push('/(auth)/forgot-password')}>
+          <TouchableOpacity
+            onPress={() => router.push(buildHref('/forgot-password', returnTo ? { returnTo } : undefined))}
+          >
             <Text style={[s.forgotText, { color: c.tint }]}>Forgot password?</Text>
           </TouchableOpacity>
 

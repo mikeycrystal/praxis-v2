@@ -13,6 +13,7 @@ export default function EditProfileModal() {
   const { profile, refreshProfile, user } = useAuth();
   const { c, Radius } = useTheme();
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
+  const [username, setUsername] = useState(profile?.username ?? '');
   const [bio, setBio] = useState(profile?.bio ?? '');
   const [avatarUri, setAvatarUri] = useState<string | null>(profile?.avatar_url ?? null);
   const [uploading, setUploading] = useState(false);
@@ -40,7 +41,7 @@ export default function EditProfileModal() {
       const response = await fetch(uri);
       const blob = await response.blob();
       const ext = uri.split('.').pop() ?? 'jpg';
-      const path = `avatars/${user!.id}/${Date.now()}.${ext}`;
+      const path = `${user!.id}/${Date.now()}.${ext}`;
 
       // Delete old avatar
       if (profile?.avatar_url) {
@@ -65,6 +66,15 @@ export default function EditProfileModal() {
   };
 
   const handleSave = async () => {
+    if (!fullName.trim()) {
+      Alert.alert('Name required', 'Please enter your name.');
+      return;
+    }
+    if (!username.trim()) {
+      Alert.alert('Username required', 'Please enter a username.');
+      return;
+    }
+
     setSaving(true);
     try {
       let newAvatarUrl = profile?.avatar_url ?? null;
@@ -73,7 +83,12 @@ export default function EditProfileModal() {
       }
       const { error } = await supabase
         .from('profiles')
-        .update({ full_name: fullName.trim(), bio: bio.trim(), avatar_url: newAvatarUrl })
+        .update({
+          full_name: fullName.trim(),
+          username: username.trim(),
+          bio: bio.trim(),
+          avatar_url: newAvatarUrl,
+        })
         .eq('id', user!.id);
       if (error) throw error;
       await refreshProfile();
@@ -129,6 +144,19 @@ export default function EditProfileModal() {
               onChangeText={setFullName}
               placeholder="Your name"
               placeholderTextColor={c.textMuted}
+              maxLength={100}
+            />
+          </View>
+          <View>
+            <Text style={[s.label, { color: c.textSecondary }]}>Username</Text>
+            <TextInput
+              style={[s.input, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
+              value={username}
+              onChangeText={setUsername}
+              placeholder="username"
+              placeholderTextColor={c.textMuted}
+              autoCapitalize="none"
+              maxLength={30}
             />
           </View>
           <View>
@@ -142,7 +170,9 @@ export default function EditProfileModal() {
               multiline
               numberOfLines={4}
               textAlignVertical="top"
+              maxLength={500}
             />
+            <Text style={[s.characterCount, { color: c.textMuted }]}>{bio.length}/500</Text>
           </View>
         </View>
       </ScrollView>
@@ -174,4 +204,5 @@ const s = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '500', marginBottom: 6 },
   input: { height: 52, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 },
   textarea: { minHeight: 120, borderWidth: 1, borderRadius: 12, padding: 14, fontSize: 15, lineHeight: 22 },
+  characterCount: { textAlign: 'right', fontSize: 11, marginTop: 6 },
 });

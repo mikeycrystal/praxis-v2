@@ -7,6 +7,7 @@ import { router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
+import { buildHref } from '../lib/buildHref';
 
 interface FollowUser {
   id: string;
@@ -30,7 +31,7 @@ interface Conversation {
 type Tab = 'following' | 'messages';
 
 export default function SocialScreen() {
-  const { user } = useAuth();
+  const { isGuestMode, user } = useAuth();
   const { c } = useTheme();
   const [tab, setTab] = useState<Tab>('following');
   const [following, setFollowing] = useState<FollowUser[]>([]);
@@ -49,6 +50,12 @@ export default function SocialScreen() {
     if (data) setFollowing(data.map((r: any) => r.profiles).filter(Boolean));
     setLoadingFollowing(false);
   }, [user]);
+
+  useEffect(() => {
+    if (isGuestMode || !user) {
+      router.replace(buildHref('/login', { returnTo: '/social' }));
+    }
+  }, [isGuestMode, user]);
 
   const fetchConversations = useCallback(async () => {
     if (!user) return;
@@ -127,6 +134,14 @@ export default function SocialScreen() {
     if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
+
+  if (isGuestMode || !user) {
+    return (
+      <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+        <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
+      </SafeAreaView>
+    );
+  }
 
   const renderFollowUser = ({ item }: { item: FollowUser }) => (
     <TouchableOpacity

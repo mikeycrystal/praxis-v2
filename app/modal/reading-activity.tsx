@@ -1,87 +1,72 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
-import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
+import {
+  readReadingActivitySummary,
+  subscribeReadingActivity,
+  type ReadingActivitySummary,
+} from '../lib/readingActivity';
 
-interface DayBucket {
-  day: string;   // 'Mon' etc.
-  date: string;  // ISO date
-  count: number;
-}
-
-interface TopicCount {
-  topic: string;
-  count: number;
-}
-
-const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const EMPTY_SUMMARY: ReadingActivitySummary = {
+  totalArticlesRead: 0,
+  currentStreak: 0,
+  readsToday: 0,
+  readsThisWeek: 0,
+  weekBuckets: [],
+  topTopics: [],
+};
 
 export default function ReadingActivityModal() {
-  const { user, profile } = useAuth();
+  const { isGuestMode, user, profile } = useAuth();
   const { c } = useTheme();
-  const [weekData, setWeekData] = useState<DayBucket[]>([]);
-  const [topTopics, setTopTopics] = useState<TopicCount[]>([]);
-  const [totalThisWeek, setTotalThisWeek] = useState(0);
+  const [summary, setSummary] = useState<ReadingActivitySummary>(EMPTY_SUMMARY);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    let isActive = true;
 
-    // Build last 7 days array
-    const days: DayBucket[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      days.push({
-        day: DAY_LABELS[d.getDay()],
-        date: d.toISOString().split('T')[0],
-        count: 0,
-      });
-    }
-
-    const since = days[0].date + 'T00:00:00Z';
-
-    Promise.all([
-      supabase
-        .from('read_articles')
-        .select('read_at, article(topics)')
-        .eq('user_id', user.id)
-        .gte('read_at', since),
-    ]).then(([{ data }]) => {
-      const reads = data ?? [];
-
-      // Fill day buckets
-      for (const r of reads) {
-        const dateStr = new Date(r.read_at).toISOString().split('T')[0];
-        const bucket = days.find(d => d.date === dateStr);
-        if (bucket) bucket.count++;
-      }
-      setWeekData(days);
-      setTotalThisWeek(reads.length);
-
-      // Count topics
-      const topicMap = new Map<string, number>();
-      for (const r of reads) {
-        const topics: string[] = (r.article as any)?.topics ?? [];
-        for (const t of topics) {
-          topicMap.set(t, (topicMap.get(t) ?? 0) + 1);
-        }
-      }
-      const sorted = Array.from(topicMap.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([topic, count]) => ({ topic, count }));
-      setTopTopics(sorted);
+    void readReadingActivitySummary(user?.id).then((nextSummary) => {
+      if (!isActive) return;
+      setSummary(nextSummary);
       setLoading(false);
     });
-  }, [user]);
 
-  const maxCount = Math.max(...weekData.map(d => d.count), 1);
+    const unsubscribe = subscribeReadingActivity(user?.id, (nextSummary) => {
+      setSummary(nextSummary);
+      setLoading(false);
+    });
+
+    return () => {
+      isActive = false;
+      unsubscribe();
+    };
+  }, [user?.id]);
+
+  const weekData = summary.weekBuckets;
+  const topTopics = summary.topTopics;
+  const maxCount = Math.max(...weekData.map((day) => day.count), 1);
+  const displayTotalRead = Math.max(profile?.articles_read ?? 0, summary.totalArticlesRead);
+  const displayStreak = Math.max(profile?.reading_streak ?? 0, summary.currentStreak);
+  const dailyGoal = profile?.daily_goal ?? 5;
+  const goalProgress = Math.min((summary.readsToday / Math.max(dailyGoal, 1)) * 100, 100);
+  const hasActivity = displayTotalRead > 0;
+
+  const helperCopy = useMemo(() => {
+    if (profile) {
+      return 'Progress reflects this device first and stays aligned with your account when profile data is available.';
+    }
+
+    if (isGuestMode || !user) {
+      return 'Reading activity is being tracked locally in safe mode on this device.';
+    }
+
+    return 'Reading activity is being tracked locally on this device.';
+  }, [isGuestMode, profile, user]);
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
@@ -96,12 +81,13 @@ export default function ReadingActivityModal() {
         <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
       ) : (
         <ScrollView contentContainerStyle={s.content}>
-          {/* Stats summary */}
+          <Text style={[s.helperText, { color: c.textMuted }]}>{helperCopy}</Text>
+
           <View style={[s.statsRow, { backgroundColor: c.card, borderColor: c.border }]}>
             {[
-              { label: 'This Week', value: totalThisWeek },
-              { label: 'Total Read', value: profile?.articles_read ?? 0 },
-              { label: 'Day Streak', value: profile?.reading_streak ?? 0 },
+              { label: 'This Week', value: summary.readsThisWeek },
+              { label: 'Total Read', value: displayTotalRead },
+              { label: 'Day Streak', value: displayStreak },
             ].map((stat, i, arr) => (
               <View
                 key={stat.label}
@@ -113,77 +99,92 @@ export default function ReadingActivityModal() {
             ))}
           </View>
 
-          {/* Bar chart */}
           <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
             <Text style={[s.cardTitle, { color: c.text }]}>Last 7 Days</Text>
-            <View style={s.chart}>
-              {weekData.map((d) => {
-                const heightPct = (d.count / maxCount) * 100;
-                const isToday = d.date === new Date().toISOString().split('T')[0];
-                return (
-                  <View key={d.date} style={s.barCol}>
-                    <Text style={[s.barCount, { color: d.count > 0 ? c.tint : c.textMuted }]}>
-                      {d.count > 0 ? d.count : ''}
-                    </Text>
-                    <View style={[s.barTrack, { backgroundColor: c.secondary }]}>
-                      <View
-                        style={[
-                          s.barFill,
-                          { backgroundColor: isToday ? c.tint : c.tint + '80', height: `${heightPct}%` as any },
-                        ]}
-                      />
+            {weekData.length > 0 ? (
+              <View style={s.chart}>
+                {weekData.map((day) => {
+                  const heightPct = (day.count / maxCount) * 100;
+                  const isToday = day.date === new Date().toISOString().split('T')[0];
+                  return (
+                    <View key={day.date} style={s.barCol}>
+                      <Text style={[s.barCount, { color: day.count > 0 ? c.tint : c.textMuted }]}>
+                        {day.count > 0 ? day.count : ''}
+                      </Text>
+                      <View style={[s.barTrack, { backgroundColor: c.secondary }]}>
+                        <View
+                          style={[
+                            s.barFill,
+                            {
+                              backgroundColor: isToday ? c.tint : c.tint + '80',
+                              height: `${heightPct}%` as any,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[s.barLabel, { color: isToday ? c.tint : c.textMuted, fontWeight: isToday ? '700' : '400' }]}>
+                        {day.day}
+                      </Text>
                     </View>
-                    <Text style={[s.barLabel, { color: isToday ? c.tint : c.textMuted, fontWeight: isToday ? '700' : '400' }]}>
-                      {d.day}
-                    </Text>
-                  </View>
-                );
-              })}
+                  );
+                })}
+              </View>
+            ) : (
+              <Text style={[s.emptyText, { color: c.textMuted }]}>
+                Read a few cards and your weekly activity will show up here.
+              </Text>
+            )}
+          </View>
+
+          <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
+            <Text style={[s.cardTitle, { color: c.text }]}>Daily Goal</Text>
+            <Text style={[s.goalSub, { color: c.textMuted }]}>
+              {summary.readsToday} / {dailyGoal} articles today
+            </Text>
+            <View style={[s.goalTrack, { backgroundColor: c.secondary }]}>
+              <View
+                style={[
+                  s.goalFill,
+                  {
+                    backgroundColor: c.tint,
+                    width: `${goalProgress}%` as any,
+                  },
+                ]}
+              />
             </View>
           </View>
 
-          {/* Top topics */}
-          {topTopics.length > 0 && (
-            <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
-              <Text style={[s.cardTitle, { color: c.text }]}>Top Topics This Week</Text>
-              {topTopics.map((t, i) => (
-                <View key={t.topic} style={s.topicRow}>
-                  <Text style={[s.topicRank, { color: c.textMuted }]}>{i + 1}</Text>
-                  <Text style={[s.topicName, { color: c.text }]}>{t.topic}</Text>
-                  <View style={s.topicBarWrap}>
-                    <View
-                      style={[
-                        s.topicBar,
-                        { backgroundColor: c.tint, width: `${(t.count / topTopics[0].count) * 100}%` as any },
-                      ]}
-                    />
-                  </View>
-                  <Text style={[s.topicCount, { color: c.textMuted }]}>{t.count}</Text>
+          <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
+            <Text style={[s.cardTitle, { color: c.text }]}>Top Topics This Week</Text>
+            {topTopics.length > 0 ? topTopics.map((topic, index) => (
+              <View key={topic.topic} style={s.topicRow}>
+                <Text style={[s.topicRank, { color: c.textMuted }]}>{index + 1}</Text>
+                <Text style={[s.topicName, { color: c.text }]}>{topic.topic}</Text>
+                <View style={[s.topicBarWrap, { backgroundColor: c.secondary }]}>
+                  <View
+                    style={[
+                      s.topicBar,
+                      { backgroundColor: c.tint, width: `${(topic.count / topTopics[0].count) * 100}%` as any },
+                    ]}
+                  />
                 </View>
-              ))}
-            </View>
-          )}
-
-          {/* Goal progress */}
-          {profile?.daily_goal && (
-            <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
-              <Text style={[s.cardTitle, { color: c.text }]}>Daily Goal</Text>
-              <Text style={[s.goalSub, { color: c.textMuted }]}>
-                {weekData[weekData.length - 1]?.count ?? 0} / {profile.daily_goal} articles today
-              </Text>
-              <View style={[s.goalTrack, { backgroundColor: c.secondary }]}>
-                <View
-                  style={[
-                    s.goalFill,
-                    {
-                      backgroundColor: c.tint,
-                      width: `${Math.min(((weekData[weekData.length - 1]?.count ?? 0) / profile.daily_goal) * 100, 100)}%` as any,
-                    },
-                  ]}
-                />
+                <Text style={[s.topicCount, { color: c.textMuted }]}>{topic.count}</Text>
               </View>
+            )) : (
+              <Text style={[s.emptyText, { color: c.textMuted }]}>
+                Topic trends will appear after you read across a few stories.
+              </Text>
+            )}
+          </View>
+
+          {!hasActivity ? (
+            <View style={[s.card, { backgroundColor: c.card, borderColor: c.border }]}>
+              <Text style={[s.cardTitle, { color: c.text }]}>Getting Started</Text>
+              <Text style={[s.emptyText, { color: c.textMuted }]}>
+                Swipe through cards or open an article to start building your reading history, streak, and weekly topic mix.
+              </Text>
             </View>
-          )}
+          ) : null}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -199,6 +200,7 @@ const s = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700' },
   done: { fontSize: 16 },
   content: { paddingHorizontal: 16, gap: 16, paddingBottom: 32 },
+  helperText: { fontSize: 12, lineHeight: 18, paddingHorizontal: 4 },
   statsRow: { flexDirection: 'row', borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
   stat: { flex: 1, alignItems: 'center', paddingVertical: 20 },
   statNum: { fontSize: 28, fontWeight: '800' },
@@ -213,10 +215,11 @@ const s = StyleSheet.create({
   barLabel: { fontSize: 11 },
   topicRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   topicRank: { width: 16, fontSize: 12, textAlign: 'center' },
-  topicName: { width: 90, fontSize: 13, fontWeight: '500' },
-  topicBarWrap: { flex: 1, height: 8, borderRadius: 4, overflow: 'hidden', backgroundColor: 'transparent' },
+  topicName: { width: 96, fontSize: 13, fontWeight: '500' },
+  topicBarWrap: { flex: 1, height: 8, borderRadius: 4, overflow: 'hidden' },
   topicBar: { height: 8, borderRadius: 4 },
   topicCount: { fontSize: 12, width: 24, textAlign: 'right' },
+  emptyText: { fontSize: 13, lineHeight: 20 },
   goalSub: { fontSize: 13 },
   goalTrack: { height: 8, borderRadius: 4, overflow: 'hidden' },
   goalFill: { height: 8, borderRadius: 4 },
