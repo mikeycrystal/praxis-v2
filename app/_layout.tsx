@@ -23,7 +23,7 @@ function RootRedirect() {
     const inModal = segments[0] === 'modal';
     const inArticle = segments[0] === 'article';
     const inChat = segments[0] === 'chat';
-    const tabAliasSegments = new Set(['saved', 'graph', 'profile', 'social', 'topics']);
+    const tabAliasSegments = new Set(['saved', 'graph', 'profile', 'search', 'social', 'topics']);
     const inTabAlias = tabAliasSegments.has(segments[0] ?? '');
     const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat;
 
@@ -75,7 +75,8 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(auth)" />
             <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="article/[id]" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="search" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="article/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="article/ai-analysis" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/profile" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/user-profile" options={{ presentation: 'modal' }} />

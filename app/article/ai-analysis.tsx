@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, Image, ScrollView, StyleSheet, SafeAreaView,
-  TouchableOpacity, ActivityIndicator, Linking,
+  TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
+import { openPublisherArticle } from '../lib/openPublisherArticle';
 
 interface AIAnalysis {
   summary: string;
@@ -211,7 +212,14 @@ export default function AIAnalysisScreen() {
       <View style={[s.ctaBar, { backgroundColor: c.background, borderTopColor: c.border }]}>
         <TouchableOpacity
           style={[s.ctaBtn, { backgroundColor: c.tint }]}
-          onPress={() => Linking.openURL(article?.url)}
+          onPress={() => {
+            void openPublisherArticle(article?.url).catch(() => {
+              Alert.alert(
+                'Article unavailable',
+                'We could not open the publisher article right now.',
+              );
+            });
+          }}
         >
           <Text style={[s.ctaBtnText, { color: c.tintForeground }]}>Read Full Article ↗</Text>
         </TouchableOpacity>

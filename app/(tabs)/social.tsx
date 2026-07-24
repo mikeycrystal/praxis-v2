@@ -209,7 +209,7 @@ export default function SocialScreen() {
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
       <View style={s.header}>
         <Text style={[s.title, { color: c.text }]}>Social</Text>
-        <TouchableOpacity onPress={() => router.push('/modal/search')}>
+        <TouchableOpacity onPress={() => router.push('/search')}>
           <Text style={[s.findBtn, { color: c.tint }]}>Find people</Text>
         </TouchableOpacity>
       </View>
@@ -239,7 +239,7 @@ export default function SocialScreen() {
             </Text>
             <TouchableOpacity
               style={[s.findBigBtn, { backgroundColor: c.tint }]}
-              onPress={() => router.push('/modal/search')}
+              onPress={() => router.push('/search')}
             >
               <Text style={{ color: c.tintForeground, fontWeight: '600', fontSize: 15 }}>Find People</Text>
             </TouchableOpacity>
@@ -264,7 +264,7 @@ export default function SocialScreen() {
             </Text>
             <TouchableOpacity
               style={[s.findBigBtn, { backgroundColor: c.tint }]}
-              onPress={() => router.push('/modal/search')}
+              onPress={() => router.push('/search')}
             >
               <Text style={{ color: c.tintForeground, fontWeight: '600', fontSize: 15 }}>Find People</Text>
             </TouchableOpacity>

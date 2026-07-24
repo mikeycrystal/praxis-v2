@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, SafeAreaView,
   TouchableOpacity, ActivityIndicator, Alert,
-  TextInput, type GestureResponderEvent,
+  TextInput, Image, type GestureResponderEvent,
 } from 'react-native';
 import { router, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,14 +16,13 @@ import {
   subscribeSavedArticles,
   type SavedArticleSnapshot,
 } from '../lib/savedArticles';
-import { shareArticle } from '../lib/shareArticle';
-
 export default function SavedArticlesModal() {
   const { isGuestMode, user } = useAuth();
   const segments = useSegments();
   const [articles, setArticles] = useState<SavedArticleSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
   const isSavedPage = segments[0] === '(tabs)';
   const c = {
     background: '#F7F3EA',
@@ -118,15 +117,6 @@ export default function SavedArticlesModal() {
     }
   };
 
-  const shareSavedArticle = async (article: SavedArticleSnapshot) => {
-    await shareArticle({
-      title: article.title,
-      lede: article.lede,
-      url: article.url,
-      publisher: article.publisher,
-    });
-  };
-
   const openSavedArticle = (article: SavedArticleSnapshot) => {
     const openArticle = () => {
       router.push({
@@ -139,6 +129,13 @@ export default function SavedArticlesModal() {
           url: article.url,
           publisher_name: article.publisher?.name ?? '',
           ts_pub: article.ts_pub,
+          source_context: 'saved',
+          x: article.x == null ? '' : String(article.x),
+          y: article.y == null ? '' : String(article.y),
+          category: article.category ?? '',
+          topics: JSON.stringify(article.topics),
+          x_explanation: article.meta?.x_explanation ?? '',
+          y_explanation: article.meta?.y_explanation ?? '',
         },
       });
     };
@@ -269,7 +266,24 @@ export default function SavedArticlesModal() {
             <TouchableOpacity
               style={[s.row, { backgroundColor: c.card, borderColor: c.border }]}
               onPress={() => openSavedArticle(item)}
+              activeOpacity={0.82}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${item.title}`}
             >
+              {item.image_url && !failedImages[item.id] ? (
+                <Image
+                  source={{ uri: item.image_url }}
+                  style={[s.thumbnail, { backgroundColor: c.background }]}
+                  resizeMode="cover"
+                  onError={() => {
+                    setFailedImages((previous) => ({ ...previous, [item.id]: true }));
+                  }}
+                />
+              ) : (
+                <View style={[s.thumbnailFallback, { backgroundColor: c.background }]}>
+                  <Ionicons name="newspaper-outline" size={25} color={c.textMuted} />
+                </View>
+              )}
               <View style={s.copy}>
                 <View style={s.metaRow}>
                   <Text style={[s.publisher, { color: c.tint }]}>
@@ -284,38 +298,31 @@ export default function SavedArticlesModal() {
                   {item.title}
                 </Text>
                 {item.lede ? (
-                  <Text style={[s.lede, { color: c.textMuted }]} numberOfLines={2}>
+                  <Text style={[s.lede, { color: c.textMuted }]} numberOfLines={1}>
                     {item.lede}
                   </Text>
                 ) : null}
-                <View style={s.actionRow}>
-                  <TouchableOpacity
-                    onPress={() => openSavedArticle(item)}
-                    style={[s.readButton, { borderColor: c.border, backgroundColor: c.background }]}
-                  >
-                    <Ionicons name="open-outline" size={15} color={c.text} />
-                    <Text style={[s.readButtonText, { color: c.text }]}>Read Article</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={(event) => {
-                      stopRowPress(event);
-                      void shareSavedArticle(item);
-                    }}
-                    style={[s.iconButton, { backgroundColor: c.background }]}
-                  >
-                    <Ionicons name="share-social-outline" size={16} color={c.icon} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={(event) => {
-                      stopRowPress(event);
-                      void unsave(item.id);
-                    }}
-                    style={[s.iconButton, { backgroundColor: c.background }]}
-                  >
-                    <Ionicons name="bookmark" size={18} color={c.bookmarkActive} />
-                  </TouchableOpacity>
+                <View style={s.rowFooter}>
+                  <View style={[s.contextCue, { backgroundColor: `${c.tint}10` }]}>
+                    <Ionicons name="eye-outline" size={12} color={c.tint} />
+                    <Text style={[s.contextCueText, { color: c.textSecondary }]}>
+                      Praxis context
+                    </Text>
+                  </View>
+                  <View style={s.rowFooterActions}>
+                    <TouchableOpacity
+                      onPress={(event) => {
+                        stopRowPress(event);
+                        void unsave(item.id);
+                      }}
+                      style={s.unsaveButton}
+                      accessibilityLabel={`Remove ${item.title} from saved stories`}
+                    >
+                      <Ionicons name="bookmark" size={16} color={c.bookmarkActive} />
+                    </TouchableOpacity>
+                    <Ionicons name="chevron-forward" size={17} color={c.textMuted} />
+                  </View>
                 </View>
-                <Text style={[s.savedLabel, { color: c.textMuted }]}>Saved to your collection</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -397,36 +404,58 @@ const s = StyleSheet.create({
   footerNote: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 8 },
   footerText: { fontSize: 12, lineHeight: 18, textAlign: 'center' },
   row: {
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    borderRadius: 20,
+    padding: 12,
+    borderRadius: 18,
     borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 13,
+    minHeight: 126,
+    shadowColor: '#2E2A25',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.035,
+    shadowRadius: 10,
+    elevation: 1,
   },
-  copy: { gap: 10 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  publisher: { fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  thumbnail: {
+    width: 108,
+    borderRadius: 14,
+  },
+  thumbnailFallback: {
+    width: 108,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  copy: { flex: 1, minWidth: 0, gap: 7, paddingVertical: 2 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  publisher: { flexShrink: 1, fontSize: 11, fontWeight: '800', letterSpacing: 0.35 },
   metaDot: { fontSize: 14, lineHeight: 14 },
-  articleTitle: { fontSize: 18, fontWeight: '800', lineHeight: 26, letterSpacing: -0.2 },
-  lede: { fontSize: 14, lineHeight: 22 },
-  date: { fontSize: 12.5, fontWeight: '500' },
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 4 },
-  readButton: {
-    flex: 1,
-    height: 38,
-    borderRadius: 12,
-    borderWidth: 1,
+  articleTitle: { fontSize: 16.5, fontWeight: '800', lineHeight: 21, letterSpacing: -0.25 },
+  lede: { fontSize: 12.5, lineHeight: 18 },
+  date: { fontSize: 11, fontWeight: '500' },
+  rowFooter: {
+    marginTop: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  contextCue: {
+    minHeight: 24,
+    borderRadius: 999,
+    paddingHorizontal: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
   },
-  readButtonText: { fontSize: 13.5, fontWeight: '700' },
-  iconButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+  contextCueText: { fontSize: 10.5, fontWeight: '700' },
+  rowFooterActions: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  unsaveButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  savedLabel: { fontSize: 12, lineHeight: 18 },
 });

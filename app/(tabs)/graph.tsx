@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, PanResponder, Alert, Image as RNImage, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, useWindowDimensions, ViewStyle } from 'react-native';
 import Svg, { Circle, Image as SvgImage, Line, Text as SvgText } from 'react-native-svg';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router, useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -66,6 +74,7 @@ const logoUri = (module: number | string | { uri?: string } | undefined) => {
 const GRAPH_MIN_SIZE = 220;
 const GRAPH_MAX_SIZE = 540;
 const FALLBACK_GRAPH_SIZE = 320;
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const PAGE = {
   background: '#F7F3EA',
@@ -377,11 +386,12 @@ export default function GraphScreen() {
   const [hasAppliedTopNewsFilter, setHasAppliedTopNewsFilter] = useState(
     () => initialGraphState.hasAppliedTopNewsFilter,
   );
-  const radiusPx = radius * (graphWidth * 0.32);
   const sliderTrackWidth = Math.min(Math.max(windowWidth - 210, 160), 240);
   const [pinX, setPinX] = useState(initialPin.x);
   const [pinY, setPinY] = useState(initialPin.y);
-  const graphDragActive = useRef(false);
+  const animatedPinX = useSharedValue(initialPin.x);
+  const animatedPinY = useSharedValue(initialPin.y);
+  const animatedRadius = useSharedValue(initialGraphState.radius / 100);
   const graphPositionRef = useRef<GraphPoint>(initialGraphState.graphPosition);
   const previousGraphSizeRef = useRef({
     width: graphWidth,
@@ -416,6 +426,9 @@ export default function GraphScreen() {
     setPinX(nextPin.x);
     setPinY(nextPin.y);
     setRadius(nextGraphState.radius / 100);
+    animatedPinX.value = nextPin.x;
+    animatedPinY.value = nextPin.y;
+    animatedRadius.value = nextGraphState.radius / 100;
     setHasAppliedTopNewsFilter(nextGraphState.hasAppliedTopNewsFilter);
     setInitialState({
       topics: nextGraphState.selectedTopics,
@@ -426,7 +439,7 @@ export default function GraphScreen() {
     setSearch('');
     setIsDropdownOpen(false);
     setIsApplying(false);
-  }, [readPersistedGraphState]);
+  }, [animatedPinX, animatedPinY, animatedRadius, readPersistedGraphState]);
 
   useFocusEffect(
     useCallback(() => {
@@ -764,57 +777,71 @@ export default function GraphScreen() {
 
     setPinX(nextPin.x);
     setPinY(nextPin.y);
+    animatedPinX.value = nextPin.x;
+    animatedPinY.value = nextPin.y;
+  }, [animatedPinX, animatedPinY, graphHeight, graphWidth]);
+
+  const commitGraphPosition = useCallback((x: number, y: number) => {
+    const nextX = clamp(x, 0, graphWidth);
+    const nextY = clamp(y, 0, graphHeight);
+    setPinX(nextX);
+    setPinY(nextY);
+    graphPositionRef.current = canvasToGraphPoint(nextX, nextY, graphWidth, graphHeight);
   }, [graphHeight, graphWidth]);
 
-  const updatePinFromTouch = (locationX: number, locationY: number) => {
-    setPinX(clamp(locationX, 0, graphWidth));
-    setPinY(clamp(locationY, 0, graphHeight));
-  };
+  const commitRadius = useCallback((nextRadius: number) => {
+    setRadius(nextRadius);
+  }, []);
 
-  const updateRadiusFromTouch = (locationX: number) => {
-    const nextRatio = clamp(locationX / sliderTrackWidth, 0.05, 1);
-    const stepped = Math.round((nextRatio * 100) / 5) * 5;
-    setRadius(clamp(stepped / 100, 0.05, 1));
-  };
-
-  const graphPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (event) => {
-          graphDragActive.current = true;
-          const { locationX, locationY } = event.nativeEvent;
-          updatePinFromTouch(locationX, locationY);
-        },
-        onPanResponderMove: (event) => {
-          const { locationX, locationY } = event.nativeEvent;
-          updatePinFromTouch(locationX, locationY);
-        },
-        onPanResponderRelease: () => {
-          graphDragActive.current = false;
-        },
-        onPanResponderTerminate: () => {
-          graphDragActive.current = false;
-        },
+  const graphGesture = useMemo(
+    () => Gesture.Pan()
+      .minDistance(0)
+      .onBegin((event) => {
+        animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
+        animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
+      })
+      .onUpdate((event) => {
+        animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
+        animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
+      })
+      .onFinalize(() => {
+        runOnJS(commitGraphPosition)(animatedPinX.value, animatedPinY.value);
       }),
-    [graphHeight, graphWidth],
+    [animatedPinX, animatedPinY, commitGraphPosition, graphHeight, graphWidth],
   );
 
-  const sliderPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (event) => {
-          updateRadiusFromTouch(event.nativeEvent.locationX);
-        },
-        onPanResponderMove: (event) => {
-          updateRadiusFromTouch(event.nativeEvent.locationX);
-        },
+  const sliderGesture = useMemo(
+    () => Gesture.Pan()
+      .minDistance(0)
+      .onBegin((event) => {
+        animatedRadius.value = Math.max(0.05, Math.min(1, event.x / sliderTrackWidth));
+      })
+      .onUpdate((event) => {
+        animatedRadius.value = Math.max(0.05, Math.min(1, event.x / sliderTrackWidth));
+      })
+      .onFinalize(() => {
+        const stepped = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 20) / 20));
+        animatedRadius.value = withTiming(stepped, { duration: 120 });
+        runOnJS(commitRadius)(stepped);
       }),
-    [sliderTrackWidth],
+    [animatedRadius, commitRadius, sliderTrackWidth],
   );
+
+  const radiusCircleAnimatedProps = useAnimatedProps(() => ({
+    cx: animatedPinX.value,
+    cy: animatedPinY.value,
+    r: animatedRadius.value * (graphWidth * 0.32),
+  }));
+  const markerCircleAnimatedProps = useAnimatedProps(() => ({
+    cx: animatedPinX.value,
+    cy: animatedPinY.value,
+  }));
+  const sliderFillAnimatedStyle = useAnimatedStyle<ViewStyle>(() => ({
+    width: animatedRadius.value * sliderTrackWidth,
+  }));
+  const sliderThumbAnimatedStyle = useAnimatedStyle<ViewStyle>(() => ({
+    transform: [{ translateX: animatedRadius.value * sliderTrackWidth }],
+  }));
 
   const handleTopicSelect = (topic: string) => {
     const normalizedTopic = normalizeTopicId(topic);
@@ -923,10 +950,20 @@ export default function GraphScreen() {
   };
 
   const handleTopNewsReset = () => {
-    setPinX(centerX);
-    setPinY(centerY);
+    const defaultPin = graphPointToCanvas(
+      DEFAULT_GRAPH_POSITION,
+      graphWidth,
+      graphHeight,
+    );
+    setPinX(defaultPin.x);
+    setPinY(defaultPin.y);
     setRadius(DEFAULT_GRAPH_RADIUS / 100);
+    animatedPinX.value = defaultPin.x;
+    animatedPinY.value = defaultPin.y;
+    animatedRadius.value = DEFAULT_GRAPH_RADIUS / 100;
+    graphPositionRef.current = { ...DEFAULT_GRAPH_POSITION };
     setHasAppliedTopNewsFilter(false);
+    closeDropdown();
     writeTopNewsGraphFilter(null);
   };
 
@@ -964,6 +1001,9 @@ export default function GraphScreen() {
     setPinX(point.x);
     setPinY(point.y);
     setRadius(preset.radius / 100);
+    animatedPinX.value = point.x;
+    animatedPinY.value = point.y;
+    animatedRadius.value = preset.radius / 100;
     searchInputRef.current?.blur();
     closeDropdown();
   };
@@ -1032,7 +1072,7 @@ export default function GraphScreen() {
             <>
               <TouchableOpacity
                 style={s.headerIcon}
-                onPress={() => router.push('/modal/profile')}
+                onPress={() => router.push('/profile')}
                 accessibilityRole="button"
                 accessibilityLabel="Open profile"
               >
@@ -1069,7 +1109,7 @@ export default function GraphScreen() {
           )}
           <TouchableOpacity
             style={s.headerIcon}
-            onPress={() => router.push('/modal/search')}
+            onPress={() => router.push('/search')}
             accessibilityRole="button"
             accessibilityLabel="Open search"
           >
@@ -1245,7 +1285,7 @@ export default function GraphScreen() {
                   onPress={handleTopNewsReset}
                   style={s.topNewsPill}
                   accessibilityRole="button"
-                  accessibilityLabel="Reset top news filter"
+                  accessibilityLabel="Reset Top News to defaults"
                   testID="graph-top-news-reset"
                 >
                   <Ionicons name="flame-outline" size={14} color="#D57A24" />
@@ -1353,7 +1393,6 @@ export default function GraphScreen() {
         >
           <View
             style={[s.graphCanvas, { width: graphWidth, height: graphHeight }]}
-            {...graphPanResponder.panHandlers}
           >
             <TouchableOpacity
               style={[s.helpButton, { borderColor: PAGE.chipBorder }]}
@@ -1362,20 +1401,20 @@ export default function GraphScreen() {
             >
               <Ionicons name="help-circle-outline" size={26} color={PAGE.text} />
             </TouchableOpacity>
-            <Svg width={graphWidth} height={graphHeight}>
+            <GestureDetector gesture={graphGesture}>
+              <Animated.View style={{ width: graphWidth, height: graphHeight }}>
+                <Svg width={graphWidth} height={graphHeight}>
             <Line x1={centerX} y1={34} x2={centerX} y2={graphHeight - 34} stroke="#D3CCC1" strokeWidth={2} />
             <Line x1={34} y1={centerY} x2={graphWidth - 34} y2={centerY} stroke="#D3CCC1" strokeWidth={2} />
 
-            <Circle
-              cx={pinX}
-              cy={pinY}
-              r={radiusPx}
+            <AnimatedCircle
+              animatedProps={radiusCircleAnimatedProps}
               fill="rgba(141,174,115,0.08)"
               stroke={PAGE.green}
               strokeWidth={3}
               strokeDasharray="6,5"
             />
-            <Circle cx={pinX} cy={pinY} r={16} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={5} />
+            <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={16} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={5} />
             {positionedOutlets.map((outlet) => (
               <React.Fragment key={outlet.key}>
                 <SvgImage
@@ -1383,7 +1422,7 @@ export default function GraphScreen() {
                   y={outlet.imageY}
                   width={outlet.width}
                   height={outlet.height}
-                  href={outlet.logoWeb}
+                  href={Platform.OS === 'web' ? outlet.logoWeb : outlet.logo}
                   preserveAspectRatio="xMidYMid meet"
                   opacity={0.98}
                 />
@@ -1400,7 +1439,9 @@ export default function GraphScreen() {
                 </SvgText>
               </React.Fragment>
             ))}
-            </Svg>
+                </Svg>
+              </Animated.View>
+            </GestureDetector>
             <View style={[s.axisPill, s.axisTopPill]}>
               <Text style={s.axisPillText}>Hard</Text>
             </View>
@@ -1542,13 +1583,12 @@ export default function GraphScreen() {
       <Pressable style={[s.sliderSection, { borderTopColor: PAGE.border }]} onPress={isDropdownOpen ? closeDropdown : undefined}>
         <Text style={s.sliderLabel}>Radius</Text>
         <View style={s.sliderTrackWrap}>
-          <View
-            style={[s.sliderTrack, { backgroundColor: PAGE.sliderTrack, width: sliderTrackWidth }]}
-            {...sliderPanResponder.panHandlers}
-          >
-            <View style={[s.sliderFill, { width: `${radius * 100}%`, backgroundColor: PAGE.green }]} />
-            <View style={[s.sliderThumb, { left: `${radius * 100}%`, borderColor: PAGE.green }]} />
-          </View>
+          <GestureDetector gesture={sliderGesture}>
+            <Animated.View style={[s.sliderTrack, { backgroundColor: PAGE.sliderTrack, width: sliderTrackWidth }]}>
+              <Animated.View style={[s.sliderFill, { backgroundColor: PAGE.green }, sliderFillAnimatedStyle]} />
+              <Animated.View style={[s.sliderThumb, { borderColor: PAGE.green }, sliderThumbAnimatedStyle]} />
+            </Animated.View>
+          </GestureDetector>
         </View>
         <View style={[s.percentPill, { borderColor: PAGE.chipBorder }]}>
           <Text style={s.percentText}>{Math.round(radius * 100)}%</Text>

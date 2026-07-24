@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -25,6 +25,8 @@ const FALLBACK_CARD_BG = '#D8D1C2';
 const CARD_GRADIENT_MID = 'rgba(16, 14, 16, 0.42)';
 const CARD_GRADIENT_END = 'rgba(5, 5, 7, 0.98)';
 const MAP_BOX_SIZE = 28;
+const SWIPE_DIAGNOSTICS =
+  __DEV__ && process.env.EXPO_PUBLIC_SWIPE_DIAGNOSTICS === 'true';
 
 const CATEGORY_LABELS: Record<string, string> = {
   business: 'Business',
@@ -84,7 +86,7 @@ interface Props {
   swipeX?: Animated.Value;
 }
 
-export function ArticleCard({
+export const ArticleCard = memo(function ArticleCard({
   article,
   isActive = false,
   isSaved,
@@ -255,7 +257,20 @@ export function ArticleCard({
           ]}
         >
           {cardImageUri ? (
-            <Image source={{ uri: cardImageUri }} style={s.image} resizeMode="cover" />
+            <Image
+              source={{ uri: cardImageUri }}
+              style={s.image}
+              resizeMode="cover"
+              onLoad={() => {
+                if (SWIPE_DIAGNOSTICS) {
+                  console.info('[SwipePerf] image loaded', {
+                    articleId: article.id,
+                    isActive,
+                    at: Date.now(),
+                  });
+                }
+              }}
+            />
           ) : (
             <View style={[s.imagePlaceholder, { backgroundColor: FALLBACK_CARD_BG }]} />
           )}
@@ -477,7 +492,7 @@ export function ArticleCard({
       ) : null}
     </Animated.View>
   );
-}
+});
 
 export { CARD_WIDTH, CARD_HEIGHT };
 

@@ -15,6 +15,15 @@ export interface SavedArticleSnapshot {
     name: string;
     domain: string;
   } | null;
+  x: number | null;
+  y: number | null;
+  category: string | null;
+  topics: string[];
+  meta: {
+    summary?: string;
+    x_explanation?: string;
+    y_explanation?: string;
+  } | null;
 }
 
 type SavedArticleInput = Partial<SavedArticleSnapshot> & {
@@ -87,6 +96,19 @@ const normalizeSavedArticle = (article: SavedArticleInput): SavedArticleSnapshot
       ? {
           name: article.publisher.name,
           domain: article.publisher.domain ?? '',
+        }
+      : null,
+    x: typeof article.x === 'number' ? article.x : null,
+    y: typeof article.y === 'number' ? article.y : null,
+    category: article.category?.trim() || null,
+    topics: Array.isArray(article.topics)
+      ? article.topics.filter((topic): topic is string => typeof topic === 'string' && topic.length > 0)
+      : [],
+    meta: article.meta && typeof article.meta === 'object'
+      ? {
+          summary: article.meta.summary,
+          x_explanation: article.meta.x_explanation,
+          y_explanation: article.meta.y_explanation,
         }
       : null,
   };
@@ -188,6 +210,11 @@ export const mergeSavedArticles = async (
       ...normalized,
       saved_at: normalized.saved_at || current?.saved_at || new Date().toISOString(),
       publisher: normalized.publisher || current?.publisher || null,
+      x: normalized.x ?? current?.x ?? null,
+      y: normalized.y ?? current?.y ?? null,
+      category: normalized.category ?? current?.category ?? null,
+      topics: normalized.topics.length > 0 ? normalized.topics : current?.topics ?? [],
+      meta: normalized.meta ?? current?.meta ?? null,
     });
   });
 

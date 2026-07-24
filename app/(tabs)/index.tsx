@@ -1,9 +1,29 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
 import {
   View, Text, Image, StyleSheet, SafeAreaView, ActivityIndicator,
-  TouchableOpacity, Dimensions, Animated, Easing, PanResponder, Alert,
+  TouchableOpacity, Dimensions, Alert, InteractionManager, ViewStyle,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { Link, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
@@ -26,13 +46,17 @@ import {
   subscribeReadingActivity,
 } from '../lib/readingActivity';
 import { buildHref } from '../lib/buildHref';
+import { openPublisherArticle } from '../lib/openPublisherArticle';
 import { shareArticle as shareArticleFromPraxis } from '../lib/shareArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, CARD_WIDTH, CARD_HEIGHT } from '../components/news-feed/ArticleCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SWIPE_EXIT_DISTANCE = SCREEN_WIDTH * 1.05;
 const ARTICLES_PER_PAGE = 20;
 const STACK_RENDER_COUNT = 4;
+const SWIPE_DIAGNOSTICS =
+  __DEV__ && process.env.EXPO_PUBLIC_SWIPE_DIAGNOSTICS === 'true';
 const FEED_COLORS = {
   ...Colors.light,
   background: '#F7F3EA',
@@ -56,72 +80,141 @@ const humanizeTopicLabel = (value: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
-function StackPreviewCard({
-  article,
-  width,
-  height,
-  offsetStyle,
-  tint,
-}: {
+type DeckCardProps = {
   article: Article;
-  width: number;
-  height: number;
-  offsetStyle: object;
-  tint: string;
-}) {
-  const previewImageUri = article.image_url || `https://picsum.photos/seed/stack-${article.id}/1200/900`;
-  const previewSource = article.source || article.publisher?.name || 'Source';
-  const previewTitle = article.title || 'Top story';
-  const showMapPoint = typeof article.x === 'number' || typeof article.y === 'number';
-  const mapLeft = (((article.x ?? 0) + 1) / 2) * 22;
-  const mapTop = ((1 - (article.y ?? 0)) / 2) * 22;
+  articleIndex: number;
+  isActive: boolean;
+  isSaved: boolean;
+  visualIndex: SharedValue<number>;
+  onSaveArticle: (articleId: number) => void;
+  onShareArticle: (article: Article) => void;
+  onReadArticle: (article: Article) => void;
+  onFlipArticle: (articleId: number, isFlipped: boolean) => void;
+};
+
+const DeckCard = memo(function DeckCard({
+  article,
+  articleIndex,
+  isActive,
+  isSaved,
+  visualIndex,
+  onSaveArticle,
+  onShareArticle,
+  onReadArticle,
+  onFlipArticle,
+}: DeckCardProps) {
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+
+  const handleSave = useCallback(() => {
+    onSaveArticle(article.id);
+  }, [article.id, onSaveArticle]);
+
+  const handleShare = useCallback(() => {
+    onShareArticle(article);
+  }, [article, onShareArticle]);
+
+  const handleRead = useCallback(() => {
+    onReadArticle(article);
+  }, [article, onReadArticle]);
+
+  const handleFlipChange = useCallback((isFlipped: boolean) => {
+    if (isActiveRef.current) {
+      onFlipArticle(article.id, isFlipped);
+    }
+  }, [article.id, onFlipArticle]);
+
+  useEffect(() => {
+    if (!SWIPE_DIAGNOSTICS) return;
+    console.info('[SwipePerf] card mounted', {
+      articleId: article.id,
+      articleIndex,
+      at: Date.now(),
+    });
+
+    return () => {
+      console.info('[SwipePerf] card unmounted', {
+        articleId: article.id,
+        articleIndex,
+        at: Date.now(),
+      });
+    };
+  }, [article.id, articleIndex]);
+
+  if (SWIPE_DIAGNOSTICS) {
+    console.info('[SwipePerf] card render', {
+      articleId: article.id,
+      articleIndex,
+      isActive,
+      at: Date.now(),
+    });
+  }
+
+  const animatedStyle = useAnimatedStyle<ViewStyle>(() => {
+    const diff = articleIndex - visualIndex.value;
+    const stackX = interpolate(
+      diff,
+      [-1, 0, 1, 2, 3, 4],
+      [-SWIPE_EXIT_DISTANCE, 0, 20, 40, 60, 80],
+      Extrapolation.CLAMP,
+    );
+    const translateX = isActive && diff > 0
+      ? interpolate(diff, [0, 1], [0, SWIPE_EXIT_DISTANCE], Extrapolation.CLAMP)
+      : stackX;
+    const rotate = isActive
+      ? interpolate(
+          translateX,
+          [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+          [-8, 0, 8],
+          Extrapolation.CLAMP,
+        )
+      : 0;
+    const scale = interpolate(
+      diff,
+      [-1, 0, 1, 2, 3, 4],
+      [0.95, 1, 0.95, 0.9, 0.85, 0.8],
+      Extrapolation.CLAMP,
+    );
+    const opacity = interpolate(
+      diff,
+      [-1, 0, 1, 2, 3, 4],
+      [0, 1, 0.7, 0.4, 0.2, 0],
+      Extrapolation.CLAMP,
+    );
+
+    return {
+      opacity,
+      transform: [
+        { translateX },
+        { rotate: `${rotate}deg` as `${number}deg` },
+        { scale },
+      ],
+    } as ViewStyle;
+  });
 
   return (
-    <View style={[s.stackPreview, { width, height }, offsetStyle]}>
-      <Image source={{ uri: previewImageUri }} style={s.stackPreviewImage} resizeMode="cover" />
-      <View style={[s.stackPreviewTint, { backgroundColor: tint }]} />
-      <LinearGradient
-        colors={['rgba(255,255,255,0.04)', 'rgba(14,13,15,0.22)', 'rgba(7,7,9,0.74)']}
-        locations={[0.06, 0.45, 1]}
-        style={s.stackPreviewGradient}
+    <Animated.View
+      pointerEvents={isActive ? 'auto' : 'none'}
+      // Older articles always stay above newer ones. This supports both swipe
+      // directions without reordering native image/shadow layers at handoff.
+      style={[s.deckCard, { zIndex: 10_000 - articleIndex }, animatedStyle]}
+    >
+      <ArticleCard
+        article={article}
+        // The wrapper exclusively owns pointer events. Keeping the heavy card
+        // body active avoids rerendering its image/gradient tree at handoff.
+        isActive
+        isSaved={isSaved}
+        onSave={handleSave}
+        onShare={handleShare}
+        onRead={handleRead}
+        canSwipeRight={false}
+        onFlipChange={handleFlipChange}
+        isDigestCard={false}
       />
-      <LinearGradient
-        colors={['rgba(247,243,234,0.01)', 'rgba(247,243,234,0.04)', 'rgba(247,243,234,0.12)']}
-        locations={[0, 0.24, 1]}
-        style={s.stackPreviewFade}
-      />
-      <View style={s.stackPreviewActionRow}>
-        <View style={s.stackPreviewActionBtn}>
-          <Ionicons name="share-social-outline" size={12} color="rgba(245,249,252,0.92)" />
-        </View>
-        <View style={s.stackPreviewActionBtn}>
-          <Ionicons name="bookmark-outline" size={12} color="rgba(245,249,252,0.92)" />
-        </View>
-      </View>
-      <View style={s.stackPreviewReadPill}>
-        <Text style={s.stackPreviewReadText}>Read</Text>
-        <Ionicons name="open-outline" size={11} color="rgba(245,249,252,0.9)" />
-      </View>
-      <View style={s.stackPreviewContent}>
-        <View style={s.stackPreviewMetaRow}>
-          <Text style={s.stackPreviewSource} numberOfLines={1}>{previewSource}</Text>
-          {showMapPoint ? (
-            <>
-              <View style={s.stackPreviewMetaDot} />
-              <View style={s.stackPreviewMapBadge}>
-                <View style={s.stackPreviewMapVertical} />
-                <View style={s.stackPreviewMapHorizontal} />
-                <View style={[s.stackPreviewMapPoint, { left: mapLeft, top: mapTop }]} />
-              </View>
-            </>
-          ) : null}
-        </View>
-        <Text style={s.stackPreviewHeadline} numberOfLines={3}>{previewTitle}</Text>
-      </View>
-      <View style={s.stackPreviewBorderGlow} />
-    </View>
+    </Animated.View>
   );
-}
+});
 
 export default function FeedScreen() {
   const { isGuestMode, profile, user } = useAuth();
@@ -149,13 +242,55 @@ export default function FeedScreen() {
     feedPreferenceSignature,
     streamError,
     hasCachedArticles,
-    currentArticleIndex: index,
-    setCurrentArticleIndex: setCurrentIndex,
+    currentArticleIndex: externalIndex,
+    setCurrentArticleIndex: setExternalIndex,
     setFeedContext,
     loadFromPreferences,
     requestMoreArticles,
     clearStreamError,
   } = useFeedArticles();
+  const [displayIndex, setDisplayIndex] = useState(externalIndex);
+  const displayIndexRef = useRef(externalIndex);
+  const scheduledIndexRef = useRef<{
+    from: number;
+    to: number;
+    scheduledAt: number;
+  } | null>(null);
+  const index = displayIndex;
+  const setCurrentIndex = useCallback((nextIndex: number) => {
+    const fromIndex = displayIndexRef.current;
+    if (SWIPE_DIAGNOSTICS) {
+      scheduledIndexRef.current = {
+        from: fromIndex,
+        to: nextIndex,
+        scheduledAt: Date.now(),
+      };
+      console.info('[SwipePerf] React index scheduled', {
+        from: fromIndex,
+        to: nextIndex,
+        at: Date.now(),
+      });
+    }
+    displayIndexRef.current = nextIndex;
+    setDisplayIndex(nextIndex);
+    setExternalIndex(nextIndex);
+  }, [setExternalIndex]);
+
+  useLayoutEffect(() => {
+    if (!SWIPE_DIAGNOSTICS) return;
+    const scheduled = scheduledIndexRef.current;
+    if (!scheduled || scheduled.to !== displayIndex) return;
+
+    const committedAt = Date.now();
+    console.info('[SwipePerf] React index committed', {
+      from: scheduled.from,
+      to: scheduled.to,
+      scheduledAt: scheduled.scheduledAt,
+      committedAt,
+      commitDelayMs: committedAt - scheduled.scheduledAt,
+    });
+    scheduledIndexRef.current = null;
+  }, [displayIndex]);
   const [loadedArticlesCount, setLoadedArticlesCount] = useState(() => {
     if (articles.length === 0) {
       return ARTICLES_PER_PAGE;
@@ -175,8 +310,7 @@ export default function FeedScreen() {
   const [savedCount, setSavedCount] = useState(0);
   const [flippedArticleId, setFlippedArticleId] = useState<number | null>(null);
   const [localStreakCount, setLocalStreakCount] = useState(0);
-  const swipeX = useRef(new Animated.Value(0)).current;
-  const swipeY = useRef(new Animated.Value(0)).current;
+  const visualIndex = useSharedValue(externalIndex);
   const queuedReadIdsRef = useRef<Set<number>>(new Set());
   const lastHandledRequestNonceRef = useRef<number | null>(null);
   const activeQuery = preferences.activeQuery;
@@ -201,6 +335,14 @@ export default function FeedScreen() {
     preferences.topNewsGraphFilter,
     profileTopics,
   ]);
+
+  useEffect(() => {
+    if (externalIndex === displayIndexRef.current) return;
+    displayIndexRef.current = externalIndex;
+    setDisplayIndex(externalIndex);
+    cancelAnimation(visualIndex);
+    visualIndex.value = externalIndex;
+  }, [externalIndex, visualIndex]);
 
   const getCustomQueryDisplay = useCallback(() => {
     if (!activeQuery) return '';
@@ -301,16 +443,14 @@ export default function FeedScreen() {
       return;
     }
 
-    swipeX.stopAnimation(() => {
-      swipeX.setValue(0);
-    });
-    swipeY.stopAnimation(() => {
-      swipeY.setValue(0);
-    });
+    cancelAnimation(visualIndex);
+    visualIndex.value = 0;
+    displayIndexRef.current = 0;
+    setDisplayIndex(0);
 
     setLoadedArticlesCount(ARTICLES_PER_PAGE);
     setFlippedArticleId(null);
-  }, [preferences.requestNonce, swipeX, swipeY]);
+  }, [preferences.requestNonce, visualIndex]);
 
   useEffect(() => {
     if (!streamError) return;
@@ -462,14 +602,23 @@ export default function FeedScreen() {
     if (typeof Image.prefetch !== 'function') return;
 
     const prefetched = articles
-      .slice(safeIndex, safeIndex + 6)
+      .slice(0, maxAvailableArticles)
       .map((article) => article.image_url)
       .filter((value): value is string => Boolean(value));
+
+    if (SWIPE_DIAGNOSTICS) {
+      console.info('[SwipePerf] prefetch window', {
+        start: 0,
+        end: maxAvailableArticles,
+        count: prefetched.length,
+        at: Date.now(),
+      });
+    }
 
     prefetched.forEach((uri) => {
       void Image.prefetch(uri).catch(() => {});
     });
-  }, [articles, safeIndex]);
+  }, [articles, maxAvailableArticles]);
 
   const reloadFeed = useCallback(() => loadFromPreferences({
     activeQuery: preferences.activeQuery,
@@ -584,6 +733,11 @@ export default function FeedScreen() {
         url: article.url,
         ts_pub: article.ts_pub,
         publisher: article.publisher ?? null,
+        x: article.x,
+        y: article.y,
+        category: article.category,
+        topics: article.topics,
+        meta: article.meta,
       });
     }
 
@@ -652,7 +806,6 @@ export default function FeedScreen() {
   ]);
 
   const advance = useCallback((article: Article) => {
-    markRead(article);
     const nextIndex = index + 1;
 
     if (nextIndex >= loadedArticlesCount && articles.length > loadedArticlesCount) {
@@ -662,58 +815,22 @@ export default function FeedScreen() {
     }
 
     setCurrentIndex(nextIndex);
+    InteractionManager.runAfterInteractions(() => {
+      markRead(article);
+    });
   }, [articles.length, index, loadedArticlesCount, markRead, setCurrentIndex]);
 
   const retreat = useCallback(() => {
     setCurrentIndex(Math.max(0, index - 1));
   }, [index, setCurrentIndex]);
 
-  const resetSwipe = useCallback(() => {
-    Animated.parallel([
-      Animated.spring(swipeX, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 220 }),
-      Animated.spring(swipeY, { toValue: 0, useNativeDriver: true, damping: 18, stiffness: 220 }),
-    ]).start();
-  }, [swipeX, swipeY]);
-
-  const commitSwipeLeft = useCallback((article: Article) => {
-    Animated.timing(swipeX, {
-      toValue: -SCREEN_WIDTH * 1.2,
-      duration: 190,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start(() => {
-      swipeX.setValue(0);
-      swipeY.setValue(0);
-      advance(article);
-    });
-  }, [advance, swipeX, swipeY]);
-
-  const commitSwipeRight = useCallback(() => {
-    Animated.timing(swipeX, {
-      toValue: SCREEN_WIDTH * 1.2,
-      duration: 190,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start(() => {
-      swipeX.setValue(0);
-      swipeY.setValue(0);
-      retreat();
-    });
-  }, [retreat, swipeX, swipeY]);
-
   // Safely access articles with null checks
   let current: Article | undefined;
-  let next: Article | undefined;
-  let afterNext: Article | undefined;
-  let fourth: Article | undefined;
 
   try {
     const visibleArticles = articles.slice(0, maxAvailableArticles);
     if (visibleArticles.length > 0) {
       current = visibleArticles[safeIndex] || undefined;
-      next = visibleArticles[safeIndex + 1] || undefined;
-      afterNext = visibleArticles[safeIndex + 2] || undefined;
-      fourth = visibleArticles[safeIndex + 3] || undefined;
     }
   } catch (e) {
     console.error('[FeedScreen] Error accessing articles array:', e, { index, articlesLength: articles?.length });
@@ -736,114 +853,119 @@ export default function FeedScreen() {
     isAllCaughtUp &&
     safeIndex > 0 &&
     remainingVisibleCards === 0;
-  const activeRotate = swipeX.interpolate({
-    inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
-    outputRange: ['-8deg', '0deg', '8deg'],
-    extrapolate: 'clamp',
-  });
-  const activeScale = swipeX.interpolate({
-    inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-    outputRange: [0.95, 1, 0.95],
-    extrapolate: 'clamp',
-  });
-  const nextCardOpacity = swipeX.interpolate({
-    inputRange: [-140, 0, 140],
-    outputRange: [1, 0.7, 0.7],
-    extrapolate: 'clamp',
-  });
-  const nextCardTranslate = swipeX.interpolate({
-    inputRange: [-140, 0, 140],
-    outputRange: [-14, 0, 0],
-    extrapolate: 'clamp',
-  });
-  const nextCardScale = swipeX.interpolate({
-    inputRange: [-140, 0, 140],
-    outputRange: [1, 0.95, 0.95],
-    extrapolate: 'clamp',
-  });
-  const thirdCardOpacity = swipeX.interpolate({
-    inputRange: [-150, 0, 150],
-    outputRange: [0.7, 0.4, 0.4],
-    extrapolate: 'clamp',
-  });
-  const thirdCardTranslate = swipeX.interpolate({
-    inputRange: [-150, 0, 150],
-    outputRange: [-12, 0, 0],
-    extrapolate: 'clamp',
-  });
-  const thirdCardScale = swipeX.interpolate({
-    inputRange: [-150, 0, 150],
-    outputRange: [0.95, 0.9, 0.9],
-    extrapolate: 'clamp',
-  });
-  const fourthCardOpacity = swipeX.interpolate({
-    inputRange: [-160, 0, 160],
-    outputRange: [0.4, 0.2, 0.2],
-    extrapolate: 'clamp',
-  });
-  const fourthCardTranslate = swipeX.interpolate({
-    inputRange: [-160, 0, 160],
-    outputRange: [-10, 0, 0],
-    extrapolate: 'clamp',
-  });
-  const fourthCardScale = swipeX.interpolate({
-    inputRange: [-160, 0, 160],
-    outputRange: [0.9, 0.85, 0.85],
-    extrapolate: 'clamp',
-  });
+  const finishSwipeLeft = useCallback(() => {
+    if (current) advance(current);
+  }, [advance, current]);
 
-  const stackPanResponder = useMemo(
-    () => PanResponder.create({
-      onMoveShouldSetPanResponder: (_, { dx, dy }) => {
-        if (flippedArticleId === current?.id) {
-          return false;
-        }
+  const finishSwipeRight = useCallback(() => {
+    retreat();
+  }, [retreat]);
 
-        return Math.abs(dx) > Math.abs(dy) * 1.25 && Math.abs(dx) > 12;
-      },
-      onPanResponderMove: (_, { dx }) => {
-        if (flippedArticleId === current?.id) {
-          return;
-        }
+  const handleReadArticle = useCallback((article: Article) => {
+    markRead(article);
+    void openPublisherArticle(article.url).catch(() => {
+      Alert.alert(
+        'Article unavailable',
+        'We could not open the publisher article right now.',
+      );
+    });
+  }, [markRead]);
 
-        if ((dx < 0 && !canSwipeLeft) || (dx > 0 && !canSwipeRight)) {
-          swipeX.setValue(dx * 0.2);
-          swipeY.setValue(0);
-          return;
-        }
-        swipeX.setValue(dx);
-        swipeY.setValue(0);
-      },
-      onPanResponderRelease: (_, { dx, vx }) => {
-        if (flippedArticleId === current?.id) {
-          resetSwipe();
+  const handleFlipArticle = useCallback((articleId: number, isFlipped: boolean) => {
+    setFlippedArticleId(isFlipped ? articleId : null);
+  }, []);
+
+  const logSwipeEvent = useCallback((
+    phase: 'release' | 'animation-complete',
+    fromIndex: number,
+    toIndex: number,
+  ) => {
+    if (!SWIPE_DIAGNOSTICS) return;
+    console.info(`[SwipePerf] ${phase}`, {
+      from: fromIndex,
+      to: toIndex,
+      at: Date.now(),
+    });
+  }, []);
+
+  const swipeGesture = useMemo(
+    () => Gesture.Pan()
+      .enabled(flippedArticleId !== current?.id)
+      .activeOffsetX([-12, 12])
+      .failOffsetY([-22, 22])
+      .onBegin(() => {
+        cancelAnimation(visualIndex);
+      })
+      .onUpdate((event) => {
+        const blocked =
+          (event.translationX < 0 && !canSwipeLeft) ||
+          (event.translationX > 0 && !canSwipeRight);
+        const translation = blocked ? event.translationX * 0.2 : event.translationX;
+        visualIndex.value = index - translation / SWIPE_EXIT_DISTANCE;
+      })
+      .onEnd((event) => {
+        const distance = Math.abs(event.translationX);
+        const velocityCommit = Math.abs(event.velocityX) > 380 && distance > 38;
+        const shouldCommit = velocityCommit || distance > 76;
+        const springConfig = {
+          damping: 20,
+          stiffness: 240,
+          mass: 0.72,
+          overshootClamping: true,
+        };
+
+        if (shouldCommit && event.translationX < 0 && canSwipeLeft) {
+          const targetIndex = index + 1;
+          const remaining = Math.abs(targetIndex - visualIndex.value);
+          runOnJS(logSwipeEvent)('release', index, targetIndex);
+          visualIndex.value = withTiming(
+            targetIndex,
+            {
+              duration: Math.max(120, Math.round(280 * remaining)),
+              easing: Easing.out(Easing.cubic),
+            },
+            (finished) => {
+              if (finished) {
+                runOnJS(logSwipeEvent)('animation-complete', index, targetIndex);
+                runOnJS(finishSwipeLeft)();
+              }
+            },
+          );
           return;
         }
 
-        const absX = Math.abs(dx);
-        const shouldCommit = (Math.abs(vx) > 0.28 && absX > 38) || absX > 70;
-        if (shouldCommit && dx < 0 && canSwipeLeft && current) {
-          commitSwipeLeft(current);
+        if (shouldCommit && event.translationX > 0 && canSwipeRight) {
+          const targetIndex = index - 1;
+          const remaining = Math.abs(targetIndex - visualIndex.value);
+          runOnJS(logSwipeEvent)('release', index, targetIndex);
+          visualIndex.value = withTiming(
+            targetIndex,
+            {
+              duration: Math.max(120, Math.round(280 * remaining)),
+              easing: Easing.out(Easing.cubic),
+            },
+            (finished) => {
+              if (finished) {
+                runOnJS(logSwipeEvent)('animation-complete', index, targetIndex);
+                runOnJS(finishSwipeRight)();
+              }
+            },
+          );
           return;
         }
-        if (shouldCommit && dx > 0 && canSwipeRight) {
-          commitSwipeRight();
-          return;
-        }
-        resetSwipe();
-      },
-      onPanResponderTerminate: resetSwipe,
-    }),
+
+        visualIndex.value = withSpring(index, springConfig);
+      }),
     [
       canSwipeLeft,
       canSwipeRight,
-      commitSwipeLeft,
-      commitSwipeRight,
-      current,
+      current?.id,
+      finishSwipeLeft,
+      finishSwipeRight,
       flippedArticleId,
-      resetSwipe,
-      swipeX,
-      swipeY,
+      index,
+      logSwipeEvent,
+      visualIndex,
     ],
   );
 
@@ -869,7 +991,7 @@ export default function FeedScreen() {
           ) : (
             <>
               <TouchableOpacity
-                onPress={() => router.push('/modal/profile')}
+                onPress={() => router.push('/profile')}
                 style={s.headerBtn}
               >
                 <Ionicons name="person-outline" size={20} color={c.icon} />
@@ -916,7 +1038,7 @@ export default function FeedScreen() {
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            onPress={() => router.push('/modal/search')}
+            onPress={() => router.push('/search')}
             style={s.headerBtn}
           >
             <Ionicons name="search-outline" size={18} color={c.icon} />
@@ -1014,105 +1136,30 @@ export default function FeedScreen() {
         </View>
       ) : (
         <View style={s.cardStack}>
-          <View style={s.deckFrame}>
-            {fourth && (
-              <Animated.View
-                style={[
-                  s.stack4,
-                  {
-                    opacity: fourthCardOpacity,
-                    transform: [{ translateX: fourthCardTranslate }, { scale: fourthCardScale }],
-                  },
-                ]}
-              >
-                <StackPreviewCard
-                  article={fourth}
-                  width={CARD_WIDTH}
-                  height={CARD_HEIGHT}
-                  tint="rgba(226, 231, 236, 0.24)"
-                  offsetStyle={s.stackInner}
-                />
-              </Animated.View>
-            )}
-            {afterNext && (
-              <Animated.View
-                style={[
-                  s.stack3,
-                  {
-                    opacity: thirdCardOpacity,
-                    transform: [{ translateX: thirdCardTranslate }, { scale: thirdCardScale }],
-                  },
-                ]}
-              >
-                <StackPreviewCard
-                  article={afterNext}
-                  width={CARD_WIDTH}
-                  height={CARD_HEIGHT}
-                  tint="rgba(210, 220, 230, 0.28)"
-                  offsetStyle={s.stackInner}
-                />
-              </Animated.View>
-            )}
-            {next && (
-              <Animated.View
-                style={[
-                  s.stack2,
-                  {
-                    opacity: nextCardOpacity,
-                    transform: [{ translateX: nextCardTranslate }, { scale: nextCardScale }],
-                  },
-                ]}
-              >
-                <StackPreviewCard
-                  article={next}
-                  width={CARD_WIDTH}
-                  height={CARD_HEIGHT}
-                  tint="rgba(146, 192, 177, 0.24)"
-                  offsetStyle={s.stackInner}
-                />
-              </Animated.View>
-            )}
-            <Animated.View
-              style={[
-                s.activeCard,
-                {
-                  transform: [{ translateX: swipeX }, { translateY: swipeY }, { rotate: activeRotate }, { scale: activeScale }],
-                },
-              ]}
-              {...(flippedArticleId === current.id ? {} : stackPanResponder.panHandlers)}
-            >
-              <ArticleCard
-                article={current}
-                isActive
-                isSaved={savedIds.has(current.id)}
-                onSave={() => toggleSave(current.id)}
-                onShare={() => shareArticle(current)}
-                onRead={() => {
-                  markRead(current);
-                  router.push({
-                    pathname: '/article/[id]',
-                    params: {
-                      id: String(current.id),
-                      title: current.title,
-                      lede: current.lede ?? '',
-                      image_url: current.image_url ?? '',
-                      url: current.url,
-                      publisher_name: current.publisher?.name ?? '',
-                      ts_pub: current.ts_pub,
-                    },
-                  });
-                }}
-                canSwipeRight={safeIndex > 0}
-                onFlipChange={(isFlipped) => {
-                  setFlippedArticleId(isFlipped ? current.id : null);
-                }}
-                showSwipeHints={flippedArticleId !== current.id}
-                isDigestCard={false}
-                swipeEnabled
-                swipeX={swipeX}
-              />
+          <GestureDetector gesture={swipeGesture}>
+            <Animated.View style={s.deckFrame}>
+              {articles
+                .slice(0, maxAvailableArticles)
+                .map((article, articleIndex) => {
+                  const isActive = articleIndex === safeIndex;
+
+                  return (
+                    <DeckCard
+                      key={article.id}
+                      article={article}
+                      articleIndex={articleIndex}
+                      isActive={isActive}
+                      isSaved={savedIds.has(article.id)}
+                      visualIndex={visualIndex}
+                      onSaveArticle={toggleSave}
+                      onShareArticle={shareArticle}
+                      onReadArticle={handleReadArticle}
+                      onFlipArticle={handleFlipArticle}
+                    />
+                  );
+                })}
             </Animated.View>
-          </View>
+          </GestureDetector>
         </View>
       )}
 
@@ -1273,7 +1320,7 @@ const s = StyleSheet.create({
     height: CARD_HEIGHT + 14,
     position: 'relative',
   },
-  activeCard: { position: 'absolute', top: 0, left: 0, zIndex: 10 },
+  deckCard: { position: 'absolute', top: 0, left: 0 },
   stackInner: { position: 'absolute' },
   stackPreview: {
     position: 'absolute',

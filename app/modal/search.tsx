@@ -13,7 +13,6 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../hooks/useTheme';
 import {
   getMockTrendingTopics,
   searchMockArticles,
@@ -35,9 +34,24 @@ type LocalArticleResult = {
   ts_pub: string;
   url: string;
   matchLabel: string;
+  x: number | null;
+  y: number | null;
+  category: string | null;
+  topics: string[];
+  xExplanation: string | null;
+  yExplanation: string | null;
 };
 
 const SEARCH_DEBOUNCE_MS = 140;
+const SEARCH_COLORS = {
+  background: '#F7F3EA',
+  card: '#FFFDF7',
+  secondary: '#EFE7D9',
+  text: '#2E2A25',
+  textMuted: '#817A71',
+  tint: '#8DAE73',
+  border: '#DED5C4',
+};
 
 const humanizeMatchLabel = (matches: string[]) => {
   if (matches.includes('topics')) return 'Topic match';
@@ -58,7 +72,7 @@ const formatPublishedLabel = (dateString: string) => {
 
 export default function SearchModal() {
   const { user } = useAuth();
-  const { c } = useTheme();
+  const c = SEARCH_COLORS;
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<LocalArticleResult[]>([]);
   const [savedArticles, setSavedArticles] = useState<SavedArticleSnapshot[]>([]);
@@ -109,6 +123,12 @@ export default function SearchModal() {
         ts_pub: result.article.ts_pub,
         url: result.article.url,
         matchLabel: humanizeMatchLabel(result.matches),
+        x: result.article.x,
+        y: result.article.y,
+        category: result.article.category,
+        topics: result.article.topics,
+        xExplanation: null,
+        yExplanation: null,
       }));
 
       const savedMatches = savedArticles
@@ -130,6 +150,12 @@ export default function SearchModal() {
           ts_pub: article.ts_pub,
           url: article.url,
           matchLabel: 'Saved article',
+          x: article.x,
+          y: article.y,
+          category: article.category,
+          topics: article.topics,
+          xExplanation: article.meta?.x_explanation ?? null,
+          yExplanation: article.meta?.y_explanation ?? null,
         }));
 
       const merged = new Map<number, LocalArticleResult>();
@@ -147,7 +173,6 @@ export default function SearchModal() {
   }, [query, savedArticles]);
 
   const openArticle = (article: LocalArticleResult) => {
-    router.back();
     router.push({
       pathname: '/article/[id]',
       params: {
@@ -158,6 +183,13 @@ export default function SearchModal() {
         url: article.url,
         publisher_name: article.publisher,
         ts_pub: article.ts_pub,
+        source_context: 'search',
+        x: article.x == null ? '' : String(article.x),
+        y: article.y == null ? '' : String(article.y),
+        category: article.category ?? '',
+        topics: JSON.stringify(article.topics),
+        x_explanation: article.xExplanation ?? '',
+        y_explanation: article.yExplanation ?? '',
       },
     });
   };
@@ -167,12 +199,20 @@ export default function SearchModal() {
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
-      <View style={s.header}>
-        <View style={[s.inputShell, { backgroundColor: c.card, borderColor: c.border }]}>
-          <Ionicons name="search-outline" size={18} color={c.textMuted} />
+      <View style={[s.header, { backgroundColor: c.card, borderBottomColor: c.border }]}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={s.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="arrow-back" size={20} color={c.text} />
+        </TouchableOpacity>
+        <View style={[s.inputShell, { backgroundColor: c.background, borderColor: c.border }]}>
+          <Ionicons name="search-outline" size={20} color={c.textMuted} />
           <TextInput
             style={[s.input, { color: c.text }]}
-            placeholder="Search articles, topics, publishers..."
+            placeholder="Search articles..."
             placeholderTextColor={c.textMuted}
             value={query}
             onChangeText={setQuery}
@@ -185,9 +225,6 @@ export default function SearchModal() {
             </TouchableOpacity>
           ) : null}
         </View>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={[s.cancel, { color: c.tint }]}>Cancel</Text>
-        </TouchableOpacity>
       </View>
 
       {!hasQuery ? (
@@ -228,6 +265,12 @@ export default function SearchModal() {
                       ts_pub: article.ts_pub,
                       url: article.url,
                       matchLabel: 'Saved article',
+                      x: article.x,
+                      y: article.y,
+                      category: article.category,
+                      topics: article.topics,
+                      xExplanation: article.meta?.x_explanation ?? null,
+                      yExplanation: article.meta?.y_explanation ?? null,
                     })
                   }
                 >
@@ -320,15 +363,23 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
+    paddingVertical: 12,
+    gap: 8,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inputShell: {
     flex: 1,
-    height: 46,
+    height: 40,
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -344,9 +395,9 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  cancel: { fontSize: 15 },
   discoveryContent: {
     paddingHorizontal: 16,
+    paddingTop: 20,
     paddingBottom: 28,
     gap: 18,
   },
