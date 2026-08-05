@@ -2,6 +2,7 @@ export interface RecommenderConfig {
   apiBaseUrl: string | null;
   apiKey: string | null;
   isEnabled: boolean;
+  isAiRecommendationsEnabled: boolean;
 }
 
 const normalizeEnvValue = (value: string | undefined): string | null => {
@@ -15,11 +16,15 @@ export const getRecommenderConfig = (): RecommenderConfig => {
   const apiKey = normalizeEnvValue(process.env.EXPO_PUBLIC_RECOMMENDER_API_KEY);
   const disableLiveRecommender =
     normalizeEnvValue(process.env.EXPO_PUBLIC_DISABLE_LIVE_RECOMMENDER) === 'true';
+  const enableAiRecommendations =
+    normalizeEnvValue(process.env.EXPO_PUBLIC_ENABLE_AI_RECOMMENDATIONS) === 'true';
+  const isEnabled = Boolean(apiBaseUrl) && !disableLiveRecommender;
 
   return {
     apiBaseUrl,
     apiKey,
-    isEnabled: Boolean(apiBaseUrl) && !disableLiveRecommender,
+    isEnabled,
+    isAiRecommendationsEnabled: isEnabled && enableAiRecommendations,
   };
 };
 

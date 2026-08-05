@@ -90,6 +90,11 @@ const RECENCY_HOURS_PROGRESSION = [168, 336, 504, 720];
 const DEFAULT_QUERY_RADIUS = 0.25;
 const FEED_CACHE_KEY = '__PRAXIS_MOBILE_FEED_CACHE__';
 const FEED_CACHE_STORAGE_KEY = 'praxis.mobileFeedCache.v1';
+const LIVE_ARTICLE_CACHE_TTL_MS = 5 * 60 * 1000;
+const liveArticleRequestCache = new Map<string, {
+  expiresAt: number;
+  articles: Article[];
+}>();
 const EMPTY_FEED_CACHE: FeedCacheState = {
   articles: [],
   currentIndex: 0,
@@ -354,7 +359,39 @@ const rankArticlesForGraphRange = (
     .map(({ article }) => article);
 };
 
-const fetchTopNewsArticles = async (
+const normalizeSearchTerm = (value: string) => value.trim().toLowerCase();
+
+const scoreArticleTerms = (article: Article, terms: string[]) => {
+  const normalizedTerms = terms.map(normalizeSearchTerm).filter(Boolean);
+  if (normalizedTerms.length === 0) return 0;
+
+  const title = article.title.toLowerCase();
+  const lede = (article.lede || '').toLowerCase();
+  const publisher = (article.publisher?.name || article.source || '').toLowerCase();
+  const category = (article.category || '').toLowerCase();
+  const topics = article.topics.map((topic) => topic.toLowerCase());
+
+  return normalizedTerms.reduce((score, term) => {
+    if (title.includes(term)) score += 8;
+    if (topics.some((topic) => topic.includes(term) || term.includes(topic))) score += 6;
+    if (category.includes(term) || term.includes(category)) score += 4;
+    if (publisher.includes(term)) score += 3;
+    if (lede.includes(term)) score += 2;
+    return score;
+  }, 0);
+};
+
+const rankArticlesForTerms = (articles: Article[], terms: string[]) =>
+  [...articles]
+    .map((article, index) => ({
+      article,
+      index,
+      score: scoreArticleTerms(article, terms),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ article }) => article);
+
+export const fetchTopNewsArticles = async (
   graphFilter: TopNewsGraphFilterState | null,
 ): Promise<Article[]> => {
   const { apiBaseUrl, isEnabled } = getRecommenderConfig();
@@ -372,6 +409,12 @@ const fetchTopNewsArticles = async (
     params.set('radius', (graphFilter.radius / 100).toString());
   }
 
+  const cacheKey = params.toString() || 'unfiltered';
+  const cached = liveArticleRequestCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.articles;
+  }
+
   const response = await fetch(
     `${apiBaseUrl.replace(/\/$/, '')}/v1/fallback-articles${params.toString() ? `?${params.toString()}` : ''}`,
     {
@@ -386,9 +429,14 @@ const fetchTopNewsArticles = async (
   }
 
   const json = await response.json();
-  return Array.isArray(json?.articles)
+  const articles = Array.isArray(json?.articles)
     ? json.articles.map(mapFallbackArticle).filter((article: Article) => Boolean(article.url))
     : [];
+  liveArticleRequestCache.set(cacheKey, {
+    articles,
+    expiresAt: Date.now() + LIVE_ARTICLE_CACHE_TTL_MS,
+  });
+  return articles;
 };
 
 const fetchTopNewsArticlesWithRetry = async (
@@ -411,11 +459,19 @@ const fetchTopicArticles = async (
   excludeArticleIds: number[] = [],
   promptTerms: string[] = [],
 ) => {
-  const { isEnabled } = getRecommenderConfig();
+  const { isEnabled, isAiRecommendationsEnabled } = getRecommenderConfig();
   if (!isEnabled) {
     return getMockTopicArticles(topics, excludeArticleIds, null, undefined, promptTerms)
       .map(mapFallbackArticle)
       .filter((article: Article) => Boolean(article.url));
+  }
+
+  if (!isAiRecommendationsEnabled) {
+    const excluded = new Set(excludeArticleIds);
+    const liveArticles = await fetchTopNewsArticles(null);
+    return rankArticlesForTerms(liveArticles, [...topics, ...promptTerms])
+      .filter((article) => !excluded.has(article.id))
+      .slice(0, 20);
   }
 
   const { data, error } = await supabase.functions.invoke('get-articles', {
@@ -440,7 +496,7 @@ const streamRecommendedArticles = async (
   onArticle?: (article: Article) => void,
   signal?: AbortSignal,
 ): Promise<Article[]> => {
-  const { apiBaseUrl, isEnabled } = getRecommenderConfig();
+  const { apiBaseUrl, isEnabled, isAiRecommendationsEnabled } = getRecommenderConfig();
   if (!isEnabled || !apiBaseUrl) {
     const previewArticles = getMockTopicArticles(
       Array.isArray(request.topics) ? request.topics : [],
@@ -460,6 +516,23 @@ const streamRecommendedArticles = async (
 
     previewArticles.forEach((article) => onArticle?.(article));
     return previewArticles;
+  }
+
+  if (!isAiRecommendationsEnabled) {
+    const excluded = new Set(excludeArticleIds);
+    const graphRanked = rankArticlesForGraphRange(
+      await fetchTopNewsArticles(deriveGraphFilterFromRequest(request)),
+      request,
+    );
+    const liveArticles = rankArticlesForTerms(
+      graphRanked,
+      [...(request.topics || []), ...getPromptTermsFromRequest(request)],
+    )
+      .filter((article) => !excluded.has(article.id))
+      .slice(0, 20);
+
+    liveArticles.forEach((article) => onArticle?.(article));
+    return liveArticles;
   }
 
   const response = await fetch(
@@ -563,6 +636,33 @@ const streamRecommendedArticles = async (
   }
 
   return streamedArticles;
+};
+
+export const searchLiveArticles = async (query: string, limit = 12): Promise<Article[]> => {
+  const normalizedQuery = normalizeSearchTerm(query);
+  if (!normalizedQuery) return [];
+
+  const articles = await fetchTopNewsArticles(null);
+  return articles
+    .map((article) => ({ article, score: scoreArticleTerms(article, [normalizedQuery]) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map(({ article }) => article);
+};
+
+export const fetchLiveArticleById = async (articleId: number): Promise<Article | null> => {
+  const { apiBaseUrl, isEnabled } = getRecommenderConfig();
+  if (!isEnabled || !apiBaseUrl) return null;
+
+  const response = await fetch(
+    `${apiBaseUrl.replace(/\/$/, '')}/v1/articles/${articleId}`,
+    { headers: getRecommenderHeaders() },
+  );
+  if (!response.ok) return null;
+
+  const json = await response.json();
+  return json?.article ? mapFallbackArticle(json.article) : null;
 };
 
 export function useFeedArticles() {

@@ -23,7 +23,10 @@
       "channel": "production",
       "node": "20.19.4",
       "env": {
-        "APP_ENV": "production"
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_RECOMMENDER_API_URL": "https://praxis-backend-production.up.railway.app",
+        "EXPO_PUBLIC_DISABLE_LIVE_RECOMMENDER": "false",
+        "EXPO_PUBLIC_ENABLE_AI_RECOMMENDATIONS": "true"
       },
       "ios": {
         "resourceClass": "m-medium"

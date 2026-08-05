@@ -201,10 +201,16 @@ export const mergeSavedArticles = async (
   });
 
   articles.forEach((article) => {
-    const normalized = normalizeSavedArticle(article);
+    const current = merged.get(Number(article.id));
+    const normalized = normalizeSavedArticle({
+      ...current,
+      ...article,
+      publisher: article.publisher ?? current?.publisher ?? null,
+      topics: article.topics ?? current?.topics ?? [],
+      meta: article.meta ?? current?.meta ?? null,
+    });
     if (!normalized) return;
 
-    const current = merged.get(normalized.id);
     merged.set(normalized.id, {
       ...current,
       ...normalized,

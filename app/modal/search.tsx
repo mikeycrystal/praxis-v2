@@ -23,6 +23,8 @@ import {
   type SavedArticleSnapshot,
 } from '../lib/savedArticles';
 import { useAuth } from '../context/AuthContext';
+import { searchLiveArticles } from '../hooks/useFeedArticles';
+import { getRecommenderConfig } from '../lib/recommenderConfig';
 
 type LocalArticleResult = {
   type: 'article';
@@ -103,6 +105,7 @@ export default function SearchModal() {
 
   useEffect(() => {
     const trimmed = query.trim();
+    let isActive = true;
 
     if (trimmed.length < 2) {
       setResults([]);
@@ -113,63 +116,97 @@ export default function SearchModal() {
     setLoading(true);
 
     const timeout = setTimeout(() => {
-      const mockMatches = searchMockArticles(trimmed, 12).map((result) => ({
-        type: 'article' as const,
-        id: result.article.id,
-        title: result.article.title,
-        publisher: result.article.publisher,
-        lede: result.article.lede,
-        image_url: result.article.image_url,
-        ts_pub: result.article.ts_pub,
-        url: result.article.url,
-        matchLabel: humanizeMatchLabel(result.matches),
-        x: result.article.x,
-        y: result.article.y,
-        category: result.article.category,
-        topics: result.article.topics,
-        xExplanation: null,
-        yExplanation: null,
-      }));
+      void (async () => {
+        let searchableMatches: LocalArticleResult[];
 
-      const savedMatches = savedArticles
-        .filter((article) => {
-          const searchable = [
-            article.title,
-            article.lede,
-            article.publisher?.name ?? '',
-          ].join(' ').toLowerCase();
-          return searchable.includes(trimmed.toLowerCase());
-        })
-        .map((article) => ({
-          type: 'article' as const,
-          id: article.id,
-          title: article.title,
-          publisher: article.publisher?.name ?? 'Saved article',
-          lede: article.lede,
-          image_url: article.image_url,
-          ts_pub: article.ts_pub,
-          url: article.url,
-          matchLabel: 'Saved article',
-          x: article.x,
-          y: article.y,
-          category: article.category,
-          topics: article.topics,
-          xExplanation: article.meta?.x_explanation ?? null,
-          yExplanation: article.meta?.y_explanation ?? null,
-        }));
+        try {
+          const { isEnabled } = getRecommenderConfig();
+          if (!isEnabled) throw new Error('Live article search is disabled');
 
-      const merged = new Map<number, LocalArticleResult>();
-      [...savedMatches, ...mockMatches].forEach((article) => {
-        if (!merged.has(article.id)) {
-          merged.set(article.id, article);
+          const liveMatches = await searchLiveArticles(trimmed, 12);
+          searchableMatches = liveMatches.map((article) => ({
+            type: 'article' as const,
+            id: article.id,
+            title: article.title,
+            publisher: article.publisher?.name ?? article.source ?? 'Unknown source',
+            lede: article.lede ?? '',
+            image_url: article.image_url,
+            ts_pub: article.ts_pub,
+            url: article.url,
+            matchLabel: 'Live article',
+            x: article.x,
+            y: article.y,
+            category: article.category ?? null,
+            topics: article.topics,
+            xExplanation: article.meta?.x_explanation ?? null,
+            yExplanation: article.meta?.y_explanation ?? null,
+          }));
+        } catch (error) {
+          console.warn('[SearchModal] Live search unavailable, using preview data', error);
+          searchableMatches = searchMockArticles(trimmed, 12).map((result) => ({
+            type: 'article' as const,
+            id: result.article.id,
+            title: result.article.title,
+            publisher: result.article.publisher,
+            lede: result.article.lede,
+            image_url: result.article.image_url,
+            ts_pub: result.article.ts_pub,
+            url: result.article.url,
+            matchLabel: humanizeMatchLabel(result.matches),
+            x: result.article.x,
+            y: result.article.y,
+            category: result.article.category,
+            topics: result.article.topics,
+            xExplanation: null,
+            yExplanation: null,
+          }));
         }
-      });
 
-      setResults(Array.from(merged.values()));
-      setLoading(false);
+        const savedMatches = savedArticles
+          .filter((article) => {
+            const searchable = [
+              article.title,
+              article.lede,
+              article.publisher?.name ?? '',
+            ].join(' ').toLowerCase();
+            return searchable.includes(trimmed.toLowerCase());
+          })
+          .map((article) => ({
+            type: 'article' as const,
+            id: article.id,
+            title: article.title,
+            publisher: article.publisher?.name ?? 'Saved article',
+            lede: article.lede,
+            image_url: article.image_url,
+            ts_pub: article.ts_pub,
+            url: article.url,
+            matchLabel: 'Saved article',
+            x: article.x,
+            y: article.y,
+            category: article.category,
+            topics: article.topics,
+            xExplanation: article.meta?.x_explanation ?? null,
+            yExplanation: article.meta?.y_explanation ?? null,
+          }));
+
+        const merged = new Map<number, LocalArticleResult>();
+        [...savedMatches, ...searchableMatches].forEach((article) => {
+          if (!merged.has(article.id)) {
+            merged.set(article.id, article);
+          }
+        });
+
+        if (isActive) {
+          setResults(Array.from(merged.values()));
+          setLoading(false);
+        }
+      })();
     }, SEARCH_DEBOUNCE_MS);
 
-    return () => clearTimeout(timeout);
+    return () => {
+      isActive = false;
+      clearTimeout(timeout);
+    };
   }, [query, savedArticles]);
 
   const openArticle = (article: LocalArticleResult) => {
@@ -295,7 +332,7 @@ export default function SearchModal() {
           <View style={s.section}>
             <Text style={[s.sectionTitle, { color: c.text }]}>Search mode</Text>
             <Text style={[s.helperText, { color: c.textMuted }]}>
-              Search is currently using local preview and saved-article data so it stays useful in safe mode.
+              Live stories are searched from the current article pool. Saved stories stay searchable on this device.
             </Text>
           </View>
         </ScrollView>
@@ -307,7 +344,7 @@ export default function SearchModal() {
 
       {!loading && hasQuery && results.length === 0 ? (
         <View style={s.emptyState}>
-          <Text style={[s.emptyTitle, { color: c.text }]}>No local matches</Text>
+          <Text style={[s.emptyTitle, { color: c.text }]}>No article matches</Text>
           <Text style={[s.helperText, { color: c.textMuted }]}>
             Try a topic like “AI”, “Courts”, or a publisher name.
           </Text>

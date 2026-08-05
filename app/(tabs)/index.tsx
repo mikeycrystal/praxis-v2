@@ -29,7 +29,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../context/AuthContext';
 import { useNewsPreferences } from '../context/NewsPreferencesContext';
-import { useFeedArticles, type Article } from '../hooks/useFeedArticles';
+import {
+  fetchLiveArticleById,
+  useFeedArticles,
+  type Article,
+} from '../hooks/useFeedArticles';
 import {
   buildFeedPreferenceSignature,
 } from '../lib/newsPreferences';
@@ -367,24 +371,28 @@ export default function FeedScreen() {
     try {
       const { data, error } = await supabase
         .from('saved_articles')
-        .select('article_id, saved_at, article:article_id(id, title, lede, ts_pub, image_url, url, publisher(name, domain))')
+        .select('article_id, saved_at')
         .eq('user_id', user.id)
         .order('saved_at', { ascending: false });
 
       if (error) throw error;
 
+      const localById = new Map(localSaved.map((article) => [article.id, article]));
+      const hydratedRows = await Promise.all((data ?? []).map(async (row: any) => {
+        const localArticle = localById.get(Number(row.article_id));
+        if (localArticle?.url) {
+          return { ...localArticle, saved_at: row.saved_at };
+        }
+
+        const liveArticle = await fetchLiveArticleById(Number(row.article_id));
+        return liveArticle
+          ? { ...liveArticle, saved_at: row.saved_at }
+          : { id: row.article_id, saved_at: row.saved_at };
+      }));
+
       const merged = await mergeSavedArticles(
         user.id,
-        (data ?? []).map((row: any) => ({
-          id: row.article_id,
-          saved_at: row.saved_at,
-          title: row.article?.title,
-          lede: row.article?.lede,
-          ts_pub: row.article?.ts_pub,
-          image_url: row.article?.image_url,
-          url: row.article?.url,
-          publisher: row.article?.publisher ?? null,
-        })),
+        hydratedRows,
       );
 
       const nextIds = new Set<number>(merged.map((article) => article.id));
