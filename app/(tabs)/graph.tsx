@@ -28,7 +28,6 @@ import {
   RecommendationRequestState,
   TopNewsGraphFilterState,
   writeDigestPresets,
-  writeTopNewsGraphFilter,
 } from '../lib/newsPreferences';
 import {
   fetchTopics,
@@ -314,6 +313,7 @@ export default function GraphScreen() {
     preferences,
     applyQueryPreferences,
     applyTopNewsPreferences,
+    syncTopNewsFallbackState,
   } = useNewsPreferences();
   const isFocused = useIsFocused();
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
@@ -376,7 +376,6 @@ export default function GraphScreen() {
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [digestName, setDigestName] = useState('');
   const [isApplying, setIsApplying] = useState(false);
-  const [isTopicsLoading, setIsTopicsLoading] = useState(false);
   const [localStreakCount, setLocalStreakCount] = useState(0);
   const [seedTopics, setSeedTopics] = useState<string[]>(FALLBACK_TOPICS);
   const [allTopics, setAllTopics] = useState<string[]>(FALLBACK_TOPICS);
@@ -386,19 +385,26 @@ export default function GraphScreen() {
   const [hasAppliedTopNewsFilter, setHasAppliedTopNewsFilter] = useState(
     () => initialGraphState.hasAppliedTopNewsFilter,
   );
-  const sliderTrackWidth = Math.min(Math.max(windowWidth - 210, 160), 240);
+  const sliderTrackWidth = Math.min(Math.max(windowWidth - 142, 210), 300);
   const [pinX, setPinX] = useState(initialPin.x);
   const [pinY, setPinY] = useState(initialPin.y);
   const animatedPinX = useSharedValue(initialPin.x);
   const animatedPinY = useSharedValue(initialPin.y);
   const animatedRadius = useSharedValue(initialGraphState.radius / 100);
+  const graphResetRevision = useSharedValue(0);
+  const activeGraphGestureRevision = useSharedValue(0);
+  const activeSliderGestureRevision = useSharedValue(0);
+  const graphResetRevisionRef = useRef(0);
+  const isDefaultResetLockedRef = useRef(false);
   const graphPositionRef = useRef<GraphPoint>(initialGraphState.graphPosition);
   const previousGraphSizeRef = useRef({
     width: graphWidth,
     height: graphHeight,
   });
   const currentGraphPosition = useMemo(
-    () => canvasToGraphPoint(pinX, pinY, graphWidth, graphHeight),
+    () => isDefaultResetLockedRef.current
+      ? { ...DEFAULT_GRAPH_POSITION }
+      : canvasToGraphPoint(pinX, pinY, graphWidth, graphHeight),
     [pinX, pinY, graphWidth, graphHeight],
   );
   const [initialState, setInitialState] = useState({
@@ -414,6 +420,8 @@ export default function GraphScreen() {
 
   const syncGraphStateFromPreferences = useCallback(() => {
     const nextGraphState = readPersistedGraphState();
+    isDefaultResetLockedRef.current = false;
+    graphPositionRef.current = { ...nextGraphState.graphPosition };
     const currentGraphSize = graphSizeRef.current;
     const nextPin = graphPointToCanvas(
       nextGraphState.graphPosition,
@@ -532,10 +540,6 @@ export default function GraphScreen() {
     let cancelled = false;
 
     const applyTopics = async () => {
-      if (!cancelled) {
-        setIsTopicsLoading(true);
-      }
-
       const cachedTopics = readCachedTopics();
       const cachedTrendingTopics = readCachedTrendingTopics();
 
@@ -598,7 +602,6 @@ export default function GraphScreen() {
                 ? cachedTrendingTopics.map((topic) => topic.name).filter(Boolean)
                 : FALLBACK_TRENDING_TOPICS,
           );
-          setIsTopicsLoading(false);
         }
       } catch {
         if (!cancelled) {
@@ -617,7 +620,6 @@ export default function GraphScreen() {
               ? cachedTrendingTopics.map((topic) => topic.name).filter(Boolean)
               : FALLBACK_TRENDING_TOPICS,
           );
-          setIsTopicsLoading(false);
         }
       }
 
@@ -709,8 +711,7 @@ export default function GraphScreen() {
   const topNewsFilterState =
     hasSearchCriteria
       ? null
-      : hasAppliedTopNewsFilter ||
-          !isDefaultGraphSelection(currentGraphPosition, radiusPercent)
+      : !isDefaultGraphSelection(currentGraphPosition, radiusPercent)
         ? 'active'
         : null;
   const showSelectedFilters = Boolean(topNewsFilterState || hasSearchCriteria);
@@ -722,7 +723,6 @@ export default function GraphScreen() {
     () => new Set(trendingTopics.map((topic) => normalizeTopicId(topic))),
     [trendingTopics],
   );
-  const showInlineTopicLoading = isTopicsLoading && !isDropdownOpen && !showSelectedFilters && !query;
 
   const cancelScheduledDropdownClose = useCallback(() => {
     if (dropdownCloseTimeoutRef.current) {
@@ -752,7 +752,12 @@ export default function GraphScreen() {
   useEffect(() => () => cancelScheduledDropdownClose(), [cancelScheduledDropdownClose]);
 
   useEffect(() => {
-    graphPositionRef.current = canvasToGraphPoint(pinX, pinY, graphWidth, graphHeight);
+    graphPositionRef.current = isDefaultResetLockedRef.current
+      ? { ...DEFAULT_GRAPH_POSITION }
+      : canvasToGraphPoint(pinX, pinY, graphWidth, graphHeight);
+    // A canvas resize must preserve the normalized position already in the ref.
+    // The resize effect below converts that position back to the new pixel size.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinX, pinY]);
 
   useEffect(() => {
@@ -769,11 +774,10 @@ export default function GraphScreen() {
       height: graphHeight,
     };
 
-    const nextPin = graphPointToCanvas(
-      graphPositionRef.current,
-      graphWidth,
-      graphHeight,
-    );
+    const nextPosition = isDefaultResetLockedRef.current
+      ? DEFAULT_GRAPH_POSITION
+      : graphPositionRef.current;
+    const nextPin = graphPointToCanvas(nextPosition, graphWidth, graphHeight);
 
     setPinX(nextPin.x);
     setPinY(nextPin.y);
@@ -781,7 +785,9 @@ export default function GraphScreen() {
     animatedPinY.value = nextPin.y;
   }, [animatedPinX, animatedPinY, graphHeight, graphWidth]);
 
-  const commitGraphPosition = useCallback((x: number, y: number) => {
+  const commitGraphPosition = useCallback((x: number, y: number, revision: number) => {
+    if (revision !== graphResetRevisionRef.current) return;
+    isDefaultResetLockedRef.current = false;
     const nextX = clamp(x, 0, graphWidth);
     const nextY = clamp(y, 0, graphHeight);
     setPinX(nextX);
@@ -789,14 +795,17 @@ export default function GraphScreen() {
     graphPositionRef.current = canvasToGraphPoint(nextX, nextY, graphWidth, graphHeight);
   }, [graphHeight, graphWidth]);
 
-  const commitRadius = useCallback((nextRadius: number) => {
+  const commitRadius = useCallback((nextRadius: number, revision: number) => {
+    if (revision !== graphResetRevisionRef.current) return;
+    isDefaultResetLockedRef.current = false;
     setRadius(nextRadius);
   }, []);
 
-  const graphGesture = useMemo(
+  const graphPanGesture = useMemo(
     () => Gesture.Pan()
-      .minDistance(0)
+      .minDistance(4)
       .onBegin((event) => {
+        activeGraphGestureRevision.value = graphResetRevision.value;
         animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
         animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
       })
@@ -805,15 +814,60 @@ export default function GraphScreen() {
         animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
       })
       .onFinalize(() => {
-        runOnJS(commitGraphPosition)(animatedPinX.value, animatedPinY.value);
+        runOnJS(commitGraphPosition)(
+          animatedPinX.value,
+          animatedPinY.value,
+          activeGraphGestureRevision.value,
+        );
       }),
-    [animatedPinX, animatedPinY, commitGraphPosition, graphHeight, graphWidth],
+    [
+      activeGraphGestureRevision,
+      animatedPinX,
+      animatedPinY,
+      commitGraphPosition,
+      graphHeight,
+      graphResetRevision,
+      graphWidth,
+    ],
+  );
+
+  const graphTapGesture = useMemo(
+    () => Gesture.Tap()
+      .maxDistance(8)
+      .onBegin(() => {
+        activeGraphGestureRevision.value = graphResetRevision.value;
+      })
+      .onEnd((event, success) => {
+        if (!success) return;
+        animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
+        animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
+        runOnJS(commitGraphPosition)(
+          animatedPinX.value,
+          animatedPinY.value,
+          activeGraphGestureRevision.value,
+        );
+      }),
+    [
+      activeGraphGestureRevision,
+      animatedPinX,
+      animatedPinY,
+      commitGraphPosition,
+      graphHeight,
+      graphResetRevision,
+      graphWidth,
+    ],
+  );
+
+  const graphGesture = useMemo(
+    () => Gesture.Race(graphPanGesture, graphTapGesture),
+    [graphPanGesture, graphTapGesture],
   );
 
   const sliderGesture = useMemo(
     () => Gesture.Pan()
       .minDistance(0)
       .onBegin((event) => {
+        activeSliderGestureRevision.value = graphResetRevision.value;
         animatedRadius.value = Math.max(0.05, Math.min(1, event.x / sliderTrackWidth));
       })
       .onUpdate((event) => {
@@ -822,9 +876,15 @@ export default function GraphScreen() {
       .onFinalize(() => {
         const stepped = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 20) / 20));
         animatedRadius.value = withTiming(stepped, { duration: 120 });
-        runOnJS(commitRadius)(stepped);
+        runOnJS(commitRadius)(stepped, activeSliderGestureRevision.value);
       }),
-    [animatedRadius, commitRadius, sliderTrackWidth],
+    [
+      activeSliderGestureRevision,
+      animatedRadius,
+      commitRadius,
+      graphResetRevision,
+      sliderTrackWidth,
+    ],
   );
 
   const radiusCircleAnimatedProps = useAnimatedProps(() => ({
@@ -950,6 +1010,9 @@ export default function GraphScreen() {
   };
 
   const handleTopNewsReset = () => {
+    graphResetRevisionRef.current += 1;
+    graphResetRevision.value = graphResetRevisionRef.current;
+    isDefaultResetLockedRef.current = true;
     const defaultPin = graphPointToCanvas(
       DEFAULT_GRAPH_POSITION,
       graphWidth,
@@ -964,7 +1027,7 @@ export default function GraphScreen() {
     graphPositionRef.current = { ...DEFAULT_GRAPH_POSITION };
     setHasAppliedTopNewsFilter(false);
     closeDropdown();
-    writeTopNewsGraphFilter(null);
+    syncTopNewsFallbackState(null);
   };
 
   const handleOpenSaveDialog = () => {
@@ -995,6 +1058,8 @@ export default function GraphScreen() {
   };
 
   const handleLoadPreset = (preset: DigestPreset) => {
+    isDefaultResetLockedRef.current = false;
+    graphPositionRef.current = { ...preset.position };
     const point = graphPointToCanvas(preset.position, graphWidth, graphHeight);
     setSelectedTopics(preset.topics.map(normalizeTopicId));
     setPromptTerms([]);
@@ -1121,45 +1186,130 @@ export default function GraphScreen() {
 
       <View style={s.controls}>
         <View style={s.searchRow}>
-          <View style={[s.searchShell, { borderColor: PAGE.chipBorder }]}>
-            <Ionicons name="search-outline" size={22} color={PAGE.textMuted} />
-            <TextInput
-              ref={searchInputRef}
-              value={search}
-              onChangeText={(value) => {
-                setSearch(value);
-                if (!isDropdownOpen) openDropdown();
-              }}
-              onFocus={openDropdown}
-              onBlur={scheduleDropdownClose}
-              onSubmitEditing={handleSearchSubmit}
-              placeholder="Search topics or add keywords..."
-              placeholderTextColor={PAGE.textMuted}
-              style={s.searchInput}
-              returnKeyType="search"
-              testID="graph-search-input"
-              accessibilityLabel="Search topics or add keywords"
-            />
-            {(search.length > 0 || isDropdownOpen) ? (
-              <TouchableOpacity
-                onPress={() => {
-                  cancelScheduledDropdownClose();
-                  if (search.length > 0) {
-                    setSearch('');
-                    openDropdown();
-                    searchInputRef.current?.focus();
-                    return;
-                  }
-
-                  searchInputRef.current?.blur();
-                  closeDropdown();
+          <View style={s.searchFieldWrap}>
+            <View style={[s.searchShell, { borderColor: PAGE.chipBorder }]}>
+              <Ionicons name="search-outline" size={18} color={PAGE.textMuted} />
+              <TextInput
+                ref={searchInputRef}
+                value={search}
+                onChangeText={(value) => {
+                  setSearch(value);
+                  if (!isDropdownOpen) openDropdown();
                 }}
-                style={s.clearButton}
-              >
-                <Ionicons name="close" size={14} color={PAGE.textMuted} />
-              </TouchableOpacity>
+                onFocus={openDropdown}
+                onBlur={scheduleDropdownClose}
+                onSubmitEditing={handleSearchSubmit}
+                placeholder="Search topics or add keywords..."
+                placeholderTextColor={PAGE.textMuted}
+                style={s.searchInput}
+                returnKeyType="search"
+                testID="graph-search-input"
+                accessibilityLabel="Search topics or add keywords"
+              />
+              {(search.length > 0 || isDropdownOpen) ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    cancelScheduledDropdownClose();
+                    setSearch('');
+                    searchInputRef.current?.blur();
+                    closeDropdown();
+                  }}
+                  style={s.clearButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear topic search"
+                >
+                  <Ionicons name="close" size={12} color={PAGE.textMuted} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {isDropdownOpen ? (
+              <View style={s.dropdownOverlay} onTouchStart={cancelScheduledDropdownClose}>
+                <ScrollView
+                  style={s.dropdown}
+                  contentContainerStyle={s.dropdownContent}
+                  showsVerticalScrollIndicator
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="always"
+                >
+                  {digests.length > 0 || hasSearchCriteria ? (
+                    <View style={s.presetsBlock}>
+                      <Text style={s.dropdownLabel}>Saved presets</Text>
+                      {digests.length > 0 ? (
+                        <View style={s.presetsRow}>
+                          {digests.map((preset) => (
+                            <View key={preset.id} style={s.presetWrap}>
+                              <TouchableOpacity
+                                style={s.presetChip}
+                                onPress={() => handleLoadPreset(preset)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Load preset ${preset.name}`}
+                                testID={`graph-preset-${topicToTestId(preset.name)}`}
+                              >
+                                <Text style={s.presetChipText}>{preset.name}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={s.presetDelete}
+                                onPress={() => handleDeletePreset(preset.id, preset.name)}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Delete preset ${preset.name}`}
+                              >
+                                <Ionicons name="close" size={10} color={PAGE.textMuted} />
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <Text style={s.emptyDropdownText}>No saved presets yet.</Text>
+                      )}
+                    </View>
+                  ) : null}
+
+                  {showAddAsPrompt ? (
+                    <TouchableOpacity
+                      onPress={handlePromptAdd}
+                      style={s.dropdownSearchRow}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Search for ${search.trim()}`}
+                    >
+                      <View style={s.dropdownSearchLeft}>
+                        <Ionicons name="chatbubble-ellipses-outline" size={14} color={PAGE.textMuted} />
+                        <Text style={s.dropdownSearchText} numberOfLines={1}>
+                          Search for "<Text style={s.dropdownSearchTerm}>{search.trim()}</Text>"
+                        </Text>
+                      </View>
+                      <Ionicons name="add" size={15} color={PAGE.textMuted} />
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {visibleTopics.length > 0 ? (
+                    <View style={s.dropdownTopicsBlock}>
+                      <Text style={s.dropdownLabel}>{query ? 'Matching topics' : 'Categories'}</Text>
+                      <View style={s.dropdownTopics}>
+                        {visibleTopics.map((topic) => (
+                          <TouchableOpacity
+                            key={topic}
+                            style={s.dropdownTopicChip}
+                            onPress={() => handleTopicSelect(topic)}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Select topic ${topic}`}
+                            testID={`graph-topic-${topicToTestId(topic)}`}
+                          >
+                            <Text style={s.dropdownTopicText}>{topic}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  ) : query && !showAddAsPrompt ? (
+                    <Text style={[s.emptyDropdownText, s.emptyDropdownCentered]}>
+                      {isAlreadySelectedTopic ? 'Topic already selected' : 'No matching topics'}
+                    </Text>
+                  ) : null}
+                </ScrollView>
+              </View>
             ) : null}
           </View>
+
           <TouchableOpacity
             style={[
               s.saveButton,
@@ -1174,125 +1324,31 @@ export default function GraphScreen() {
             accessibilityLabel="Save graph preset"
             testID="graph-save-button"
           >
-            <Ionicons name="add" size={22} color={hasSearchCriteria ? PAGE.green : PAGE.textSoft} />
+            <Ionicons name="add" size={18} color={hasSearchCriteria ? PAGE.green : PAGE.textSoft} />
             <Text style={[s.saveButtonText, { color: hasSearchCriteria ? '#5D7650' : PAGE.textSoft }]}>Save</Text>
           </TouchableOpacity>
         </View>
 
-        {showInlineTopicLoading ? (
-          <View style={s.inlineLoadingRow}>
-            <View style={[s.dropdownLoadingChip, s.dropdownLoadingChipShort]} />
-            <View style={s.dropdownLoadingChip} />
-            <View style={[s.dropdownLoadingChip, s.dropdownLoadingChipMedium]} />
-          </View>
-        ) : null}
-
-        {isDropdownOpen ? (
-          <View style={s.dropdownOverlay} onTouchStart={cancelScheduledDropdownClose}>
-            <View style={s.dropdown}>
-            {digests.length > 0 || hasSearchCriteria ? (
-              <View style={s.presetsBlock}>
-                <Text style={s.dropdownLabel}>Saved presets</Text>
-                {digests.length > 0 ? (
-                  <View style={s.presetsRow}>
-                    {digests.map((preset) => (
-                      <View key={preset.id} style={s.presetWrap}>
-                        <TouchableOpacity
-                          style={s.presetChip}
-                          onPress={() => handleLoadPreset(preset)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Load preset ${preset.name}`}
-                          testID={`graph-preset-${topicToTestId(preset.name)}`}
-                        >
-                          <Text style={s.presetChipText}>{preset.name}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={s.presetDelete}
-                          onPress={() => handleDeletePreset(preset.id, preset.name)}
-                        >
-                          <Ionicons name="close" size={10} color={PAGE.textMuted} />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <Text style={s.emptyDropdownText}>No saved presets yet.</Text>
-                )}
-              </View>
-            ) : null}
-            {showAddAsPrompt ? (
-              <TouchableOpacity onPress={handlePromptAdd} style={s.dropdownSearchRow}>
-                <View style={s.dropdownSearchLeft}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={16} color={PAGE.textMuted} />
-                  <Text style={s.dropdownSearchText}>Search for "{search.trim()}"</Text>
-                </View>
-                <Ionicons name="add" size={16} color={PAGE.textMuted} />
-              </TouchableOpacity>
-            ) : null}
-
-            <Text style={s.dropdownLabel}>{query ? 'Matching topics' : 'Categories'}</Text>
-            <ScrollView
-              style={s.dropdownScroll}
-              contentContainerStyle={s.dropdownTopics}
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled
+        {topNewsFilterState ? (
+          <View style={s.selectedFiltersSection}>
+            <TouchableOpacity
+              onPress={handleTopNewsReset}
+              style={s.topNewsPill}
+              accessibilityRole="button"
+              accessibilityLabel="Reset Top News to defaults"
+              testID="graph-top-news-reset"
             >
-              {isTopicsLoading && visibleTopics.length === 0 && !query ? (
-                <View style={s.dropdownLoadingWrap}>
-                  <View style={[s.dropdownLoadingChip, s.dropdownLoadingChipWide]} />
-                  <View style={s.dropdownLoadingChip} />
-                  <View style={[s.dropdownLoadingChip, s.dropdownLoadingChipShort]} />
-                  <View style={[s.dropdownLoadingChip, s.dropdownLoadingChipMedium]} />
-                  <View style={s.dropdownLoadingChip} />
-                  <View style={[s.dropdownLoadingChip, s.dropdownLoadingChipWide]} />
-                </View>
-              ) : visibleTopics.length > 0 ? (
-                visibleTopics.map((topic) => (
-                  <TouchableOpacity
-                    key={topic}
-                    style={s.dropdownTopicChip}
-                    onPress={() => handleTopicSelect(topic)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Select topic ${topic}`}
-                    testID={`graph-topic-${topicToTestId(topic)}`}
-                  >
-                    <Text style={s.dropdownTopicText}>{topic}</Text>
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <Text style={s.emptyDropdownText}>
-                  {query
-                    ? isAlreadySelectedTopic
-                      ? 'Topic already selected'
-                      : 'No matching topics'
-                    : 'All topics selected'}
-                </Text>
-              )}
-            </ScrollView>
-            </View>
+              <Ionicons name="flame-outline" size={14} color="#D57A24" />
+              <Text style={s.topNewsPillText}>Top News</Text>
+            </TouchableOpacity>
           </View>
-        ) : null}
-
-        {showSelectedFilters ? (
+        ) : hasSearchCriteria ? (
           <View style={s.selectedFiltersSection}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={s.selectedFiltersRow}
             >
-              {topNewsFilterState ? (
-                <TouchableOpacity
-                  onPress={handleTopNewsReset}
-                  style={s.topNewsPill}
-                  accessibilityRole="button"
-                  accessibilityLabel="Reset Top News to defaults"
-                  testID="graph-top-news-reset"
-                >
-                  <Ionicons name="flame-outline" size={14} color="#D57A24" />
-                  <Text style={s.topNewsPillText}>Top News</Text>
-                </TouchableOpacity>
-              ) : null}
-
               {selectedTopics.map((topic) => (
                 <TouchableOpacity
                   key={topic}
@@ -1581,17 +1637,19 @@ export default function GraphScreen() {
       ) : null}
 
       <Pressable style={[s.sliderSection, { borderTopColor: PAGE.border }]} onPress={isDropdownOpen ? closeDropdown : undefined}>
-        <Text style={s.sliderLabel}>Radius</Text>
-        <View style={s.sliderTrackWrap}>
-          <GestureDetector gesture={sliderGesture}>
-            <Animated.View style={[s.sliderTrack, { backgroundColor: PAGE.sliderTrack, width: sliderTrackWidth }]}>
-              <Animated.View style={[s.sliderFill, { backgroundColor: PAGE.green }, sliderFillAnimatedStyle]} />
-              <Animated.View style={[s.sliderThumb, { borderColor: PAGE.green }, sliderThumbAnimatedStyle]} />
-            </Animated.View>
-          </GestureDetector>
-        </View>
-        <View style={[s.percentPill, { borderColor: PAGE.chipBorder }]}>
-          <Text style={s.percentText}>{Math.round(radius * 100)}%</Text>
+        <View style={s.sliderInner}>
+          <Text style={s.sliderLabel}>Radius</Text>
+          <View style={s.sliderTrackWrap}>
+            <GestureDetector gesture={sliderGesture}>
+              <Animated.View style={[s.sliderTrack, { backgroundColor: PAGE.sliderTrack, width: sliderTrackWidth }]}>
+                <Animated.View style={[s.sliderFill, { backgroundColor: PAGE.green }, sliderFillAnimatedStyle]} />
+                <Animated.View style={[s.sliderThumb, { borderColor: PAGE.green }, sliderThumbAnimatedStyle]} />
+              </Animated.View>
+            </GestureDetector>
+          </View>
+          <View style={[s.percentPill, { borderColor: PAGE.chipBorder }]}>
+            <Text style={s.percentText}>{Math.round(radius * 100)}%</Text>
+          </View>
         </View>
       </Pressable>
     </SafeAreaView>
@@ -1675,16 +1733,21 @@ const s = StyleSheet.create({
     alignItems: 'center',
     zIndex: 25,
   },
-  searchShell: {
+  searchFieldWrap: {
     flex: 1,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: 1.5,
-    paddingHorizontal: 16,
+    position: 'relative',
+    zIndex: 60,
+  },
+  searchShell: {
+    width: '100%',
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(255,253,247,0.92)',
+    backgroundColor: '#FFFCF6',
   },
   searchInput: {
     flex: 1,
@@ -1692,55 +1755,51 @@ const s = StyleSheet.create({
     color: PAGE.text,
   },
   clearButton: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#EEE7DA',
   },
   saveButton: {
-    height: 48,
-    minWidth: 110,
-    borderRadius: 24,
-    borderWidth: 1.5,
+    height: 40,
+    minWidth: 84,
+    borderRadius: 10,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
   },
   saveButtonText: {
     color: PAGE.textSoft,
     fontSize: 14,
     fontWeight: '500',
   },
-  inlineLoadingRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 7,
-    paddingHorizontal: 4,
-    paddingTop: 2,
-  },
   dropdownOverlay: {
     position: 'absolute',
-    left: 18,
-    right: 18,
-    top: 60,
-    zIndex: 40,
+    left: 0,
+    right: 0,
+    top: 46,
+    zIndex: 60,
   },
   dropdown: {
-    borderRadius: 16,
+    maxHeight: 320,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#E7DECF',
-    backgroundColor: '#FAF7F0',
-    padding: 11,
-    gap: 9,
+    backgroundColor: '#FFFCF6',
     shadowColor: '#A39B8E',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  dropdownContent: {
+    padding: 12,
+    gap: 12,
   },
   presetsBlock: {
     gap: 8,
@@ -1784,12 +1843,12 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   dropdownSearchRow: {
-    borderRadius: 14,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: '#E4DDD1',
     backgroundColor: '#F4EFE4',
     paddingHorizontal: 12,
-    paddingVertical: 11,
+    paddingVertical: 9,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1804,6 +1863,10 @@ const s = StyleSheet.create({
   dropdownSearchText: {
     fontSize: 14,
     color: PAGE.text,
+    flexShrink: 1,
+  },
+  dropdownSearchTerm: {
+    fontWeight: '600',
   },
   dropdownLabel: {
     fontSize: 12,
@@ -1811,8 +1874,8 @@ const s = StyleSheet.create({
     fontWeight: '600',
     paddingHorizontal: 2,
   },
-  dropdownScroll: {
-    maxHeight: 210,
+  dropdownTopicsBlock: {
+    gap: 8,
   },
   dropdownTopics: {
     flexDirection: 'row',
@@ -1820,37 +1883,13 @@ const s = StyleSheet.create({
     gap: 7,
     paddingBottom: 4,
   },
-  dropdownLoadingWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 7,
-    width: '100%',
-    paddingBottom: 4,
-  },
-  dropdownLoadingChip: {
-    height: 31,
-    width: 82,
-    borderRadius: 11,
-    backgroundColor: '#EEE7DA',
-    borderWidth: 1,
-    borderColor: '#E6DECF',
-  },
-  dropdownLoadingChipShort: {
-    width: 64,
-  },
-  dropdownLoadingChipMedium: {
-    width: 96,
-  },
-  dropdownLoadingChipWide: {
-    width: 118,
-  },
   dropdownTopicChip: {
-    borderRadius: 11,
+    borderRadius: 7,
     borderWidth: 1,
     borderColor: '#E3DACB',
-    backgroundColor: '#F7F3EB',
+    backgroundColor: '#FFFCF6',
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 6,
   },
   dropdownTopicText: {
     fontSize: 12.5,
@@ -1861,6 +1900,10 @@ const s = StyleSheet.create({
     fontSize: 13,
     color: PAGE.textMuted,
     paddingVertical: 8,
+  },
+  emptyDropdownCentered: {
+    paddingVertical: 16,
+    textAlign: 'center',
   },
   filterArea: {
     minHeight: 30,
@@ -2179,12 +2222,18 @@ const s = StyleSheet.create({
   },
   sliderSection: {
     borderTopWidth: 1,
-    paddingHorizontal: 18,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingHorizontal: 24,
+    paddingTop: 13,
+    paddingBottom: 13,
+    alignItems: 'center',
+  },
+  sliderInner: {
+    width: '100%',
+    maxWidth: 480,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'flex-start',
+    gap: 11,
   },
   applyBar: {
     position: 'relative',
@@ -2216,52 +2265,53 @@ const s = StyleSheet.create({
     fontWeight: '700',
   },
   sliderLabel: {
-    fontSize: 13,
-    color: '#6F685F',
-    width: 54,
-    fontWeight: '600',
+    width: 35,
+    fontSize: 11,
+    color: PAGE.textMuted,
+    fontWeight: '500',
+    lineHeight: 14,
   },
   sliderTrackWrap: {
-    flex: 1,
     justifyContent: 'center',
   },
   sliderTrack: {
-    height: 8,
+    height: 5,
     borderRadius: 999,
     overflow: 'visible',
     justifyContent: 'center',
   },
   sliderFill: {
-    height: 8,
+    height: 5,
     borderRadius: 999,
   },
   sliderThumb: {
     position: 'absolute',
-    marginLeft: -15,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: PAGE.background,
-    borderWidth: 4,
-    top: -11,
+    marginLeft: -8.5,
+    width: 17,
+    height: 17,
+    borderRadius: 8.5,
+    backgroundColor: '#F7F3EA',
+    borderWidth: 1,
+    top: -6,
     shadowColor: '#8DAE73',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
   },
   percentPill: {
-    minWidth: 72,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1.5,
+    minWidth: 38,
+    height: 22,
+    borderRadius: 999,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.58)',
+    paddingHorizontal: 8,
+    backgroundColor: 'transparent',
   },
   percentText: {
-    fontSize: 15,
+    fontSize: 11,
     color: PAGE.text,
-    fontWeight: '600',
+    fontWeight: '500',
   },
 });

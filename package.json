@@ -4,6 +4,9 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "dev:web": "expo start --web --port 8083 --clear",
+    "dev:phone": "EXPO_ALLOW_ANONYMOUS=1 expo start --lan --port 8083 --clear",
+    "dev:tunnel": "EXPO_ALLOW_ANONYMOUS=1 expo start --tunnel --port 8083 --clear",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web"
