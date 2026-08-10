@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -13,10 +13,16 @@ import {
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
-  getMockTrendingTopics,
   searchMockArticles,
 } from '../lib/mockPreviewData';
+import {
+  fetchTrendingTopics,
+  readCachedTrendingTopics,
+  type TrendingTopic,
+} from '../lib/discoveryData';
 import {
   readSavedArticles,
   subscribeSavedArticles,
@@ -45,6 +51,19 @@ type LocalArticleResult = {
 };
 
 const SEARCH_DEBOUNCE_MS = 140;
+const SEARCH_HISTORY_STORAGE_KEY = 'praxis.searchHistory.v1';
+const BROWSE_TOPICS = [
+  'Politics',
+  'Technology',
+  'Business',
+  'Science',
+  'Health',
+  'Sports',
+  'Entertainment',
+  'World News',
+  'Environment',
+  'Education',
+];
 const SEARCH_COLORS = {
   background: '#F7F3EA',
   card: '#FFFDF7',
@@ -72,6 +91,20 @@ const formatPublishedLabel = (dateString: string) => {
   });
 };
 
+const getPoliticalLeanLabel = (value: number | null) => {
+  if (value == null) return null;
+  if (value < -0.3) return 'Left-leaning';
+  if (value > 0.3) return 'Right-leaning';
+  return 'Center';
+};
+
+const getReportingLabel = (value: number | null) => {
+  if (value == null) return null;
+  if (value > 0.3) return 'High quality';
+  if (value < -0.3) return 'Sensational';
+  return 'Mixed';
+};
+
 export default function SearchModal() {
   const { user } = useAuth();
   const c = SEARCH_COLORS;
@@ -79,11 +112,40 @@ export default function SearchModal() {
   const [results, setResults] = useState<LocalArticleResult[]>([]);
   const [savedArticles, setSavedArticles] = useState<SavedArticleSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
+  const [browseExpanded, setBrowseExpanded] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
-  const trendingTopics = useMemo(
-    () => getMockTrendingTopics().slice(0, 6).map((topic) => topic.name),
-    [],
+  const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>(
+    () => readCachedTrendingTopics() ?? [],
   );
+
+  useEffect(() => {
+    void AsyncStorage.getItem(SEARCH_HISTORY_STORAGE_KEY).then((stored) => {
+      if (!stored) return;
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setSearchHistory(parsed.filter((item): item is string => typeof item === 'string').slice(0, 8));
+        }
+      } catch {}
+    });
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    void fetchTrendingTopics()
+      .then((topics) => {
+        if (isActive) setTrendingTopics(topics.slice(0, 8));
+      })
+      .catch((error) => {
+        console.warn('[SearchModal] Trending topics unavailable', error);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -199,6 +261,14 @@ export default function SearchModal() {
         if (isActive) {
           setResults(Array.from(merged.values()));
           setLoading(false);
+          setSearchHistory((previous) => {
+            const next = [
+              trimmed,
+              ...previous.filter((item) => item.toLowerCase() !== trimmed.toLowerCase()),
+            ].slice(0, 8);
+            void AsyncStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(next));
+            return next;
+          });
         }
       })();
     }, SEARCH_DEBOUNCE_MS);
@@ -232,7 +302,15 @@ export default function SearchModal() {
   };
 
   const hasQuery = query.trim().length >= 2;
-  const recentSaved = savedArticles.slice(0, 3);
+  const featuredTopic = trendingTopics[0];
+  const supportingTopics = trendingTopics.slice(1);
+  const removeHistoryItem = (term: string) => {
+    setSearchHistory((previous) => {
+      const next = previous.filter((item) => item !== term);
+      void AsyncStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
@@ -269,71 +347,97 @@ export default function SearchModal() {
           contentContainerStyle={s.discoveryContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={s.section}>
-            <Text style={[s.sectionTitle, { color: c.text }]}>Suggested topics</Text>
-            <View style={s.topicWrap}>
-              {trendingTopics.map((topic) => (
-                <TouchableOpacity
-                  key={topic}
-                  style={[s.topicChip, { backgroundColor: c.card, borderColor: c.border }]}
-                  onPress={() => setQuery(topic)}
-                >
-                  <Text style={[s.topicText, { color: c.text }]}>{topic}</Text>
-                </TouchableOpacity>
-              ))}
+          <LinearGradient
+            colors={['#EAF2DE', '#FFFDF7', '#EDF4E5']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[s.discoveryCard, s.trendingCard, { borderColor: '#D9E6CB' }]}
+          >
+            <View style={s.discoveryHeading}>
+              <View style={[s.discoveryIcon, { backgroundColor: '#E7F0DA' }]}>
+                <Ionicons name="trending-up" size={17} color={c.tint} />
+              </View>
+              <View style={s.discoveryHeadingCopy}>
+                <Text style={[s.discoveryTitle, { color: c.text }]}>Trending now</Text>
+                <Text style={[s.discoverySubtitle, { color: c.textMuted }]}>Fast ways into the biggest story threads.</Text>
+              </View>
             </View>
+
+            {featuredTopic ? (
+              <TouchableOpacity
+                style={[s.featuredTrend, { backgroundColor: c.card, borderColor: '#D9E6CB' }]}
+                onPress={() => setQuery(featuredTopic.name)}
+              >
+                <View style={[s.featuredLabel, { backgroundColor: '#E7F0DA' }]}>
+                  <Ionicons name="flame" size={12} color={c.tint} />
+                  <Text style={[s.featuredLabelText, { color: '#5D7650' }]}>FEATURED TREND</Text>
+                </View>
+                <Text style={[s.featuredTitle, { color: c.text }]}>{featuredTopic.name}</Text>
+                <Text style={[s.featuredDescription, { color: c.textMuted }]}>
+                  {featuredTopic.cluster_count} related clusters live right now
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {supportingTopics.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.trendChipRow}>
+                {supportingTopics.map((topic) => (
+                  <TouchableOpacity key={topic.id} style={[s.trendChip, { backgroundColor: c.card, borderColor: c.border }]} onPress={() => setQuery(topic.name)}>
+                    <Ionicons name="flame" size={13} color="#EF4444" />
+                    <Text style={[s.trendChipText, { color: '#DC2626' }]}>{topic.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : null}
+          </LinearGradient>
+
+          <View style={[s.discoveryCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <TouchableOpacity style={s.discoveryHeading} onPress={() => setBrowseExpanded((value) => !value)}>
+              <View style={[s.discoveryIcon, { backgroundColor: '#E7F0DA' }]}>
+                <Ionicons name="sparkles" size={16} color={c.tint} />
+              </View>
+              <View style={s.discoveryHeadingCopy}>
+                <Text style={[s.discoveryTitle, { color: c.text }]}>Browse topics</Text>
+                <Text style={[s.discoverySubtitle, { color: c.textMuted }]}>Praxis topic presets</Text>
+              </View>
+              <View style={s.disclosure}>
+                <Text style={[s.disclosureText, { color: c.textMuted }]}>{browseExpanded ? 'HIDE' : 'SHOW'}</Text>
+                <Ionicons name={browseExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={c.textMuted} />
+              </View>
+            </TouchableOpacity>
+            {browseExpanded ? (
+              <View style={s.browseGrid}>
+                {BROWSE_TOPICS.map((topic) => (
+                  <TouchableOpacity key={topic} style={[s.browseTopic, { backgroundColor: c.background, borderColor: c.border }]} onPress={() => setQuery(topic)}>
+                    <Text style={[s.browseTopicText, { color: c.text }]}>{topic}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
           </View>
 
-          <View style={s.section}>
-            <Text style={[s.sectionTitle, { color: c.text }]}>Saved articles</Text>
-            {recentSaved.length > 0 ? (
-              recentSaved.map((article) => (
-                <TouchableOpacity
-                  key={article.id}
-                  style={[s.savedRow, { backgroundColor: c.card, borderColor: c.border }]}
-                  onPress={() =>
-                    openArticle({
-                      type: 'article',
-                      id: article.id,
-                      title: article.title,
-                      publisher: article.publisher?.name ?? 'Saved article',
-                      lede: article.lede,
-                      image_url: article.image_url,
-                      ts_pub: article.ts_pub,
-                      url: article.url,
-                      matchLabel: 'Saved article',
-                      x: article.x,
-                      y: article.y,
-                      category: article.category,
-                      topics: article.topics,
-                      xExplanation: article.meta?.x_explanation ?? null,
-                      yExplanation: article.meta?.y_explanation ?? null,
-                    })
-                  }
-                >
-                  <View style={s.savedCopy}>
-                    <Text style={[s.savedTitle, { color: c.text }]} numberOfLines={2}>
-                      {article.title}
-                    </Text>
-                    <Text style={[s.savedMeta, { color: c.textMuted }]} numberOfLines={1}>
-                      {article.publisher?.name ?? 'Saved article'}
-                    </Text>
-                  </View>
-                  <Ionicons name="bookmark" size={16} color={c.tint} />
+          <View style={[s.discoveryCard, { backgroundColor: c.card, borderColor: c.border }]}>
+            <View style={s.discoveryHeading}>
+              <View style={[s.discoveryIcon, { backgroundColor: '#E7F0DA' }]}>
+                <Ionicons name="time-outline" size={17} color={c.tint} />
+              </View>
+              <Text style={[s.discoveryTitle, { color: c.text }]}>Recent searches</Text>
+            </View>
+            {searchHistory.length > 0 ? searchHistory.map((term) => (
+              <View key={term} style={s.historyRow}>
+                <TouchableOpacity style={s.historyQuery} onPress={() => setQuery(term)}>
+                  <Ionicons name="time-outline" size={16} color={c.textMuted} />
+                  <Text style={[s.historyText, { color: c.text }]} numberOfLines={1}>{term}</Text>
                 </TouchableOpacity>
-              ))
-            ) : (
-              <Text style={[s.helperText, { color: c.textMuted }]}>
-                Your saved stories will show up here for quick access.
-              </Text>
+                <TouchableOpacity style={s.historyRemove} onPress={() => removeHistoryItem(term)} accessibilityLabel={`Remove ${term} from search history`}>
+                  <Ionicons name="close" size={16} color={c.textMuted} />
+                </TouchableOpacity>
+              </View>
+            )) : (
+              <View style={[s.historyEmpty, { backgroundColor: c.background, borderColor: c.border }]}>
+                <Text style={[s.helperText, { color: c.textMuted }]}>Your recent searches will show up here.</Text>
+              </View>
             )}
-          </View>
-
-          <View style={s.section}>
-            <Text style={[s.sectionTitle, { color: c.text }]}>Search mode</Text>
-            <Text style={[s.helperText, { color: c.textMuted }]}>
-              Live stories are searched from the current article pool. Saved stories stay searchable on this device.
-            </Text>
           </View>
         </ScrollView>
       ) : null}
@@ -344,9 +448,12 @@ export default function SearchModal() {
 
       {!loading && hasQuery && results.length === 0 ? (
         <View style={s.emptyState}>
-          <Text style={[s.emptyTitle, { color: c.text }]}>No article matches</Text>
+          <View style={[s.emptyIcon, { backgroundColor: c.secondary }]}>
+            <Ionicons name="search-outline" size={28} color={c.textMuted} />
+          </View>
+          <Text style={[s.emptyTitle, { color: c.text }]}>No article results found</Text>
           <Text style={[s.helperText, { color: c.textMuted }]}>
-            Try a topic like “AI”, “Courts”, or a publisher name.
+            Try a broader topic or one of the trending ideas above.
           </Text>
         </View>
       ) : null}
@@ -361,31 +468,25 @@ export default function SearchModal() {
               style={[s.resultRow, { backgroundColor: c.card, borderColor: c.border }]}
               onPress={() => openArticle(item)}
             >
-              {item.image_url ? (
-                <Image source={{ uri: item.image_url }} style={s.thumb} resizeMode="cover" />
-              ) : (
-                <View style={[s.thumbFallback, { backgroundColor: c.secondary }]}>
-                  <Ionicons name="newspaper-outline" size={18} color={c.textMuted} />
-                </View>
-              )}
               <View style={s.resultCopy}>
-                <View style={s.resultMetaRow}>
-                  <Text style={[s.resultPublisher, { color: c.textMuted }]} numberOfLines={1}>
-                    {item.publisher}
-                  </Text>
-                  <Text style={[s.resultDivider, { color: c.textMuted }]}>•</Text>
-                  <Text style={[s.resultMatch, { color: c.tint }]}>{item.matchLabel}</Text>
-                </View>
+                {(getPoliticalLeanLabel(item.x) || getReportingLabel(item.y)) ? (
+                  <View style={s.resultTags}>
+                    {getPoliticalLeanLabel(item.x) ? <View style={[s.resultTag, { backgroundColor: '#E7EDF9' }]}><Text style={[s.resultTagText, { color: '#4668A7' }]}>{getPoliticalLeanLabel(item.x)}</Text></View> : null}
+                    {getReportingLabel(item.y) ? <View style={[s.resultTag, { backgroundColor: '#E7F0DA' }]}><Text style={[s.resultTagText, { color: '#5D7650' }]}>{getReportingLabel(item.y)}</Text></View> : null}
+                  </View>
+                ) : null}
                 <Text style={[s.resultTitle, { color: c.text }]} numberOfLines={2}>
                   {item.title}
                 </Text>
                 <Text style={[s.resultLede, { color: c.textMuted }]} numberOfLines={2}>
                   {item.lede}
                 </Text>
-                <Text style={[s.resultDate, { color: c.textMuted }]}>
-                  {formatPublishedLabel(item.ts_pub)}
-                </Text>
+                <View style={s.resultFooter}>
+                  <Text style={[s.resultPublisher, { color: c.textMuted }]} numberOfLines={1}>{item.publisher}</Text>
+                  <View style={s.resultReadTime}><Ionicons name="time-outline" size={13} color={c.textMuted} /><Text style={[s.resultDate, { color: c.textMuted }]}>{formatPublishedLabel(item.ts_pub)}</Text></View>
+                </View>
               </View>
+              {item.image_url ? <Image source={{ uri: item.image_url }} style={s.thumb} resizeMode="cover" /> : null}
             </TouchableOpacity>
           )}
         />
@@ -434,9 +535,143 @@ const s = StyleSheet.create({
   },
   discoveryContent: {
     paddingHorizontal: 16,
-    paddingTop: 20,
+    paddingTop: 18,
     paddingBottom: 28,
-    gap: 18,
+    gap: 14,
+  },
+  discoveryCard: {
+    borderWidth: 1,
+    borderRadius: 28,
+    padding: 20,
+    gap: 16,
+  },
+  trendingCard: {},
+  discoveryHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  discoveryIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  discoveryHeadingCopy: {
+    flex: 1,
+    gap: 1,
+  },
+  discoveryTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  discoverySubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  featuredTrend: {
+    borderWidth: 1,
+    borderRadius: 24,
+    padding: 16,
+    gap: 8,
+  },
+  featuredLabel: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  featuredLabelText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  featuredTitle: {
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '700',
+  },
+  featuredDescription: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  trendChipRow: {
+    gap: 8,
+    paddingRight: 12,
+  },
+  trendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  trendChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  disclosure: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  disclosureText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  browseGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  browseTopic: {
+    width: '48.5%',
+    minHeight: 46,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+  },
+  browseTopicText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  historyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 42,
+  },
+  historyQuery: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+  },
+  historyText: {
+    flex: 1,
+    fontSize: 14,
+  },
+  historyRemove: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  historyEmpty: {
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 16,
   },
   section: {
     gap: 10,
@@ -492,6 +727,14 @@ const s = StyleSheet.create({
     paddingHorizontal: 28,
     gap: 8,
   },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
   emptyTitle: {
     fontSize: 17,
     fontWeight: '700',
@@ -505,8 +748,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     borderWidth: 1,
-    borderRadius: 18,
-    padding: 12,
+    borderRadius: 16,
+    padding: 14,
+    alignItems: 'flex-start',
   },
   thumb: {
     width: 76,
@@ -522,12 +766,21 @@ const s = StyleSheet.create({
   },
   resultCopy: {
     flex: 1,
-    gap: 4,
+    gap: 8,
   },
-  resultMetaRow: {
+  resultTags: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
+  },
+  resultTag: {
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  resultTagText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
   resultPublisher: {
     fontSize: 11,
@@ -535,24 +788,27 @@ const s = StyleSheet.create({
     textTransform: 'uppercase',
     flexShrink: 1,
   },
-  resultDivider: {
-    fontSize: 10,
-  },
-  resultMatch: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
   resultTitle: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
     lineHeight: 21,
   },
   resultLede: {
     fontSize: 12.5,
     lineHeight: 18,
   },
+  resultFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  resultReadTime: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   resultDate: {
     fontSize: 11,
-    marginTop: 2,
   },
 });

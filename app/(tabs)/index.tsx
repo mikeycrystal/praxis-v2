@@ -8,8 +8,8 @@ import {
   useMemo,
 } from 'react';
 import {
-  View, Text, Image, StyleSheet, SafeAreaView, ActivityIndicator,
-  TouchableOpacity, Dimensions, Alert, InteractionManager, ViewStyle,
+  View, Text, Image, StyleSheet, SafeAreaView, ActivityIndicator, Modal,
+  TouchableOpacity, Alert, InteractionManager, useWindowDimensions, ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -21,10 +21,12 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withSequence,
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
 import { Link, router } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../context/AuthContext';
@@ -37,6 +39,17 @@ import {
 import {
   buildFeedPreferenceSignature,
 } from '../lib/newsPreferences';
+import {
+  buildCanonicalDailyDigestFeed,
+  markDailyDigestArticleComplete,
+  readDailyDigestDismissal,
+  readDailyDigestOpenRequest,
+  readDailyDigestPanelHint,
+  type DailyDigestFeed,
+  writeDailyDigestDismissal,
+  writeDailyDigestOpenRequest,
+  writeDailyDigestPanelHint,
+} from '../lib/dailyDigest';
 import {
   mergeSavedArticles,
   readSavedArticles,
@@ -51,12 +64,12 @@ import {
 } from '../lib/readingActivity';
 import { buildHref } from '../lib/buildHref';
 import { openPublisherArticle } from '../lib/openPublisherArticle';
-import { shareArticle as shareArticleFromPraxis } from '../lib/shareArticle';
 import { supabase } from '../services/supabase';
-import { ArticleCard, CARD_WIDTH, CARD_HEIGHT } from '../components/news-feed/ArticleCard';
+import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
+import { StoryShareSheet } from '../components/StoryShareSheet';
+import { SaveAccountPrompt } from '../components/SaveAccountPrompt';
+import { useBadgeCelebration } from '../components/BadgeCelebration';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const SWIPE_EXIT_DISTANCE = SCREEN_WIDTH * 1.05;
 const ARTICLES_PER_PAGE = 20;
 const STACK_RENDER_COUNT = 4;
 const SWIPE_DIAGNOSTICS =
@@ -89,7 +102,10 @@ type DeckCardProps = {
   articleIndex: number;
   isActive: boolean;
   isSaved: boolean;
+  isDigestCard: boolean;
   visualIndex: SharedValue<number>;
+  screenWidth: number;
+  swipeExitDistance: number;
   onSaveArticle: (articleId: number) => void;
   onShareArticle: (article: Article) => void;
   onReadArticle: (article: Article) => void;
@@ -101,7 +117,10 @@ const DeckCard = memo(function DeckCard({
   articleIndex,
   isActive,
   isSaved,
+  isDigestCard,
   visualIndex,
+  screenWidth,
+  swipeExitDistance,
   onSaveArticle,
   onShareArticle,
   onReadArticle,
@@ -159,16 +178,16 @@ const DeckCard = memo(function DeckCard({
     const stackX = interpolate(
       diff,
       [-1, 0, 1, 2, 3, 4],
-      [-SWIPE_EXIT_DISTANCE, 0, 20, 40, 60, 80],
+      [-swipeExitDistance, 0, 20, 40, 60, 80],
       Extrapolation.CLAMP,
     );
     const translateX = isActive && diff > 0
-      ? interpolate(diff, [0, 1], [0, SWIPE_EXIT_DISTANCE], Extrapolation.CLAMP)
+      ? interpolate(diff, [0, 1], [0, swipeExitDistance], Extrapolation.CLAMP)
       : stackX;
     const rotate = isActive
       ? interpolate(
           translateX,
-          [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+          [-screenWidth / 2, 0, screenWidth / 2],
           [-8, 0, 8],
           Extrapolation.CLAMP,
         )
@@ -201,7 +220,7 @@ const DeckCard = memo(function DeckCard({
       pointerEvents={isActive ? 'auto' : 'none'}
       // Older articles always stay above newer ones. This supports both swipe
       // directions without reordering native image/shadow layers at handoff.
-      style={[s.deckCard, { zIndex: 10_000 - articleIndex }, animatedStyle]}
+      style={[s.deckCard, { zIndex: 10 - articleIndex }, animatedStyle]}
     >
       <ArticleCard
         article={article}
@@ -214,14 +233,22 @@ const DeckCard = memo(function DeckCard({
         onRead={handleRead}
         canSwipeRight={false}
         onFlipChange={handleFlipChange}
-        isDigestCard={false}
+        isDigestCard={isDigestCard}
       />
     </Animated.View>
   );
 });
 
 export default function FeedScreen() {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isNarrowScreen = screenWidth < 350;
+  const { width: cardWidth, height: cardHeight } = useMemo(
+    () => getArticleCardDimensions(screenWidth, screenHeight),
+    [screenHeight, screenWidth],
+  );
+  const swipeExitDistance = screenWidth * 1.05;
   const { isGuestMode, profile, user } = useAuth();
+  const { announceAwardedBadgeIds, celebrateDigestCompletion } = useBadgeCelebration();
   const {
     preferences,
     applyTopNewsPreferences,
@@ -314,13 +341,70 @@ export default function FeedScreen() {
   const [savedCount, setSavedCount] = useState(0);
   const [flippedArticleId, setFlippedArticleId] = useState<number | null>(null);
   const [localStreakCount, setLocalStreakCount] = useState(0);
+  const [isViewingCompletedDigest, setIsViewingCompletedDigest] = useState(false);
+  const [isDigestDismissed, setIsDigestDismissed] = useState(false);
+  const [isDigestDismissalLoaded, setIsDigestDismissalLoaded] = useState(false);
+  const [isDigestProgressOpen, setIsDigestProgressOpen] = useState(true);
+  const [digestResumeIndex, setDigestResumeIndex] = useState(0);
+  const [dailyDigestFeed, setDailyDigestFeed] = useState<DailyDigestFeed | null>(null);
+  const [isDigestCompletionVisible, setIsDigestCompletionVisible] = useState(false);
+  const [isDigestHandoffActive, setIsDigestHandoffActive] = useState(false);
+  const [showGuestStreakPrompt, setShowGuestStreakPrompt] = useState(false);
+  const [showSaveAccountPrompt, setShowSaveAccountPrompt] = useState(false);
+  const [shareSheetArticle, setShareSheetArticle] = useState<Article | null>(null);
+  const [digestCompletionSummary, setDigestCompletionSummary] = useState({
+    storyCount: 0,
+    sourceCount: 0,
+    topicCount: 0,
+  });
   const visualIndex = useSharedValue(externalIndex);
+  const digestProgressValue = useSharedValue(0);
+  const digestCompletionOpacity = useSharedValue(0);
+  const digestCompletionScale = useSharedValue(0.95);
+  const digestCompletionTranslateY = useSharedValue(12);
   const queuedReadIdsRef = useRef<Set<number>>(new Set());
+  const pendingDigestResumeIndexRef = useRef<number | null>(null);
+  const guestStreakPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHandledRequestNonceRef = useRef<number | null>(null);
   const activeQuery = preferences.activeQuery;
   const hasCustomQuery = Boolean(
     activeQuery && (activeQuery.topics.length > 0 || activeQuery.promptTerms.length > 0),
   );
+  const isDailyDigestActive = Boolean(
+    preferences.isTopNewsActive &&
+      dailyDigestFeed &&
+      !dailyDigestFeed.isComplete &&
+      !isDigestDismissed,
+  );
+  const isDigestArchiveViewActive = Boolean(
+    preferences.isTopNewsActive &&
+      dailyDigestFeed?.isComplete &&
+      isViewingCompletedDigest,
+  );
+  // Keep the completed Digest deck in place under its transition card. Web
+  // does not reveal Top News until the completion handoff has finished.
+  const isDigestModeVisible = isDailyDigestActive || isDigestArchiveViewActive || (
+    isDigestCompletionVisible && !isDigestHandoffActive
+  );
+  const topNewsArticles = useMemo(
+    () => dailyDigestFeed && preferences.isTopNewsActive
+      ? articles.filter((article) => !dailyDigestFeed.state.articleIds.includes(article.id))
+      : articles,
+    [articles, dailyDigestFeed, preferences.isTopNewsActive],
+  );
+  const feedArticles = isDigestModeVisible && dailyDigestFeed
+    ? dailyDigestFeed.displayArticles
+    : topNewsArticles;
+  const digestArticleIdSet = useMemo(
+    () => new Set(dailyDigestFeed?.state.articleIds ?? []),
+    [dailyDigestFeed?.state.articleIds],
+  );
+  useEffect(() => {
+    void readDailyDigestDismissal().then((dismissed) => {
+      setIsDigestDismissed(dismissed);
+      setIsDigestDismissalLoaded(true);
+    });
+  }, []);
   const expectedFeedMode = useMemo(() => {
     if (preferences.isTopNewsActive) return 'top-news';
     if (preferences.recommendationRequest) return 'query';
@@ -341,12 +425,28 @@ export default function FeedScreen() {
   ]);
 
   useEffect(() => {
+    const pendingDigestIndex = pendingDigestResumeIndexRef.current;
+    if (pendingDigestIndex !== null && isDailyDigestActive) {
+      if (externalIndex !== pendingDigestIndex) {
+        displayIndexRef.current = pendingDigestIndex;
+        setDisplayIndex(pendingDigestIndex);
+        setExternalIndex(pendingDigestIndex);
+        cancelAnimation(visualIndex);
+        visualIndex.value = pendingDigestIndex;
+        return;
+      }
+
+      if (feedMode === 'top-news' && !isStreaming) {
+        pendingDigestResumeIndexRef.current = null;
+      }
+    }
+
     if (externalIndex === displayIndexRef.current) return;
     displayIndexRef.current = externalIndex;
     setDisplayIndex(externalIndex);
     cancelAnimation(visualIndex);
     visualIndex.value = externalIndex;
-  }, [externalIndex, visualIndex]);
+  }, [externalIndex, feedMode, isDailyDigestActive, isStreaming, setExternalIndex, visualIndex]);
 
   const getCustomQueryDisplay = useCallback(() => {
     if (!activeQuery) return '';
@@ -361,12 +461,16 @@ export default function FeedScreen() {
   }, [activeQuery]);
 
   const fetchSaved = useCallback(async () => {
-    const localSaved = await readSavedArticles(user?.id);
+    if (!user) {
+      setSavedIds(new Set());
+      setSavedCount(0);
+      return;
+    }
+
+    const localSaved = await readSavedArticles(user.id);
     const localIds = new Set<number>(localSaved.map((article) => article.id));
     setSavedIds(localIds);
     setSavedCount(localIds.size);
-
-    if (!user) return;
 
     try {
       const { data, error } = await supabase
@@ -451,10 +555,11 @@ export default function FeedScreen() {
       return;
     }
 
+    const nextIndex = pendingDigestResumeIndexRef.current ?? 0;
     cancelAnimation(visualIndex);
-    visualIndex.value = 0;
-    displayIndexRef.current = 0;
-    setDisplayIndex(0);
+    visualIndex.value = nextIndex;
+    displayIndexRef.current = nextIndex;
+    setDisplayIndex(nextIndex);
 
     setLoadedArticlesCount(ARTICLES_PER_PAGE);
     setFlippedArticleId(null);
@@ -527,14 +632,16 @@ export default function FeedScreen() {
   useEffect(() => { fetchSaved(); }, [fetchSaved]);
 
   useEffect(() => {
-    const unsubscribe = subscribeSavedArticles(user?.id, (articles) => {
+    if (!user) return;
+
+    const unsubscribe = subscribeSavedArticles(user.id, (articles) => {
       const nextIds = new Set<number>(articles.map((article) => article.id));
       setSavedIds(nextIds);
       setSavedCount(nextIds.size);
     });
 
     return unsubscribe;
-  }, [user?.id]);
+  }, [user]);
 
   useEffect(() => {
     let isActive = true;
@@ -558,33 +665,33 @@ export default function FeedScreen() {
     setLoadedArticlesCount((prev) => {
       let nextCount = prev;
 
-      if (articles.length === 0) {
+      if (feedArticles.length === 0) {
         nextCount = ARTICLES_PER_PAGE;
-      } else if (articles.length < prev) {
-        nextCount = Math.min(ARTICLES_PER_PAGE, articles.length);
+      } else if (feedArticles.length < prev) {
+        nextCount = Math.min(ARTICLES_PER_PAGE, feedArticles.length);
       } else {
-        nextCount = Math.min(prev, articles.length);
+        nextCount = Math.min(prev, feedArticles.length);
         if (nextCount === 0) {
-          nextCount = Math.min(ARTICLES_PER_PAGE, articles.length);
+          nextCount = Math.min(ARTICLES_PER_PAGE, feedArticles.length);
         }
       }
       return nextCount;
     });
-  }, [articles.length]);
+  }, [feedArticles.length]);
 
   useEffect(() => {
-    if (articles.length === 0) {
+    if (feedArticles.length === 0) {
       setCurrentIndex(0);
       return;
     }
 
-    if (index > articles.length - 1) {
-      setCurrentIndex(articles.length - 1);
+    if (index > feedArticles.length - 1) {
+      setCurrentIndex(feedArticles.length - 1);
     }
-  }, [articles.length, index, setCurrentIndex]);
+  }, [feedArticles.length, index, setCurrentIndex]);
 
   useEffect(() => {
-    if (articles.length === 0) return;
+    if (feedArticles.length === 0) return;
 
     if (loadedArticlesCount > index) return;
 
@@ -596,20 +703,24 @@ export default function FeedScreen() {
     setLoadedArticlesCount(
       Math.min(
         Math.ceil(targetVisibleCount / ARTICLES_PER_PAGE) * ARTICLES_PER_PAGE,
-        articles.length,
+        feedArticles.length,
       ),
     );
-  }, [articles.length, index, loadedArticlesCount]);
+  }, [feedArticles.length, index, loadedArticlesCount]);
 
-  const maxAvailableArticles = Math.min(loadedArticlesCount, articles.length);
+  const maxAvailableArticles = Math.min(loadedArticlesCount, feedArticles.length);
   const safeIndex = maxAvailableArticles > 0
     ? Math.max(0, Math.min(index, maxAvailableArticles - 1))
     : 0;
 
   useEffect(() => {
+    if (isDailyDigestActive) setDigestResumeIndex(safeIndex);
+  }, [isDailyDigestActive, safeIndex]);
+
+  useEffect(() => {
     if (typeof Image.prefetch !== 'function') return;
 
-    const prefetched = articles
+    const prefetched = feedArticles
       .slice(0, maxAvailableArticles)
       .map((article) => article.image_url)
       .filter((value): value is string => Boolean(value));
@@ -626,7 +737,7 @@ export default function FeedScreen() {
     prefetched.forEach((uri) => {
       void Image.prefetch(uri).catch(() => {});
     });
-  }, [articles, maxAvailableArticles]);
+  }, [feedArticles, maxAvailableArticles]);
 
   const reloadFeed = useCallback(() => loadFromPreferences({
     activeQuery: preferences.activeQuery,
@@ -645,8 +756,18 @@ export default function FeedScreen() {
     profileTopics,
   ]);
 
+  const resetDeckPosition = useCallback(() => {
+    cancelAnimation(visualIndex);
+    visualIndex.value = 0;
+    displayIndexRef.current = 0;
+    setDisplayIndex(0);
+    setExternalIndex(0);
+  }, [setExternalIndex, visualIndex]);
+
   const handleToggleTopNews = useCallback(() => {
     if (!preferences.isTopNewsActive) {
+      setIsDigestDismissed(false);
+      void writeDailyDigestDismissal(false);
       applyTopNewsPreferences(null);
       return;
     }
@@ -669,9 +790,147 @@ export default function FeedScreen() {
     syncCustomizeState,
   ]);
 
+  const handleDigestPillPress = useCallback(() => {
+    if (isDigestArchiveViewActive) {
+      setIsViewingCompletedDigest(false);
+      resetDeckPosition();
+      return;
+    }
+
+    if (isDailyDigestActive) {
+      setDigestResumeIndex(safeIndex);
+      setIsDigestDismissed(true);
+      void writeDailyDigestDismissal(true);
+      resetDeckPosition();
+      return;
+    }
+    handleToggleTopNews();
+  }, [
+    isDailyDigestActive,
+    isDigestArchiveViewActive,
+    handleToggleTopNews,
+    resetDeckPosition,
+    safeIndex,
+  ]);
+
+  const handleResumeDailyDigest = useCallback(() => {
+    if (!dailyDigestFeed || dailyDigestFeed.isComplete) return;
+    const targetIndex = Math.min(
+      Math.max(digestResumeIndex, dailyDigestFeed.completedCount),
+      Math.max(dailyDigestFeed.displayArticles.length - 1, 0),
+    );
+
+    if (!preferences.isTopNewsActive) {
+      pendingDigestResumeIndexRef.current = targetIndex;
+      applyTopNewsPreferences(null);
+    }
+
+    setIsViewingCompletedDigest(false);
+    setIsDigestDismissed(false);
+    void writeDailyDigestDismissal(false);
+    setCurrentIndex(targetIndex);
+  }, [
+    applyTopNewsPreferences,
+    dailyDigestFeed,
+    digestResumeIndex,
+    preferences.isTopNewsActive,
+    setCurrentIndex,
+  ]);
+
+  useEffect(() => {
+    if (
+      !preferences.isTopNewsActive ||
+      !isDigestDismissalLoaded ||
+      isDigestDismissed ||
+      dailyDigestFeed ||
+      articles.length === 0
+    ) return;
+
+    let cancelled = false;
+    void buildCanonicalDailyDigestFeed(articles).then((nextDigestFeed) => {
+      if (cancelled) return;
+      setDailyDigestFeed(nextDigestFeed);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    articles,
+    dailyDigestFeed,
+    isDigestDismissalLoaded,
+    isDigestDismissed,
+    preferences.isTopNewsActive,
+  ]);
+
   const handleEditQuery = useCallback(() => {
+    setIsViewingCompletedDigest(false);
     router.navigate('/graph');
   }, []);
+
+  const handleViewCompletedDigest = useCallback(() => {
+    if (!dailyDigestFeed?.isComplete) return;
+
+    // The archive is a read-only digest view. It never replays completion.
+    setIsViewingCompletedDigest(true);
+    resetDeckPosition();
+  }, [
+    dailyDigestFeed?.isComplete,
+    resetDeckPosition,
+  ]);
+
+  const handleSaveGuestStreak = useCallback(() => {
+    setShowGuestStreakPrompt(false);
+    router.replace(buildHref('/login', { returnTo: '/' }));
+  }, []);
+
+  useEffect(() => () => {
+    if (guestStreakPromptTimeoutRef.current) {
+      clearTimeout(guestStreakPromptTimeoutRef.current);
+    }
+  }, []);
+
+  const handleOpenTodayDigest = useCallback(async () => {
+    const sourceArticles = preferences.isTopNewsActive
+      ? articles
+      : await loadFromPreferences({
+          activeQuery: null,
+          recommendationRequest: null,
+          prefetchedQueryArticles: null,
+          isTopNewsActive: true,
+          topNewsGraphFilter: null,
+          profileTopics,
+        });
+    const nextDigestFeed = await buildCanonicalDailyDigestFeed(sourceArticles);
+
+    setDailyDigestFeed(nextDigestFeed);
+    setIsDigestDismissed(false);
+    void writeDailyDigestDismissal(false);
+    applyTopNewsPreferences(null);
+    setIsViewingCompletedDigest(nextDigestFeed.isComplete);
+    resetDeckPosition();
+  }, [
+    applyTopNewsPreferences,
+    articles,
+    loadFromPreferences,
+    preferences.isTopNewsActive,
+    profileTopics,
+    resetDeckPosition,
+  ]);
+
+  useFocusEffect(useCallback(() => {
+    let cancelled = false;
+
+    void readDailyDigestOpenRequest().then((requested) => {
+      if (!requested || cancelled) return;
+      void writeDailyDigestOpenRequest(false);
+      void handleOpenTodayDigest();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [handleOpenTodayDigest]));
 
   const markRead = useCallback((article: Article) => {
     void logArticleRead(user?.id, {
@@ -700,7 +959,7 @@ export default function FeedScreen() {
           throw error;
         }
 
-        void Promise.allSettled([
+        await Promise.allSettled([
           supabase.rpc('increment_articles_read', { uid: user.id }),
           supabase.rpc('update_reading_streak', { uid: user.id }),
         ]);
@@ -715,25 +974,33 @@ export default function FeedScreen() {
           }
         });
 
-        void supabase.functions.invoke('award-badge', { body: { userId: user.id } }).catch((badgeError) => {
+        const { data: awardResult, error: badgeError } = await supabase.functions.invoke('award-badge', { body: { userId: user.id } });
+        if (badgeError) {
           console.warn('[FeedScreen] Failed to check badges after read', badgeError);
-        });
+        } else {
+          await announceAwardedBadgeIds(Array.isArray(awardResult?.awarded) ? awardResult.awarded : []);
+        }
       } catch (error) {
         queuedReadIdsRef.current.delete(article.id);
         console.warn('[FeedScreen] Failed to mark article read', error);
       }
     })();
-  }, [user]);
+  }, [announceAwardedBadgeIds, user]);
 
   const toggleSave = useCallback(async (articleId: number) => {
+    if (!user) {
+      setShowSaveAccountPrompt(true);
+      return;
+    }
+
     const isSaved = savedIds.has(articleId);
-    const article = articles.find((item) => item.id === articleId);
+    const article = feedArticles.find((item) => item.id === articleId);
     if (!article) return;
 
     if (isSaved) {
-      await removeSavedArticle(user?.id, articleId);
+      await removeSavedArticle(user.id, articleId);
     } else {
-      await upsertSavedArticle(user?.id, {
+      await upsertSavedArticle(user.id, {
         id: article.id,
         title: article.title,
         lede: article.lede,
@@ -750,8 +1017,6 @@ export default function FeedScreen() {
     }
 
     try {
-      if (!user) return;
-
       if (isSaved) {
         const { error } = await supabase.from('saved_articles').delete()
           .eq('user_id', user.id)
@@ -768,33 +1033,29 @@ export default function FeedScreen() {
     } catch (error) {
       console.warn('[FeedScreen] Remote bookmark sync failed; kept local bookmark state', error);
     }
-  }, [articles, savedIds, user]);
+  }, [feedArticles, savedIds, user]);
 
-  const shareArticle = useCallback(async (article: Article) => {
-    await shareArticleFromPraxis({
-      title: article.title,
-      lede: article.meta?.summary || article.lede,
-      url: article.url,
-      publisher: article.publisher,
-    });
+  const shareArticle = useCallback((article: Article) => {
+    setShareSheetArticle(article);
   }, []);
 
   const loadingMore = isStreaming && !loading;
 
   useEffect(() => {
     const remainingInBatch = loadedArticlesCount - safeIndex;
-    const hasMoreLoadedArticles = articles.length > loadedArticlesCount;
+    const hasMoreLoadedArticles = feedArticles.length > loadedArticlesCount;
     const isNearVisibleEnd = remainingInBatch <= 5;
 
     if (isNearVisibleEnd && hasMoreLoadedArticles && !loadingMore) {
       setLoadedArticlesCount((prev) => {
-        return Math.min(prev + ARTICLES_PER_PAGE, articles.length);
+        return Math.min(prev + ARTICLES_PER_PAGE, feedArticles.length);
       });
     }
 
-    const remainingTotal = articles.length - safeIndex;
+    const remainingTotal = feedArticles.length - safeIndex;
     if (
       feedMode === 'query' &&
+      !isDailyDigestActive &&
       remainingTotal <= 3 &&
       !loadingMore &&
       !loading &&
@@ -803,9 +1064,10 @@ export default function FeedScreen() {
       void requestMoreArticles();
     }
   }, [
-    articles.length,
+    feedArticles.length,
     feedMode,
     isAllCaughtUp,
+    isDailyDigestActive,
     loadedArticlesCount,
     loading,
     loadingMore,
@@ -816,17 +1078,88 @@ export default function FeedScreen() {
   const advance = useCallback((article: Article) => {
     const nextIndex = index + 1;
 
-    if (nextIndex >= loadedArticlesCount && articles.length > loadedArticlesCount) {
+    if (nextIndex >= loadedArticlesCount && feedArticles.length > loadedArticlesCount) {
       setLoadedArticlesCount((prev) =>
-        Math.min(prev + ARTICLES_PER_PAGE, articles.length),
+        Math.min(prev + ARTICLES_PER_PAGE, feedArticles.length),
       );
     }
 
-    setCurrentIndex(nextIndex);
+    if (isDailyDigestActive && digestArticleIdSet.has(article.id)) {
+      void markDailyDigestArticleComplete(article.id).then((nextState) => {
+        const isComplete =
+          nextState.articleIds.length > 0 &&
+          nextState.completedIds.length >= nextState.articleIds.length;
+        setDailyDigestFeed((previous) => {
+          if (!previous) return previous;
+          const completedIds = nextState.completedIds.filter((id) =>
+            previous.state.articleIds.includes(id),
+          );
+          return {
+            ...previous,
+            state: {
+              ...previous.state,
+              completedIds,
+            },
+            completedCount: completedIds.length,
+            isComplete:
+              previous.totalCount > 0 && completedIds.length >= previous.totalCount,
+          };
+        });
+
+        if (isComplete) {
+          // Match the web handoff: finish the five-story rundown, briefly
+          // celebrate, then return to the ordinary Top News deck.
+          const digestArticles = dailyDigestFeed?.digestArticles ?? [];
+          setDigestCompletionSummary({
+            storyCount: digestArticles.length,
+            sourceCount: new Set(
+              digestArticles
+                .map((digestArticle) => digestArticle.publisher?.name || digestArticle.source)
+                .filter(Boolean),
+            ).size,
+            topicCount: new Set(
+              digestArticles.flatMap((digestArticle) => digestArticle.topics ?? []),
+            ).size,
+          });
+          celebrateDigestCompletion();
+          setIsDigestHandoffActive(false);
+          setIsDigestCompletionVisible(true);
+          if (isGuestMode || !user) {
+            if (guestStreakPromptTimeoutRef.current) {
+              clearTimeout(guestStreakPromptTimeoutRef.current);
+            }
+            // Web waits for the completion handoff to clear before asking a
+            // guest to save the streak, so the two moments do not compete.
+            guestStreakPromptTimeoutRef.current = setTimeout(() => {
+              setShowGuestStreakPrompt(true);
+              guestStreakPromptTimeoutRef.current = null;
+            }, 4400);
+          }
+          return;
+        }
+
+        setCurrentIndex(nextIndex);
+      });
+    } else {
+      setCurrentIndex(nextIndex);
+    }
     InteractionManager.runAfterInteractions(() => {
       markRead(article);
     });
-  }, [articles.length, index, loadedArticlesCount, markRead, setCurrentIndex]);
+  }, [
+    digestArticleIdSet,
+    celebrateDigestCompletion,
+    dailyDigestFeed?.digestArticles,
+    feedArticles.length,
+    index,
+    isDailyDigestActive,
+    isGuestMode,
+    loadedArticlesCount,
+    markRead,
+    setCurrentIndex,
+    resetDeckPosition,
+    user,
+  ]);
 
   const retreat = useCallback(() => {
     setCurrentIndex(Math.max(0, index - 1));
@@ -836,12 +1169,12 @@ export default function FeedScreen() {
   let current: Article | undefined;
 
   try {
-    const visibleArticles = articles.slice(0, maxAvailableArticles);
+    const visibleArticles = feedArticles.slice(0, maxAvailableArticles);
     if (visibleArticles.length > 0) {
       current = visibleArticles[safeIndex] || undefined;
     }
   } catch (e) {
-    console.error('[FeedScreen] Error accessing articles array:', e, { index, articlesLength: articles?.length });
+    console.error('[FeedScreen] Error accessing articles array:', e, { index, articlesLength: feedArticles?.length });
   }
 
   useEffect(() => {
@@ -861,6 +1194,146 @@ export default function FeedScreen() {
     isAllCaughtUp &&
     safeIndex > 0 &&
     remainingVisibleCards === 0;
+  const digestCompletedCount = dailyDigestFeed?.completedCount ?? 0;
+  const digestTotalCount = dailyDigestFeed?.totalCount ?? 0;
+  const shouldShowDigestProgress = Boolean(
+    dailyDigestFeed &&
+      digestTotalCount > 0 &&
+      !dailyDigestFeed.isComplete,
+  );
+  const shouldShowPausedDigestReminder = Boolean(
+    shouldShowDigestProgress && isDigestDismissed && !isDailyDigestActive,
+  );
+  const pausedDigestDisplayCount = Math.min(
+    Math.max(digestResumeIndex, digestCompletedCount) + 1,
+    digestTotalCount,
+  );
+  const isVisibleDigestStoryInProgress = Boolean(
+    isDailyDigestActive &&
+      current &&
+      digestArticleIdSet.has(current.id) &&
+      !dailyDigestFeed?.state.completedIds.includes(current.id),
+  );
+  const digestDisplayCompletedCount = Math.min(
+    digestCompletedCount + (isVisibleDigestStoryInProgress ? 1 : 0),
+    digestTotalCount,
+  );
+  const digestRemainingCount = Math.max(digestTotalCount - digestDisplayCompletedCount, 0);
+  const digestProgressPercentage = digestTotalCount > 0
+    ? Math.min((digestDisplayCompletedCount / digestTotalCount) * 100, 100)
+    : 0;
+  const digestProgressAnimatedStyle = useAnimatedStyle(() => ({
+    width: `${digestProgressValue.value}%`,
+  }));
+
+  useEffect(() => {
+    digestProgressValue.value = withTiming(digestProgressPercentage, {
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [digestProgressPercentage, digestProgressValue]);
+  useEffect(() => {
+    if (!isDailyDigestActive || !dailyDigestFeed) return;
+
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    void readDailyDigestPanelHint().then((hasShownHint) => {
+      if (cancelled) return;
+
+      if (hasShownHint) {
+        setIsDigestProgressOpen(false);
+        return;
+      }
+
+      setIsDigestProgressOpen(true);
+      void writeDailyDigestPanelHint();
+      timeout = setTimeout(() => setIsDigestProgressOpen(false), 1400);
+    });
+
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [dailyDigestFeed?.state.date, isDailyDigestActive]);
+  const digestProgressTitle = dailyDigestFeed?.isComplete
+    ? "Today's Digest Complete"
+    : isDigestDismissed
+      ? 'Digest paused'
+    : digestRemainingCount >= 4
+      ? "You've started today's digest."
+      : digestRemainingCount === 3
+        ? "You're getting caught up on today's news."
+        : digestRemainingCount === 2
+          ? "You're building a broader view of today's stories."
+          : 'Almost done.';
+  const digestProgressBody = dailyDigestFeed?.isComplete
+    ? "You're caught up on today's top stories."
+    : isDigestDismissed
+      ? "Jump back in anytime to finish today's curated rundown."
+    : `${digestRemainingCount} stor${digestRemainingCount === 1 ? 'y' : 'ies'} left`;
+  useEffect(() => {
+    if (!isDigestCompletionVisible) return;
+
+    topNewsArticles.slice(0, STACK_RENDER_COUNT).forEach((article) => {
+      if (article.image_url) void Image.prefetch(article.image_url);
+    });
+
+    digestCompletionOpacity.value = 0;
+    digestCompletionScale.value = 0.95;
+    digestCompletionTranslateY.value = 12;
+    digestCompletionOpacity.value = withTiming(1, { duration: 220 });
+    digestCompletionScale.value = withSequence(
+      withTiming(1.025, { duration: 180, easing: Easing.out(Easing.cubic) }),
+      withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) }),
+    );
+    digestCompletionTranslateY.value = withSequence(
+      withTiming(-4, { duration: 180, easing: Easing.out(Easing.cubic) }),
+      withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) }),
+    );
+    const exitStartTimeout = setTimeout(() => {
+      // Mount and reset Top News while the completion card is still opaque.
+      // Its exit fade then masks the deck replacement and image settlement.
+      setIsDigestHandoffActive(true);
+      resetDeckPosition();
+      digestCompletionOpacity.value = withTiming(0, { duration: 260 });
+      digestCompletionScale.value = withTiming(0.98, {
+        duration: 260,
+        easing: Easing.in(Easing.cubic),
+      });
+      digestCompletionTranslateY.value = withTiming(-6, {
+        duration: 260,
+        easing: Easing.in(Easing.cubic),
+      });
+    }, 2540);
+    const handoffTimeout = setTimeout(() => {
+      // Reset the deck before revealing Top News so there is no intermediate
+      // frame where the ordinary feed appears partway through.
+      setIsDigestDismissed(false);
+      void writeDailyDigestDismissal(false);
+      setIsViewingCompletedDigest(false);
+      setIsDigestCompletionVisible(false);
+      setIsDigestHandoffActive(false);
+    }, 2800);
+    return () => {
+      clearTimeout(exitStartTimeout);
+      clearTimeout(handoffTimeout);
+    };
+  }, [
+    digestCompletionOpacity,
+    digestCompletionScale,
+    digestCompletionTranslateY,
+    isDigestCompletionVisible,
+    resetDeckPosition,
+    topNewsArticles,
+  ]);
+  const digestCompletionAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: digestCompletionOpacity.value,
+    transform: [
+      { translateY: digestCompletionTranslateY.value },
+      { scale: digestCompletionScale.value },
+    ],
+  }));
   const finishSwipeLeft = useCallback(() => {
     if (current) advance(current);
   }, [advance, current]);
@@ -909,7 +1382,7 @@ export default function FeedScreen() {
           (event.translationX < 0 && !canSwipeLeft) ||
           (event.translationX > 0 && !canSwipeRight);
         const translation = blocked ? event.translationX * 0.2 : event.translationX;
-        visualIndex.value = index - translation / SWIPE_EXIT_DISTANCE;
+        visualIndex.value = index - translation / swipeExitDistance;
       })
       .onEnd((event) => {
         const distance = Math.abs(event.translationX);
@@ -973,6 +1446,7 @@ export default function FeedScreen() {
       flippedArticleId,
       index,
       logSwipeEvent,
+      swipeExitDistance,
       visualIndex,
     ],
   );
@@ -988,8 +1462,8 @@ export default function FeedScreen() {
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
       {/* Header */}
-      <View style={[s.header, { borderBottomColor: c.border }]}>
-        <View style={s.headerLeft}>
+      <View style={[s.header, isNarrowScreen && s.headerNarrow, { borderBottomColor: c.border }]}>
+        <View style={[s.headerLeft, isNarrowScreen && s.headerSideNarrow]}>
           {isGuestMode || !user ? (
             <Link href={buildHref('/login', { returnTo: '/' })} asChild>
               <TouchableOpacity style={s.signInBtn} accessibilityRole="link">
@@ -1004,19 +1478,25 @@ export default function FeedScreen() {
               >
                 <Ionicons name="person-outline" size={20} color={c.icon} />
               </TouchableOpacity>
-              <View style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}>
+              <TouchableOpacity
+                onPress={dailyDigestFeed?.isComplete ? handleViewCompletedDigest : undefined}
+                disabled={!dailyDigestFeed?.isComplete}
+                accessibilityRole={dailyDigestFeed?.isComplete ? 'button' : undefined}
+                accessibilityLabel={dailyDigestFeed?.isComplete ? "View today's Daily Digest" : undefined}
+                style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}
+              >
                 <Ionicons name="flame-outline" size={15} color="#8DAE73" />
                 <Text style={s.streakText}>{Math.max(profile?.reading_streak ?? 0, localStreakCount)}</Text>
-              </View>
+              </TouchableOpacity>
             </>
           )}
         </View>
 
         <View style={s.headerCenter}>
-          <Text style={[s.headerTitle, { color: c.text }]}>Praxis</Text>
+          <Text style={[s.headerTitle, isNarrowScreen && s.headerTitleNarrow, { color: c.text }]}>Praxis</Text>
         </View>
 
-        <View style={s.headerRight}>
+        <View style={[s.headerRight, isNarrowScreen && s.headerSideNarrow]}>
           {isGuestMode || !user ? (
             <Link href={buildHref('/login', { returnTo: '/saved' })} asChild>
               <TouchableOpacity
@@ -1056,29 +1536,45 @@ export default function FeedScreen() {
 
       <View style={s.topNewsRow}>
         <TouchableOpacity
-          onPress={handleToggleTopNews}
+          onPress={isDigestModeVisible ? handleDigestPillPress : handleToggleTopNews}
           accessibilityRole="button"
-          accessibilityLabel="Toggle Top News"
+          accessibilityLabel={isDigestModeVisible ? 'Exit Daily Digest' : 'Toggle Top News'}
           testID="feed-top-news-toggle"
           style={[
             s.headerPill,
-            preferences.isTopNewsActive
-              ? { backgroundColor: '#F9E6D6', borderColor: '#EDC9AE' }
-              : { backgroundColor: c.secondary, borderColor: c.border },
+            isDigestModeVisible
+              ? { backgroundColor: '#EFE7FB', borderColor: '#D5C3F3' }
+              : preferences.isTopNewsActive
+                ? { backgroundColor: '#F9E6D6', borderColor: '#EDC9AE' }
+                : { backgroundColor: c.secondary, borderColor: c.border },
           ]}
         >
           <Ionicons
-            name={preferences.isTopNewsActive ? 'flame-outline' : 'sparkles-outline'}
+            name={isDigestModeVisible
+              ? 'sparkles-outline'
+              : preferences.isTopNewsActive
+                ? 'flame-outline'
+                : 'sparkles-outline'}
             size={13}
-            color={preferences.isTopNewsActive ? '#E48439' : c.textMuted}
+            color={isDigestModeVisible
+              ? '#7A55B6'
+              : preferences.isTopNewsActive
+                ? '#E48439'
+                : c.textMuted}
           />
           <Text
             style={[
               s.headerPillText,
-              { color: preferences.isTopNewsActive ? c.textSecondary : c.textMuted },
+              {
+                color: isDigestModeVisible
+                  ? '#5F438E'
+                  : preferences.isTopNewsActive
+                    ? c.textSecondary
+                    : c.textMuted,
+              },
             ]}
           >
-            Top News
+            {isDigestModeVisible ? 'Daily Digest' : 'Top News'}
           </Text>
         </TouchableOpacity>
         {!preferences.isTopNewsActive && hasCustomQuery ? (
@@ -1110,6 +1606,76 @@ export default function FeedScreen() {
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {shouldShowPausedDigestReminder ? (
+        <TouchableOpacity
+          onPress={handleResumeDailyDigest}
+          accessibilityRole="button"
+          accessibilityLabel={`Resume Daily Digest at story ${pausedDigestDisplayCount} of ${digestTotalCount}`}
+          style={s.digestPausedReminder}
+        >
+          <Ionicons name="flame-outline" size={14} color="#5D7C50" />
+          <Text style={s.digestPausedReminderText}>
+            Daily Digest · {pausedDigestDisplayCount}/{digestTotalCount}
+          </Text>
+          <Text style={s.digestPausedResumeText}>Resume</Text>
+          <Ionicons name="chevron-forward-outline" size={13} color="#718368" />
+        </TouchableOpacity>
+      ) : shouldShowDigestProgress ? (
+        <View style={[s.digestProgressCard, { borderColor: '#C8D8B0' }]}>
+          <TouchableOpacity
+            onPress={() => setIsDigestProgressOpen((open) => !open)}
+            accessibilityRole="button"
+            accessibilityLabel="Toggle Daily Digest progress"
+            style={s.digestProgressToggle}
+          >
+            <Animated.View
+              style={[
+                s.digestProgressFill,
+                digestProgressAnimatedStyle,
+              ]}
+            />
+            <View style={s.digestProgressHeader}>
+              <Ionicons name="flame-outline" size={16} color="#4C773E" />
+              <Text style={s.digestProgressTitle}>
+                Daily Digest {digestDisplayCompletedCount}/{digestTotalCount}
+              </Text>
+              <Ionicons
+                name={isDigestProgressOpen ? 'chevron-up-outline' : 'chevron-down-outline'}
+                size={16}
+                color="#58704E"
+              />
+            </View>
+          </TouchableOpacity>
+          {isDigestProgressOpen ? (
+            <View style={s.digestProgressDetails}>
+              <Text style={s.digestProgressDetailTitle}>{digestProgressTitle}</Text>
+              <Text style={s.digestProgressDetailBody}>{digestProgressBody}</Text>
+              {dailyDigestFeed.isComplete ? (
+                <TouchableOpacity
+                  onPress={handleViewCompletedDigest}
+                  accessibilityRole="button"
+                  accessibilityLabel="View today's Daily Digest"
+                  style={s.digestResumeButton}
+                >
+                  <Ionicons name="sparkles-outline" size={13} color="#5F438E" />
+                  <Text style={s.digestResumeText}>View Today&apos;s Digest</Text>
+                </TouchableOpacity>
+              ) : !isDailyDigestActive ? (
+                <TouchableOpacity
+                  onPress={handleResumeDailyDigest}
+                  accessibilityRole="button"
+                  accessibilityLabel="Resume Daily Digest"
+                  style={s.digestResumeButton}
+                >
+                  <Ionicons name="sparkles-outline" size={13} color="#5F438E" />
+                  <Text style={s.digestResumeText}>Resume Digest</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
 
       {!current && (loading || isStreaming) ? (
         <View style={s.empty}>
@@ -1145,8 +1711,8 @@ export default function FeedScreen() {
       ) : (
         <View style={s.cardStack}>
           <GestureDetector gesture={swipeGesture}>
-            <Animated.View style={s.deckFrame}>
-              {articles
+            <Animated.View style={[s.deckFrame, { width: cardWidth, height: cardHeight + 14 }]}>
+              {feedArticles
                 .slice(0, maxAvailableArticles)
                 .map((article, articleIndex) => {
                   const isActive = articleIndex === safeIndex;
@@ -1158,7 +1724,10 @@ export default function FeedScreen() {
                       articleIndex={articleIndex}
                       isActive={isActive}
                       isSaved={savedIds.has(article.id)}
+                      isDigestCard={isDigestModeVisible && digestArticleIdSet.has(article.id)}
                       visualIndex={visualIndex}
+                      screenWidth={screenWidth}
+                      swipeExitDistance={swipeExitDistance}
                       onSaveArticle={toggleSave}
                       onShareArticle={shareArticle}
                       onReadArticle={handleReadArticle}
@@ -1168,6 +1737,28 @@ export default function FeedScreen() {
                 })}
             </Animated.View>
           </GestureDetector>
+          {isDigestCompletionVisible ? (
+            <View pointerEvents="none" style={s.digestCompletionOverlay}>
+              <Animated.View style={[s.digestCompletionCard, digestCompletionAnimatedStyle]}>
+                <View style={s.digestCompletionIcon}>
+                  <Ionicons name="checkmark" size={24} color="#33714A" />
+                </View>
+                <Text style={s.digestCompletionEyebrow}>DAILY DIGEST COMPLETE</Text>
+                <Text style={s.digestCompletionTitle}>
+                  You&apos;re more informed on today&apos;s major stories.
+                </Text>
+            <Text style={s.digestCompletionMeta}>
+                  {digestCompletionSummary.storyCount} stor{digestCompletionSummary.storyCount === 1 ? 'y' : 'ies'}
+                  {'  '}•{'  '}{digestCompletionSummary.sourceCount} source{digestCompletionSummary.sourceCount === 1 ? '' : 's'}
+                  {'  '}•{'  '}{digestCompletionSummary.topicCount} topic{digestCompletionSummary.topicCount === 1 ? '' : 's'}
+            </Text>
+            <Text style={s.digestCompletionHint}>
+              Tap your streak anytime to view today&apos;s Digest again.
+            </Text>
+            <Text style={s.digestCompletionNext}>NOW EXPLORING TOP NEWS</Text>
+              </Animated.View>
+            </View>
+          ) : null}
         </View>
       )}
 
@@ -1176,11 +1767,11 @@ export default function FeedScreen() {
         <View style={s.dotsRow}>
           {(() => {
             try {
-              if (!Array.isArray(articles) || maxAvailableArticles === 0) {
-                console.warn('[FeedScreen] Articles array invalid for dots:', { isArray: Array.isArray(articles), length: articles?.length });
+              if (!Array.isArray(feedArticles) || maxAvailableArticles === 0) {
+                console.warn('[FeedScreen] Articles array invalid for dots:', { isArray: Array.isArray(feedArticles), length: feedArticles?.length });
                 return null;
               }
-              const visibleArticles = articles.slice(0, maxAvailableArticles);
+              const visibleArticles = feedArticles.slice(0, maxAvailableArticles);
               const startIdx = Math.max(0, safeIndex - 2);
               const endIdx = Math.min(visibleArticles.length, safeIndex + 5);
               const dotArticles = visibleArticles.slice(startIdx, endIdx);
@@ -1207,7 +1798,7 @@ export default function FeedScreen() {
                 );
               });
             } catch (e) {
-              console.error('[FeedScreen] Error rendering progress dots:', e, { index, articlesLength: articles?.length });
+              console.error('[FeedScreen] Error rendering progress dots:', e, { index, articlesLength: feedArticles?.length });
               return null;
             }
           })()}
@@ -1232,6 +1823,63 @@ export default function FeedScreen() {
         </View>
       ) : null}
 
+      <Modal
+        transparent
+        visible={showGuestStreakPrompt}
+        animationType="fade"
+        onRequestClose={() => setShowGuestStreakPrompt(false)}
+      >
+        <View style={s.guestPromptBackdrop}>
+          <View style={s.guestPromptCard}>
+            <TouchableOpacity
+              style={s.guestPromptClose}
+              onPress={() => setShowGuestStreakPrompt(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Keep reading"
+            >
+              <Ionicons name="close" size={16} color="#777168" />
+            </TouchableOpacity>
+            <Text style={s.guestPromptTitle}>You got more deeply informed today</Text>
+            <Text style={s.guestPromptBody}>
+              Nice work. Create an account or sign in to save your streak and keep building it tomorrow.
+            </Text>
+            <View style={s.guestPromptActions}>
+              <TouchableOpacity
+                style={s.guestPromptSecondary}
+                onPress={() => setShowGuestStreakPrompt(false)}
+                accessibilityRole="button"
+              >
+                <Text style={s.guestPromptSecondaryText}>Keep reading</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.guestPromptPrimary}
+                onPress={handleSaveGuestStreak}
+                accessibilityRole="button"
+              >
+                <Text style={s.guestPromptPrimaryText}>Save my streak</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <StoryShareSheet
+        article={shareSheetArticle ? {
+          id: shareSheetArticle.id,
+          title: shareSheetArticle.title,
+          lede: shareSheetArticle.meta?.summary || shareSheetArticle.lede,
+          url: shareSheetArticle.url,
+          imageUrl: shareSheetArticle.image_url,
+          publisher: shareSheetArticle.publisher,
+        } : null}
+        visible={Boolean(shareSheetArticle)}
+      onClose={() => setShareSheetArticle(null)}
+      />
+      <SaveAccountPrompt
+        visible={showSaveAccountPrompt}
+        returnTo="/"
+        onClose={() => setShowSaveAccountPrompt(false)}
+      />
+
     </SafeAreaView>
   );
 }
@@ -1247,9 +1895,12 @@ const s = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: 1,
   },
+  headerNarrow: { paddingHorizontal: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 92 },
+  headerSideNarrow: { minWidth: 78, gap: 2 },
   headerCenter: { alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 21, fontWeight: '800', letterSpacing: -0.4 },
+  headerTitleNarrow: { fontSize: 19 },
   headerBtn: {
     width: 38,
     height: 38,
@@ -1308,6 +1959,9 @@ const s = StyleSheet.create({
   },
   headerRight: { flexDirection: 'row', gap: 8, minWidth: 92, justifyContent: 'flex-end' },
   topNewsRow: {
+    position: 'relative',
+    zIndex: 100,
+    elevation: 100,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1316,17 +1970,192 @@ const s = StyleSheet.create({
     paddingBottom: 4,
     paddingHorizontal: 20,
   },
+  digestProgressCard: {
+    position: 'relative',
+    zIndex: 100,
+    alignSelf: 'center',
+    width: 304,
+    maxWidth: '88%',
+    borderWidth: 1,
+    borderRadius: 18,
+    backgroundColor: '#FFFEFA',
+    overflow: 'hidden',
+    marginTop: 6,
+    marginBottom: 2,
+    shadowColor: '#302D28',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 100,
+  },
+  digestPausedReminder: {
+    position: 'relative',
+    zIndex: 100,
+    elevation: 100,
+    alignSelf: 'center',
+    minHeight: 34,
+    marginTop: 6,
+    marginBottom: 2,
+    paddingLeft: 12,
+    paddingRight: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#CBD9BB',
+    backgroundColor: '#F0F5E9',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  digestPausedReminderText: { color: '#42563B', fontSize: 11, fontWeight: '700' },
+  digestPausedResumeText: { color: '#6B825F', fontSize: 10, fontWeight: '700' },
+  digestProgressToggle: {
+    minHeight: 44,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: '#E9F0DF',
+  },
+  digestProgressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  digestProgressTitle: {
+    color: '#3F5739',
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
+  },
+  digestProgressFill: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: '#B5C79C',
+  },
+  digestProgressDetails: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  digestProgressDetailTitle: {
+    color: '#302D28',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  digestProgressDetailBody: {
+    color: '#777168',
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  digestResumeButton: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#F4EEFC',
+    borderWidth: 1,
+    borderColor: '#D5C3F3',
+  },
+  digestResumeText: { color: '#5F438E', fontSize: 11, fontWeight: '700' },
+  digestCompletionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingBottom: 64,
+    zIndex: 30,
+  },
+  digestCompletionCard: {
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#B8D7BE',
+    borderRadius: 25,
+    backgroundColor: '#FFFDF8',
+    paddingHorizontal: 22,
+    paddingVertical: 22,
+    shadowColor: '#14532D',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.22,
+    shadowRadius: 30,
+    elevation: 14,
+  },
+  digestCompletionIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF8EE',
+    borderWidth: 1,
+    borderColor: '#9DCAAA',
+    marginBottom: 12,
+  },
+  digestCompletionEyebrow: { color: '#33714A', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  digestCompletionTitle: { color: '#22201C', fontSize: 17, fontWeight: '700', lineHeight: 23, textAlign: 'center', marginTop: 8 },
+  digestCompletionMeta: { color: '#68635C', fontSize: 12, fontWeight: '600', textAlign: 'center', lineHeight: 18, marginTop: 8 },
+  digestCompletionHint: { color: '#68635C', fontSize: 12, textAlign: 'center', lineHeight: 18, marginTop: 10 },
+  digestCompletionNext: { color: '#D66D20', fontSize: 10, fontWeight: '800', letterSpacing: 1.5, marginTop: 14 },
+  guestPromptBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(22, 20, 18, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+  },
+  guestPromptCard: {
+    width: '100%',
+    maxWidth: 402,
+    borderRadius: 16,
+    backgroundColor: '#FFFDF8',
+    paddingHorizontal: 22,
+    paddingTop: 21,
+    paddingBottom: 22,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.28,
+    shadowRadius: 36,
+    elevation: 18,
+  },
+  guestPromptClose: { position: 'absolute', top: 14, right: 14, padding: 5 },
+  guestPromptTitle: { color: '#302D28', fontSize: 16, fontWeight: '700', paddingRight: 22 },
+  guestPromptBody: { color: '#777168', fontSize: 13, lineHeight: 19, marginTop: 5 },
+  guestPromptActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 20 },
+  guestPromptSecondary: { borderWidth: 1, borderColor: '#DDD4C5', borderRadius: 12, paddingHorizontal: 15, paddingVertical: 10 },
+  guestPromptSecondaryText: { color: '#302D28', fontSize: 12, fontWeight: '600' },
+  guestPromptPrimary: { borderRadius: 12, backgroundColor: '#8DAE73', paddingHorizontal: 15, paddingVertical: 10 },
+  guestPromptPrimaryText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   badge: {
     position: 'absolute', top: -1, right: -1,
     minWidth: 16, height: 16, borderRadius: 8,
     alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
   },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
-  cardStack: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 0, paddingBottom: 24 },
-  deckFrame: {
-    width: CARD_WIDTH,
-    height: CARD_HEIGHT + 14,
+  cardStack: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 0,
+    paddingBottom: 24,
     position: 'relative',
+    zIndex: 0,
+  },
+  deckFrame: {
+    position: 'relative',
+    zIndex: 0,
   },
   deckCard: { position: 'absolute', top: 0, left: 0 },
   stackInner: { position: 'absolute' },

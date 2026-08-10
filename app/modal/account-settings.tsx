@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   SafeAreaView,
   StyleSheet,
   Text,
@@ -37,7 +38,26 @@ export default function AccountSettingsModal() {
 
   if (loading || isGuestMode || !user) return null;
 
+  const performSignOut = async () => {
+    setBusyAction('signout');
+    try {
+      await signOut();
+      router.replace('/login');
+    } catch (error: any) {
+      Alert.alert('Sign out failed', error?.message ?? 'Could not sign out.');
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const confirmSignOut = () => {
+    // React Native's native alert confirmation is not reliably interactive in
+    // the Expo web preview, so let the browser run the same sign-out action.
+    if (Platform.OS === 'web') {
+      void performSignOut();
+      return;
+    }
+
     Alert.alert(
       'Sign out?',
       'You will be signed out of Praxis on this device and returned to the sign-in screen.',
@@ -45,17 +65,7 @@ export default function AccountSettingsModal() {
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Sign Out',
-          onPress: async () => {
-            setBusyAction('signout');
-            try {
-              await signOut();
-              router.replace('/login');
-            } catch (error: any) {
-              Alert.alert('Sign out failed', error?.message ?? 'Could not sign out.');
-            } finally {
-              setBusyAction(null);
-            }
-          },
+          onPress: () => void performSignOut(),
         },
       ],
     );

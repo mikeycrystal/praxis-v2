@@ -66,7 +66,7 @@ supabase functions deploy award-badge
 
 1. **ai-insights** (`POST /ai-insights`)
    - Input: `{ articleId: number }`
-   - Calls OpenAI gpt-4o-mini with article content
+   - Calls OpenAI Responses API with `gpt-5.4-nano` on article content
    - Returns: summary, keyPoints, sentiment, credibilityScore, entities, relatedTopics
    - Caches results in `ai_insights` table
 

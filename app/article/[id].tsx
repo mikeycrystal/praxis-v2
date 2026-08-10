@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  ActivityIndicator,
   Image,
   SafeAreaView,
   ScrollView,
@@ -20,7 +21,9 @@ import {
   upsertSavedArticle,
 } from '../lib/savedArticles';
 import { openPublisherArticle as openPublisherArticleInApp } from '../lib/openPublisherArticle';
-import { shareArticle } from '../lib/shareArticle';
+import { StoryShareSheet } from '../components/StoryShareSheet';
+import { SaveAccountPrompt } from '../components/SaveAccountPrompt';
+import { getRecommenderConfig, getRecommenderHeaders } from '../lib/recommenderConfig';
 
 type PreviewParams = {
   id: string;
@@ -90,26 +93,76 @@ export default function ArticlePreviewScreen() {
   const { user } = useAuth();
   const articleId = Number(params.id);
   const mockArticle = MOCK_PREVIEW_ARTICLES.find((article) => article.id === articleId);
+  const [sharedStory, setSharedStory] = useState<{
+    title: string;
+    lede: string | null;
+    image_url: string | null;
+    url: string;
+    ts_pub: string;
+    publisher: string | null;
+    x: number;
+    y: number;
+    topics: string[];
+    category: string | null;
+    meta: Record<string, string> | null;
+  } | null>(null);
+  const [isHydratingSharedStory, setIsHydratingSharedStory] = useState(false);
+  const [shareSheetOpen, setShareSheetOpen] = useState(false);
+  const [showSaveAccountPrompt, setShowSaveAccountPrompt] = useState(false);
+
+  useEffect(() => {
+    if (!Number.isFinite(articleId) || params.title || mockArticle) return;
+    const { apiBaseUrl, isEnabled } = getRecommenderConfig();
+    if (!isEnabled || !apiBaseUrl) return;
+
+    let active = true;
+    setIsHydratingSharedStory(true);
+    void fetch(`${apiBaseUrl.replace(/\/$/, '')}/v1/articles/${articleId}`, {
+      headers: getRecommenderHeaders(),
+    })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        if (!active || !payload?.article) return;
+        const item = payload.article;
+        setSharedStory({
+          title: item.title ?? 'Untitled article',
+          lede: item.lede ?? null,
+          image_url: item.image_url ?? null,
+          url: item.url ?? '',
+          ts_pub: item.ts_pub ?? new Date().toISOString(),
+          publisher: item.publisher ?? null,
+          x: item.x ?? 0,
+          y: item.y ?? 0,
+          topics: item.meta?.topics ?? [],
+          category: item.category ?? null,
+          meta: item.meta ?? null,
+        });
+      })
+      .catch((error) => console.warn('[ArticlePreview] Failed to hydrate shared story', error))
+      .finally(() => { if (active) setIsHydratingSharedStory(false); });
+
+    return () => { active = false; };
+  }, [articleId, mockArticle, params.title]);
   const topics = useMemo(
-    () => parseTopics(params.topics, mockArticle?.topics ?? []),
-    [mockArticle?.topics, params.topics],
+    () => parseTopics(params.topics, sharedStory?.topics ?? mockArticle?.topics ?? []),
+    [mockArticle?.topics, params.topics, sharedStory?.topics],
   );
   const article = useMemo(() => {
-    const publisher = params.publisher_name || mockArticle?.publisher || 'Publisher';
-    const x = parseCoordinate(params.x, mockArticle?.x);
-    const y = parseCoordinate(params.y, mockArticle?.y);
+    const publisher = params.publisher_name || sharedStory?.publisher || mockArticle?.publisher || 'Publisher';
+    const x = parseCoordinate(params.x, sharedStory?.x ?? mockArticle?.x);
+    const y = parseCoordinate(params.y, sharedStory?.y ?? mockArticle?.y);
     const leadTopic = topics[0] || 'the central issue';
     const secondTopic = topics[1] || leadTopic;
 
     return {
       id: articleId,
-      title: params.title || mockArticle?.title || 'Untitled article',
-      lede: params.lede || mockArticle?.lede || '',
-      imageUrl: params.image_url || mockArticle?.image_url || null,
-      url: params.url || mockArticle?.url || '',
-      publishedAt: params.ts_pub || mockArticle?.ts_pub || new Date().toISOString(),
+      title: params.title || sharedStory?.title || mockArticle?.title || 'Untitled article',
+      lede: params.lede || sharedStory?.lede || mockArticle?.lede || '',
+      imageUrl: params.image_url || sharedStory?.image_url || mockArticle?.image_url || null,
+      url: params.url || sharedStory?.url || mockArticle?.url || '',
+      publishedAt: params.ts_pub || sharedStory?.ts_pub || mockArticle?.ts_pub || new Date().toISOString(),
       publisher,
-      category: params.category || mockArticle?.category || null,
+      category: params.category || sharedStory?.category || mockArticle?.category || null,
       topics,
       x,
       y,
@@ -125,6 +178,7 @@ export default function ArticlePreviewScreen() {
   }, [
     articleId,
     mockArticle,
+    sharedStory,
     params.category,
     params.image_url,
     params.lede,
@@ -141,27 +195,37 @@ export default function ArticlePreviewScreen() {
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
+    if (!user) {
+      setIsSaved(false);
+      return;
+    }
+
     let isActive = true;
-    void readSavedArticles(user?.id).then((savedArticles) => {
+    void readSavedArticles(user.id).then((savedArticles) => {
       if (isActive) {
         setIsSaved(savedArticles.some((savedArticle) => savedArticle.id === article.id));
       }
     });
-    const unsubscribe = subscribeSavedArticles(user?.id, (savedArticles) => {
+    const unsubscribe = subscribeSavedArticles(user.id, (savedArticles) => {
       setIsSaved(savedArticles.some((savedArticle) => savedArticle.id === article.id));
     });
     return () => {
       isActive = false;
       unsubscribe();
     };
-  }, [article.id, user?.id]);
+  }, [article.id, user]);
 
   const toggleSave = async () => {
-    if (isSaved) {
-      await removeSavedArticle(user?.id, article.id);
+    if (!user) {
+      setShowSaveAccountPrompt(true);
       return;
     }
-    await upsertSavedArticle(user?.id, {
+
+    if (isSaved) {
+      await removeSavedArticle(user.id, article.id);
+      return;
+    }
+    await upsertSavedArticle(user.id, {
       id: article.id,
       title: article.title,
       lede: article.lede,
@@ -220,12 +284,7 @@ export default function ArticlePreviewScreen() {
         </View>
         <View style={s.topActions}>
           <TouchableOpacity
-            onPress={() => void shareArticle({
-              title: article.title,
-              lede: article.lede,
-              url: article.url,
-              publisher: { name: article.publisher },
-            })}
+            onPress={() => setShareSheetOpen(true)}
             style={s.iconButton}
             accessibilityLabel="Share article"
           >
@@ -242,6 +301,7 @@ export default function ArticlePreviewScreen() {
       </View>
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
+        {isHydratingSharedStory ? <ActivityIndicator color={COLORS.green} style={s.sharedStoryLoader} /> : null}
         {article.imageUrl ? (
           <Image source={{ uri: article.imageUrl }} style={s.heroImage} resizeMode="cover" />
         ) : (
@@ -339,6 +399,23 @@ export default function ArticlePreviewScreen() {
           Praxis adds reading context, not a verdict. Open the original article for the publisher’s complete reporting.
         </Text>
       </ScrollView>
+      <StoryShareSheet
+        article={{
+          id: article.id,
+          title: article.title,
+          lede: article.lede,
+          url: article.url,
+          imageUrl: article.imageUrl,
+          publisher: { name: article.publisher },
+        }}
+        visible={shareSheetOpen}
+        onClose={() => setShareSheetOpen(false)}
+      />
+      <SaveAccountPrompt
+        visible={showSaveAccountPrompt}
+        returnTo={`/article/${article.id}`}
+        onClose={() => setShowSaveAccountPrompt(false)}
+      />
 
       <View style={s.bottomBar}>
         <Text style={s.bottomBarLabel}>Continue with the full reporting</Text>
@@ -384,6 +461,7 @@ const s = StyleSheet.create({
   },
   contextText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
   content: { padding: 18, paddingBottom: 30, gap: 21 },
+  sharedStoryLoader: { marginTop: 8 },
   heroImage: { width: '100%', aspectRatio: 1.58, borderRadius: 22, backgroundColor: COLORS.surface },
   heroFallback: {
     width: '100%',

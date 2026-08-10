@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { NewsPreferencesProvider } from './context/NewsPreferencesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
+import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { buildHref } from './lib/buildHref';
 
 function RootRedirect() {
@@ -68,6 +69,7 @@ export default function RootLayout() {
     <ErrorBoundary>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
+        <BadgeCelebrationProvider>
         <NewsPreferencesProvider>
           <RootRedirect />
           <PushNotificationHandler />
@@ -89,9 +91,11 @@ export default function RootLayout() {
             <Stack.Screen name="modal/change-password" options={{ presentation: 'modal' }} />
             <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
             <Stack.Screen name="modal/reading-activity" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="modal/analytics" options={{ presentation: 'modal' }} />
           </Stack>
           <StatusBar style="dark" />
         </NewsPreferencesProvider>
+        </BadgeCelebrationProvider>
       </AuthProvider>
     </GestureHandlerRootView>
     </ErrorBoundary>

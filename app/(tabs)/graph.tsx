@@ -46,6 +46,7 @@ import {
 } from '../lib/mockPreviewData';
 import { buildHref } from '../lib/buildHref';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
+import { writeDailyDigestOpenRequest } from '../lib/dailyDigest';
 
 const logoAp = require('../../assets/logos/ap.png');
 const logoAtlantic = require('../../assets/logos/atlantic.png');
@@ -309,6 +310,8 @@ const buildSafeModePrefetchedArticles = ({
 export default function GraphScreen() {
   const { isGuestMode, user, profile } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isNarrowScreen = windowWidth < 350;
+  const graphMinSize = windowHeight < 620 ? 168 : windowHeight < 740 ? 190 : GRAPH_MIN_SIZE;
   const {
     preferences,
     applyQueryPreferences,
@@ -319,11 +322,11 @@ export default function GraphScreen() {
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
   const graphWidth = useMemo(() => {
     const fallbackWidth = Math.min(
-      Math.max(windowWidth - 88, GRAPH_MIN_SIZE),
+      Math.max(windowWidth - 56, graphMinSize),
       GRAPH_MAX_SIZE,
     );
     const viewportHeightLimit = Math.min(
-      Math.max(windowHeight - 430, GRAPH_MIN_SIZE),
+      Math.max(windowHeight - 430, graphMinSize),
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 36, 0);
@@ -337,11 +340,13 @@ export default function GraphScreen() {
     );
 
     return Math.min(
-      Math.max(availableSquare || FALLBACK_GRAPH_SIZE, GRAPH_MIN_SIZE),
+      Math.max(availableSquare || FALLBACK_GRAPH_SIZE, graphMinSize),
       GRAPH_MAX_SIZE,
     );
-  }, [graphViewport.height, graphViewport.width, windowHeight, windowWidth]);
+  }, [graphMinSize, graphViewport.height, graphViewport.width, windowHeight, windowWidth]);
   const graphHeight = graphWidth;
+  const graphScale = clamp(graphWidth / FALLBACK_GRAPH_SIZE, 0.58, 1.12);
+  const graphAxisInset = clamp(graphWidth * 0.1, 20, 34);
   const graphSizeRef = useRef({ width: graphWidth, height: graphHeight });
   const centerX = graphWidth / 2;
   const centerY = graphHeight / 2;
@@ -385,7 +390,7 @@ export default function GraphScreen() {
   const [hasAppliedTopNewsFilter, setHasAppliedTopNewsFilter] = useState(
     () => initialGraphState.hasAppliedTopNewsFilter,
   );
-  const sliderTrackWidth = Math.min(Math.max(windowWidth - 142, 210), 300);
+  const sliderTrackWidth = Math.min(Math.max(windowWidth - 166, 130), 300);
   const [pinX, setPinX] = useState(initialPin.x);
   const [pinY, setPinY] = useState(initialPin.y);
   const animatedPinX = useSharedValue(initialPin.x);
@@ -1030,6 +1035,11 @@ export default function GraphScreen() {
     syncTopNewsFallbackState(null);
   };
 
+  const handleOpenDailyDigest = useCallback(() => {
+    void writeDailyDigestOpenRequest(true);
+    router.navigate('/');
+  }, []);
+
   const handleOpenSaveDialog = () => {
     if (!hasSearchCriteria) return;
     if (!user) {
@@ -1098,13 +1108,15 @@ export default function GraphScreen() {
     () =>
       OUTLETS.map((outlet) => ({
         ...outlet,
-        x: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0),
-        y: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy,
-        imageX: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) - outlet.width / 2,
-        imageY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy - outlet.height / 2,
-        labelY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy + outlet.height / 2 + (outlet.labelDy ?? 10),
+        width: outlet.width * graphScale,
+        height: outlet.height * graphScale,
+        x: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) * graphScale,
+        y: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale,
+        imageX: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) * graphScale - (outlet.width * graphScale) / 2,
+        imageY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale - (outlet.height * graphScale) / 2,
+        labelY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale + (outlet.height * graphScale) / 2 + (outlet.labelDy ?? 10) * graphScale,
       })),
-    [graphHeight, graphWidth],
+    [graphHeight, graphScale, graphWidth],
   );
 
   return (
@@ -1121,8 +1133,8 @@ export default function GraphScreen() {
       ) : null}
 
       <Pressable onPress={isDropdownOpen ? closeDropdown : undefined}>
-      <View style={[s.header, { borderBottomColor: PAGE.border }]}>
-        <View style={s.headerLeft}>
+      <View style={[s.header, isNarrowScreen && s.headerNarrow, { borderBottomColor: PAGE.border }]}>
+        <View style={[s.headerLeft, isNarrowScreen && s.headerSideNarrow]}>
           {isGuestMode || !user ? (
             <Link href={buildHref('/login', { returnTo: '/graph' })} asChild>
               <TouchableOpacity
@@ -1150,8 +1162,8 @@ export default function GraphScreen() {
             </>
           )}
         </View>
-        <Text style={s.headerTitle}>Praxis</Text>
-        <View style={s.headerRight}>
+        <Text style={[s.headerTitle, isNarrowScreen && s.headerTitleNarrow]}>Praxis</Text>
+        <View style={[s.headerRight, isNarrowScreen && s.headerSideNarrow]}>
           {isGuestMode || !user ? (
             <Link href={buildHref('/login', { returnTo: '/saved' })} asChild>
               <TouchableOpacity
@@ -1232,36 +1244,49 @@ export default function GraphScreen() {
                   nestedScrollEnabled
                   keyboardShouldPersistTaps="always"
                 >
-                  {digests.length > 0 || hasSearchCriteria ? (
+                  {!query || digests.length > 0 || hasSearchCriteria ? (
                     <View style={s.presetsBlock}>
-                      <Text style={s.dropdownLabel}>Saved presets</Text>
-                      {digests.length > 0 ? (
-                        <View style={s.presetsRow}>
-                          {digests.map((preset) => (
-                            <View key={preset.id} style={s.presetWrap}>
-                              <TouchableOpacity
-                                style={s.presetChip}
-                                onPress={() => handleLoadPreset(preset)}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Load preset ${preset.name}`}
-                                testID={`graph-preset-${topicToTestId(preset.name)}`}
-                              >
-                                <Text style={s.presetChipText}>{preset.name}</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={s.presetDelete}
-                                onPress={() => handleDeletePreset(preset.id, preset.name)}
-                                accessibilityRole="button"
-                                accessibilityLabel={`Delete preset ${preset.name}`}
-                              >
-                                <Ionicons name="close" size={10} color={PAGE.textMuted} />
-                              </TouchableOpacity>
-                            </View>
-                          ))}
-                        </View>
-                      ) : (
+                      {digests.length > 0 || (query && hasSearchCriteria) ? (
+                        <Text style={s.dropdownLabel}>Saved presets</Text>
+                      ) : null}
+                      <View style={s.presetsRow}>
+                        {!query ? (
+                          <TouchableOpacity
+                            onPress={handleOpenDailyDigest}
+                            style={s.dailyDigestShortcutChip}
+                            accessibilityRole="button"
+                            accessibilityLabel="Open today's Daily Digest"
+                            testID="graph-daily-digest"
+                          >
+                            <Ionicons name="sparkles-outline" size={13} color="#5F438E" />
+                            <Text style={s.dailyDigestShortcutText}>Daily Digest</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {digests.map((preset) => (
+                          <View key={preset.id} style={s.presetWrap}>
+                            <TouchableOpacity
+                              style={s.presetChip}
+                              onPress={() => handleLoadPreset(preset)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Load preset ${preset.name}`}
+                              testID={`graph-preset-${topicToTestId(preset.name)}`}
+                            >
+                              <Text style={s.presetChipText}>{preset.name}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={s.presetDelete}
+                              onPress={() => handleDeletePreset(preset.id, preset.name)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Delete preset ${preset.name}`}
+                            >
+                              <Ionicons name="close" size={10} color={PAGE.textMuted} />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                      {digests.length === 0 && query && hasSearchCriteria ? (
                         <Text style={s.emptyDropdownText}>No saved presets yet.</Text>
-                      )}
+                      ) : null}
                     </View>
                   ) : null}
 
@@ -1451,17 +1476,25 @@ export default function GraphScreen() {
             style={[s.graphCanvas, { width: graphWidth, height: graphHeight }]}
           >
             <TouchableOpacity
-              style={[s.helpButton, { borderColor: PAGE.chipBorder }]}
+              style={[
+                s.helpButton,
+                {
+                  borderColor: PAGE.chipBorder,
+                  width: clamp(44 * graphScale, 34, 44),
+                  height: clamp(44 * graphScale, 34, 44),
+                  borderRadius: clamp(22 * graphScale, 17, 22),
+                },
+              ]}
               activeOpacity={0.85}
               onPress={() => setIsHelpOpen(true)}
             >
-              <Ionicons name="help-circle-outline" size={26} color={PAGE.text} />
+              <Ionicons name="help-circle-outline" size={clamp(26 * graphScale, 20, 26)} color={PAGE.text} />
             </TouchableOpacity>
             <GestureDetector gesture={graphGesture}>
               <Animated.View style={{ width: graphWidth, height: graphHeight }}>
                 <Svg width={graphWidth} height={graphHeight}>
-            <Line x1={centerX} y1={34} x2={centerX} y2={graphHeight - 34} stroke="#D3CCC1" strokeWidth={2} />
-            <Line x1={34} y1={centerY} x2={graphWidth - 34} y2={centerY} stroke="#D3CCC1" strokeWidth={2} />
+            <Line x1={centerX} y1={graphAxisInset} x2={centerX} y2={graphHeight - graphAxisInset} stroke="#D3CCC1" strokeWidth={2} />
+            <Line x1={graphAxisInset} y1={centerY} x2={graphWidth - graphAxisInset} y2={centerY} stroke="#D3CCC1" strokeWidth={2} />
 
             <AnimatedCircle
               animatedProps={radiusCircleAnimatedProps}
@@ -1470,7 +1503,7 @@ export default function GraphScreen() {
               strokeWidth={3}
               strokeDasharray="6,5"
             />
-            <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={16} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={5} />
+            <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 16)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 5)} />
             {positionedOutlets.map((outlet) => (
               <React.Fragment key={outlet.key}>
                 <SvgImage
@@ -1488,7 +1521,7 @@ export default function GraphScreen() {
                   textAnchor="middle"
                   fill={PAGE.textMuted}
                   opacity={0.78}
-                  fontSize="8.5"
+                  fontSize={clamp(8.5 * graphScale, 6.5, 8.5)}
                   fontWeight="500"
                 >
                   {outlet.label}
@@ -1509,6 +1542,23 @@ export default function GraphScreen() {
             </View>
             <View style={[s.axisPill, s.axisRightPill]}>
               <Text style={s.axisPillText}>Right</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={s.sliderSection}>
+          <View style={s.sliderInner}>
+            <Text style={s.sliderLabel}>Radius</Text>
+            <View style={s.sliderTrackWrap}>
+              <GestureDetector gesture={sliderGesture}>
+                <Animated.View style={[s.sliderTrack, { backgroundColor: PAGE.sliderTrack, width: sliderTrackWidth }]}>
+                  <Animated.View style={[s.sliderFill, { backgroundColor: PAGE.green }, sliderFillAnimatedStyle]} />
+                  <Animated.View style={[s.sliderThumb, { borderColor: PAGE.green }, sliderThumbAnimatedStyle]} />
+                </Animated.View>
+              </GestureDetector>
+            </View>
+            <View style={[s.percentPill, { borderColor: PAGE.chipBorder }]}>
+              <Text style={s.percentText}>{Math.round(radius * 100)}%</Text>
             </View>
           </View>
         </View>
@@ -1537,36 +1587,41 @@ export default function GraphScreen() {
       {isHelpOpen ? (
         <View style={s.modalWrap} pointerEvents="box-none">
           <View style={s.helpModal}>
-            <View style={s.helpHeader}>
-              <View style={s.helpTitleBlock}>
-                <Text style={s.helpTitle}>About the News Map</Text>
-                <Text style={s.helpSubtitle}>Understanding the news positioning graph</Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={s.helpModalContent}
+            >
+              <View style={s.helpHeader}>
+                <View style={s.helpTitleBlock}>
+                  <Text style={s.helpTitle}>About the News Map</Text>
+                  <Text style={s.helpSubtitle}>Understanding the news positioning graph</Text>
+                </View>
+                <TouchableOpacity style={s.helpCloseButton} onPress={() => setIsHelpOpen(false)}>
+                  <Ionicons name="close" size={18} color="#8DAE73" />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity style={s.helpCloseButton} onPress={() => setIsHelpOpen(false)}>
-                <Ionicons name="close" size={18} color="#8DAE73" />
-              </TouchableOpacity>
-            </View>
 
-            <View style={s.helpSection}>
-              <Text style={s.helpSectionTitle}>Political Leaning (← Left ↔ Right →)</Text>
-              <Text style={s.helpBody}>
-                The horizontal axis represents the political perspective of news sources. Left side shows progressive viewpoints, right side shows conservative viewpoints.
-              </Text>
-            </View>
+              <View style={s.helpSection}>
+                <Text style={s.helpSectionTitle}>Political Leaning (← Left ↔ Right →)</Text>
+                <Text style={s.helpBody}>
+                  The horizontal axis represents the political perspective of news sources. Left side shows progressive viewpoints, right side shows conservative viewpoints.
+                </Text>
+              </View>
 
-            <View style={s.helpSection}>
-              <Text style={s.helpSectionTitle}>Reporting Style (↑ Hard News ↔ Opinion ↓)</Text>
-              <Text style={s.helpBody}>
-                The vertical axis represents how factual vs. opinionated the coverage is. Higher is straight reporting and analysis. Lower is opinion pieces and commentary.
-              </Text>
-            </View>
+              <View style={s.helpSection}>
+                <Text style={s.helpSectionTitle}>Reporting Style (↑ Hard News ↔ Opinion ↓)</Text>
+                <Text style={s.helpBody}>
+                  The vertical axis represents how factual vs. opinionated the coverage is. Higher is straight reporting and analysis. Lower is opinion pieces and commentary.
+                </Text>
+              </View>
 
-            <View style={s.helpSection}>
-              <Text style={s.helpSectionTitle}>How to Use</Text>
-              <Text style={s.helpBody}>
-                Tap on the map to select your preferred position, then adjust the radius to control how similar sources should be. A larger radius includes more diverse sources.
-              </Text>
-            </View>
+              <View style={s.helpSection}>
+                <Text style={s.helpSectionTitle}>How to Use</Text>
+                <Text style={s.helpBody}>
+                  Tap on the map to select your preferred position, then adjust the radius to control how similar sources should be. A larger radius includes more diverse sources.
+                </Text>
+              </View>
+            </ScrollView>
           </View>
         </View>
       ) : null}
@@ -1636,22 +1691,6 @@ export default function GraphScreen() {
         </View>
       ) : null}
 
-      <Pressable style={[s.sliderSection, { borderTopColor: PAGE.border }]} onPress={isDropdownOpen ? closeDropdown : undefined}>
-        <View style={s.sliderInner}>
-          <Text style={s.sliderLabel}>Radius</Text>
-          <View style={s.sliderTrackWrap}>
-            <GestureDetector gesture={sliderGesture}>
-              <Animated.View style={[s.sliderTrack, { backgroundColor: PAGE.sliderTrack, width: sliderTrackWidth }]}>
-                <Animated.View style={[s.sliderFill, { backgroundColor: PAGE.green }, sliderFillAnimatedStyle]} />
-                <Animated.View style={[s.sliderThumb, { borderColor: PAGE.green }, sliderThumbAnimatedStyle]} />
-              </Animated.View>
-            </GestureDetector>
-          </View>
-          <View style={[s.percentPill, { borderColor: PAGE.chipBorder }]}>
-            <Text style={s.percentText}>{Math.round(radius * 100)}%</Text>
-          </View>
-        </View>
-      </Pressable>
     </SafeAreaView>
   );
 }
@@ -1671,18 +1710,24 @@ const s = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 18,
   },
+  headerNarrow: {
+    height: 76,
+    paddingHorizontal: 10,
+  },
   headerTitle: {
     fontSize: 24,
     fontWeight: '800',
     color: PAGE.text,
     letterSpacing: -0.5,
   },
+  headerTitleNarrow: { fontSize: 20 },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     minWidth: 92,
   },
+  headerSideNarrow: { minWidth: 78, gap: 2 },
   headerIcon: {
     width: 38,
     height: 38,
@@ -1978,6 +2023,19 @@ const s = StyleSheet.create({
     color: '#D57A24',
     fontWeight: '600',
   },
+  dailyDigestShortcutChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D9CFEB',
+    backgroundColor: '#F7F2FC',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  dailyDigestShortcutText: { color: '#5F438E', fontSize: 12, fontWeight: '700' },
   topicRow: {
     flexDirection: 'row',
     gap: 12,
@@ -2027,18 +2085,18 @@ const s = StyleSheet.create({
   },
   helpModal: {
     width: '100%',
+    maxHeight: '88%',
     borderRadius: 18,
     backgroundColor: '#F8F5EE',
     borderWidth: 1,
     borderColor: '#DDD4C5',
-    paddingHorizontal: 22,
-    paddingVertical: 20,
     shadowColor: '#312C26',
     shadowOpacity: 0.16,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
+  helpModalContent: { paddingHorizontal: 22, paddingVertical: 20 },
   dialogCard: {
     width: '100%',
     borderRadius: 18,
@@ -2221,11 +2279,11 @@ const s = StyleSheet.create({
     transform: [{ translateY: -10 }],
   },
   sliderSection: {
-    borderTopWidth: 1,
-    paddingHorizontal: 24,
-    paddingTop: 13,
-    paddingBottom: 13,
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: 12,
     alignItems: 'center',
+    flexShrink: 0,
   },
   sliderInner: {
     width: '100%',
@@ -2233,7 +2291,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',
-    gap: 11,
+    gap: 10,
   },
   applyBar: {
     position: 'relative',
@@ -2265,7 +2323,7 @@ const s = StyleSheet.create({
     fontWeight: '700',
   },
   sliderLabel: {
-    width: 35,
+    width: 42,
     fontSize: 11,
     color: PAGE.textMuted,
     fontWeight: '500',

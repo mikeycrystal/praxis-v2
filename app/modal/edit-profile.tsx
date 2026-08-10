@@ -1,17 +1,28 @@
 import { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  SafeAreaView, ScrollView, Image, ActivityIndicator, Alert,
+  SafeAreaView, ScrollView, Image, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../hooks/useTheme';
+
+const colors = {
+  // Matches the web Profile Edit modal's light surface, not the page backdrop.
+  background: '#FFFCF6',
+  card: '#FFFCF6',
+  text: '#3B342E',
+  muted: '#7A7269',
+  border: '#DED6C9',
+  primary: '#8EAF78',
+  primaryPressed: '#71955B',
+  avatar: '#E4E0D8',
+};
 
 export default function EditProfileModal() {
   const { profile, refreshProfile, user } = useAuth();
-  const { c, Radius } = useTheme();
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [username, setUsername] = useState(profile?.username ?? '');
   const [bio, setBio] = useState(profile?.bio ?? '');
@@ -101,108 +112,119 @@ export default function EditProfileModal() {
   };
 
   return (
-    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
+    <SafeAreaView style={s.container}>
       <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={[s.cancel, { color: c.textMuted }]}>Cancel</Text>
-        </TouchableOpacity>
-        <Text style={[s.title, { color: c.text }]}>Edit Profile</Text>
-        <TouchableOpacity onPress={handleSave} disabled={saving || uploading}>
-          {saving || uploading
-            ? <ActivityIndicator color={c.tint} size="small" />
-            : <Text style={[s.save, { color: c.tint }]}>Save</Text>
-          }
+        <Text style={s.title}>Edit Profile</Text>
+        <TouchableOpacity onPress={() => router.back()} style={s.closeButton} accessibilityLabel="Close edit profile">
+          <Text style={s.closeText}>×</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={s.content}>
-        {/* Avatar */}
-        <View style={s.avatarSection}>
-          <TouchableOpacity onPress={pickAvatar}>
-            <View style={[s.avatar, { backgroundColor: c.secondary }]}>
+      <KeyboardAvoidingView style={s.keyboardArea} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+          {/* Avatar */}
+          <View style={s.avatarSection}>
+            <View style={s.avatar}>
               {avatarUri
                 ? <Image source={{ uri: avatarUri }} style={s.avatarImg} />
-                : <Text style={[s.avatarInitial, { color: c.text }]}>
-                    {(profile?.full_name ?? '?')[0]?.toUpperCase()}
-                  </Text>
+                : <Text style={s.avatarInitial}>{(fullName || '?')[0]?.toUpperCase()}</Text>
               }
-              <View style={[s.avatarOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
-                <Text style={s.avatarOverlayText}>Edit</Text>
-              </View>
             </View>
-          </TouchableOpacity>
-          <Text style={[s.avatarHint, { color: c.textMuted }]}>Max 2MB · Square images work best</Text>
-        </View>
+            <TouchableOpacity onPress={pickAvatar} disabled={uploading} style={s.uploadButton}>
+              {uploading
+                ? <ActivityIndicator color={colors.primary} size="small" />
+                : <>
+                    <Ionicons name="cloud-upload-outline" size={22} color={colors.primary} />
+                    <Text style={s.uploadButtonText}>Upload new picture</Text>
+                  </>
+              }
+            </TouchableOpacity>
+          </View>
 
-        {/* Fields */}
-        <View style={s.fields}>
-          <View>
-            <Text style={[s.label, { color: c.textSecondary }]}>Display Name</Text>
-            <TextInput
-              style={[s.input, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
-              value={fullName}
-              onChangeText={setFullName}
-              placeholder="Your name"
-              placeholderTextColor={c.textMuted}
-              maxLength={100}
-            />
+          {/* Fields */}
+          <View style={s.fields}>
+            <View>
+              <Text style={s.label}>Name</Text>
+              <TextInput
+                style={s.input}
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Your name"
+                placeholderTextColor={colors.muted}
+                maxLength={100}
+              />
+            </View>
+            <View>
+              <Text style={s.label}>Username</Text>
+              <TextInput
+                style={s.input}
+                value={username}
+                onChangeText={setUsername}
+                placeholder="username"
+                placeholderTextColor={colors.muted}
+                autoCapitalize="none"
+                maxLength={30}
+              />
+            </View>
+            <View>
+              <Text style={s.label}>Bio</Text>
+              <TextInput
+                style={s.textarea}
+                value={bio}
+                onChangeText={setBio}
+                placeholder="Tell us about yourself"
+                placeholderTextColor={colors.muted}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+                maxLength={500}
+              />
+              <Text style={s.characterCount}>{bio.length}/500</Text>
+            </View>
           </View>
-          <View>
-            <Text style={[s.label, { color: c.textSecondary }]}>Username</Text>
-            <TextInput
-              style={[s.input, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
-              value={username}
-              onChangeText={setUsername}
-              placeholder="username"
-              placeholderTextColor={c.textMuted}
-              autoCapitalize="none"
-              maxLength={30}
-            />
+
+          <View style={s.actions}>
+            <TouchableOpacity onPress={() => router.back()} disabled={saving} style={s.cancelButton}>
+              <Text style={s.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleSave} disabled={saving || uploading} style={[s.saveButton, (saving || uploading) && s.saveButtonDisabled]}>
+              {saving
+                ? <ActivityIndicator color={colors.background} size="small" />
+                : <Text style={s.saveButtonText}>Save Changes</Text>
+              }
+            </TouchableOpacity>
           </View>
-          <View>
-            <Text style={[s.label, { color: c.textSecondary }]}>Bio</Text>
-            <TextInput
-              style={[s.textarea, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
-              value={bio}
-              onChangeText={setBio}
-              placeholder="Tell people a bit about yourself..."
-              placeholderTextColor={c.textMuted}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              maxLength={500}
-            />
-            <Text style={[s.characterCount, { color: c.textMuted }]}>{bio.length}/500</Text>
-          </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 18, paddingBottom: 6,
   },
-  cancel: { fontSize: 16 },
-  title: { fontSize: 16, fontWeight: '600' },
-  save: { fontSize: 16, fontWeight: '600' },
-  content: { padding: 24, gap: 28 },
-  avatarSection: { alignItems: 'center', gap: 10 },
-  avatar: { width: 96, height: 96, borderRadius: 48, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
-  avatarImg: { width: 96, height: 96 },
-  avatarInitial: { fontSize: 36, fontWeight: '700' },
-  avatarOverlay: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    height: 32, alignItems: 'center', justifyContent: 'center',
-  },
-  avatarOverlayText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  avatarHint: { fontSize: 12 },
-  fields: { gap: 20 },
-  label: { fontSize: 13, fontWeight: '500', marginBottom: 6 },
-  input: { height: 52, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, fontSize: 15 },
-  textarea: { minHeight: 120, borderWidth: 1, borderRadius: 12, padding: 14, fontSize: 15, lineHeight: 22 },
-  characterCount: { textAlign: 'right', fontSize: 11, marginTop: 6 },
+  closeButton: { width: 36, height: 36, alignItems: 'flex-end', justifyContent: 'center' },
+  closeText: { color: colors.muted, fontSize: 34, fontWeight: '300', lineHeight: 36 },
+  title: { color: colors.text, fontSize: 25, fontWeight: '700' },
+  keyboardArea: { flex: 1 },
+  content: { paddingHorizontal: 24, paddingTop: 26, paddingBottom: 40, gap: 36 },
+  avatarSection: { alignItems: 'center', gap: 26 },
+  avatar: { width: 128, height: 128, borderRadius: 64, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.avatar },
+  avatarImg: { width: 128, height: 128 },
+  avatarInitial: { color: colors.text, fontSize: 42, fontWeight: '400' },
+  uploadButton: { minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  uploadButtonText: { color: colors.primary, fontSize: 18, fontWeight: '500' },
+  fields: { gap: 24 },
+  label: { color: colors.text, fontSize: 18, fontWeight: '500', marginBottom: 14 },
+  input: { height: 58, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 22, paddingHorizontal: 22, color: colors.text, fontSize: 18 },
+  textarea: { minHeight: 140, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 22, padding: 22, color: colors.text, fontSize: 18, lineHeight: 25 },
+  characterCount: { color: colors.muted, textAlign: 'right', fontSize: 16, marginTop: 10 },
+  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 16, paddingTop: 8 },
+  cancelButton: { minHeight: 54, justifyContent: 'center', paddingHorizontal: 26, borderWidth: 1, borderColor: colors.border, borderRadius: 22, backgroundColor: colors.card },
+  cancelButtonText: { color: colors.text, fontSize: 18, fontWeight: '500' },
+  saveButton: { minHeight: 54, minWidth: 170, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24, borderRadius: 22, backgroundColor: colors.primary },
+  saveButtonDisabled: { opacity: 0.6 },
+  saveButtonText: { color: '#FFFFFF', fontSize: 18, fontWeight: '500' },
 });

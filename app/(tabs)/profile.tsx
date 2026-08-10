@@ -18,6 +18,7 @@ import {
 } from '../lib/newsPreferences';
 import { readSavedArticles, subscribeSavedArticles } from '../lib/savedArticles';
 import { buildHref } from '../lib/buildHref';
+import { isAnalyticsAdmin } from '../lib/analyticsAccess';
 
 interface BadgeDefinition {
   id: string;
@@ -190,7 +191,7 @@ export default function ProfileScreen() {
     return unsubscribe;
   }, [loadDigestCount, user?.id]);
 
-  const handleAnalyticsPress = () => {
+  const handleReadingActivityPress = () => {
     router.push('/modal/reading-activity');
   };
 
@@ -221,6 +222,7 @@ export default function ProfileScreen() {
   if (loading || isGuestMode || !user || !profile) return null;
 
   const displayName = profile.full_name ?? profile.username ?? 'Reader';
+  const canAccessAnalytics = isAnalyticsAdmin(user);
   const displayBio = profile.bio ?? 'No bio yet';
   const displayArticlesRead = Math.max(profile.articles_read ?? 0, activity.totalArticlesRead);
   const displayStreak = Math.max(profile.current_streak ?? profile.reading_streak ?? 0, activity.currentStreak);
@@ -253,14 +255,16 @@ export default function ProfileScreen() {
             <Ionicons name="arrow-back" size={20} color={c.text} />
           </TouchableOpacity>
           <View style={s.topBarActions}>
-            <TouchableOpacity
-              style={[s.analyticsButton, { backgroundColor: c.surface, borderColor: c.border }]}
-              onPress={handleAnalyticsPress}
-              accessibilityLabel="Open reading analytics"
-            >
-              <Ionicons name="bar-chart-outline" size={18} color={c.text} />
-              <Text style={[s.analyticsButtonText, { color: c.text }]}>Analytics</Text>
-            </TouchableOpacity>
+            {canAccessAnalytics ? (
+              <TouchableOpacity
+                style={[s.analyticsButton, { backgroundColor: c.surface, borderColor: c.border }]}
+                onPress={() => router.push('/modal/analytics' as any)}
+                accessibilityLabel="Open Praxis KPI dashboard"
+              >
+                <Ionicons name="bar-chart-outline" size={18} color={c.text} />
+                <Text style={[s.analyticsButtonText, { color: c.text }]}>Analytics</Text>
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               style={[s.leaderboardButton, { backgroundColor: '#8EAF72' }]}
               onPress={() => router.push('/modal/leaderboard')}
@@ -337,7 +341,7 @@ export default function ProfileScreen() {
             },
             {
               icon: 'book-outline', label: 'Articles Read', value: displayArticlesRead, accent: true,
-              onPress: () => router.push('/modal/reading-activity'),
+              onPress: handleReadingActivityPress,
             },
             {
               icon: 'trophy-outline', label: 'Achievements', value: badgeCount, accent: true,

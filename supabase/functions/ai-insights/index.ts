@@ -24,6 +24,24 @@ interface InsightsResult {
   relatedTopics: string[];
 }
 
+function extractResponseText(payload: any): string {
+  if (typeof payload?.output_text === 'string' && payload.output_text.trim()) {
+    return payload.output_text;
+  }
+
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const part of content) {
+      if (typeof part?.text === 'string' && part.text.trim()) {
+        return part.text;
+      }
+    }
+  }
+
+  throw new Error('OpenAI response did not contain text output');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -92,24 +110,63 @@ Return only valid JSON, no markdown.`;
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiKey) throw new Error('OPENAI_API_KEY not set');
 
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+    const openaiRes = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.3,
-        max_tokens: 800,
-        response_format: { type: 'json_object' },
+        model: 'gpt-5.4-nano',
+        input: prompt,
+        max_output_tokens: 800,
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'article_insights',
+            strict: true,
+            schema: {
+              type: 'object',
+              properties: {
+                summary: { type: 'string' },
+                keyPoints: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                sentiment: {
+                  type: 'string',
+                  enum: ['positive', 'negative', 'neutral', 'excited'],
+                },
+                credibilityScore: {
+                  type: 'number',
+                },
+                entities: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                relatedTopics: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+              },
+              required: [
+                'summary',
+                'keyPoints',
+                'sentiment',
+                'credibilityScore',
+                'entities',
+                'relatedTopics',
+              ],
+              additionalProperties: false,
+            },
+          },
+        },
       }),
     });
 
     if (!openaiRes.ok) throw new Error(`OpenAI error: ${openaiRes.status}`);
     const openaiData = await openaiRes.json();
-    const insights: InsightsResult = JSON.parse(openaiData.choices[0].message.content);
+    const insights: InsightsResult = JSON.parse(extractResponseText(openaiData));
 
     // Cache result (best-effort — table may not exist yet)
     await supabase.from('ai_insights').upsert({ article_id: articleId, insights }).catch(() => {});

@@ -5,44 +5,32 @@ import {
   Image,
   StyleSheet,
   TouchableOpacity,
-  Dimensions,
   Animated,
   Pressable,
   ScrollView,
+  useWindowDimensions,
   type GestureResponderEvent,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { Article } from '../../hooks/useFeedArticles';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CARD_WIDTH = Math.min(SCREEN_WIDTH - 76, 350);
-const CARD_HEIGHT = Math.min(
-  CARD_WIDTH * 1.6,
-  Math.max(CARD_WIDTH * 1.32, SCREEN_HEIGHT - 340),
-);
+export const getArticleCardDimensions = (screenWidth: number, screenHeight: number) => {
+  const horizontalInset = screenWidth <= 340 ? 28 : screenWidth <= 390 ? 42 : 52;
+  const maximumWidth = Math.max(screenWidth - 20, 240);
+  const width = Math.min(Math.max(screenWidth - horizontalInset, 240), 370, maximumWidth);
+  const reservedHeight = screenHeight < 620 ? 268 : screenHeight < 740 ? 286 : 310;
+  const availableHeight = Math.max(screenHeight - reservedHeight, 292);
+  const height = Math.max(292, Math.min(width * 1.58, availableHeight));
+
+  return { width, height };
+};
 const FALLBACK_CARD_BG = '#D8D1C2';
-const CARD_GRADIENT_MID = 'rgba(16, 14, 16, 0.42)';
-const CARD_GRADIENT_END = 'rgba(5, 5, 7, 0.98)';
+const CARD_GRADIENT_MID = 'rgba(14, 13, 13, 0.62)';
+const CARD_GRADIENT_END = 'rgba(5, 5, 7, 0.99)';
 const MAP_BOX_SIZE = 28;
 const SWIPE_DIAGNOSTICS =
   __DEV__ && process.env.EXPO_PUBLIC_SWIPE_DIAGNOSTICS === 'true';
-
-const CATEGORY_LABELS: Record<string, string> = {
-  business: 'Business',
-  tech: 'Technology',
-  environment: 'Environment',
-  sports: 'Sports',
-  world: 'World',
-};
-
-const CATEGORY_COLORS: Record<string, string> = {
-  business: '#F5A623',
-  tech: '#6C8DFF',
-  environment: '#55B67A',
-  sports: '#F26D64',
-  world: '#A56FDD',
-};
 
 const clampCoord = (value?: number) => Math.max(-1, Math.min(1, value ?? 0));
 
@@ -100,6 +88,10 @@ export const ArticleCard = memo(function ArticleCard({
   swipeEnabled = false,
   swipeX: externalSwipeX,
 }: Props) {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { width: cardWidth, height: cardHeight } = getArticleCardDimensions(screenWidth, screenHeight);
+  const isCompactCard = cardHeight < 420;
+  const isVeryCompactCard = cardHeight < 340;
   const internalTranslateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const translateX = externalSwipeX ?? internalTranslateX;
@@ -109,7 +101,7 @@ export const ArticleCard = memo(function ArticleCard({
   const flipAnim = useRef(new Animated.Value(0)).current;
 
   const rotate = translateX.interpolate({
-    inputRange: [-SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2],
+    inputRange: [-screenWidth / 2, 0, screenWidth / 2],
     outputRange: ['-6deg', '0deg', '6deg'],
     extrapolate: 'clamp',
   });
@@ -125,9 +117,6 @@ export const ArticleCard = memo(function ArticleCard({
     extrapolate: 'clamp',
   });
 
-  const categoryKey = article.category || 'world';
-  const categoryLabel = CATEGORY_LABELS[categoryKey] || 'Top Story';
-  const categoryColor = CATEGORY_COLORS[categoryKey] || CATEGORY_COLORS.world;
   const showMapPoint = typeof article.x === 'number' || typeof article.y === 'number';
   const mapLeft = ((clampCoord(article.x) + 1) / 2) * MAP_BOX_SIZE;
   const mapTop = ((1 - clampCoord(article.y)) / 2) * MAP_BOX_SIZE;
@@ -231,7 +220,7 @@ export const ArticleCard = memo(function ArticleCard({
     <Animated.View
       style={[
         s.card,
-        { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 30 },
+        { width: cardWidth, height: cardHeight, borderRadius: isCompactCard ? 24 : 30 },
         !isSwipeDrivenByParent
           ? { transform: [{ translateX }, { translateY }, { rotate }] }
           : null,
@@ -277,37 +266,39 @@ export const ArticleCard = memo(function ArticleCard({
 
           <LinearGradient
             colors={['rgba(0,0,0,0)', CARD_GRADIENT_MID, CARD_GRADIENT_END]}
-            locations={[0.14, 0.56, 1]}
+            locations={[0.04, 0.46, 1]}
             style={s.gradient}
+          />
+          <LinearGradient
+            colors={['rgba(0,0,0,0.28)', 'rgba(0,0,0,0)']}
+            locations={[0, 1]}
+            style={s.topShade}
+            pointerEvents="none"
           />
 
           {isDigestCard ? (
             <>
-              <View style={s.digestBorder} />
+              <View pointerEvents="none" style={s.digestBorder} />
               <LinearGradient
                 colors={['rgba(132,72,214,0.18)', 'rgba(132,72,214,0.05)', 'transparent']}
                 locations={[0, 0.4, 0.8]}
                 style={s.digestGlow}
+                pointerEvents="none"
               />
             </>
           ) : null}
 
-          <View style={s.topRow}>
+          <View style={[s.topRow, isCompactCard ? s.topRowCompact : null]}>
             {isDigestCard ? (
               <View style={s.digestBadge}>
                 <Ionicons name="sparkles-outline" size={10} color="#F7F3EA" />
                 <Text style={s.digestText}>DAILY DIGEST</Text>
               </View>
-            ) : (
-              <View style={[s.categoryBadge, { borderColor: `${categoryColor}55`, backgroundColor: `${categoryColor}22` }]}>
-                <View style={[s.categoryDot, { backgroundColor: categoryColor }]} />
-                <Text style={s.categoryLabel}>{categoryLabel}</Text>
-              </View>
-            )}
+            ) : <View />}
 
             <View style={s.actionBtns}>
               <TouchableOpacity
-                style={s.actionBtn}
+                style={[s.actionBtn, isCompactCard ? s.actionBtnCompact : null]}
                 onPress={(event) => {
                   stopFlipPropagation(event);
                   onShare();
@@ -315,10 +306,10 @@ export const ArticleCard = memo(function ArticleCard({
                 accessibilityLabel="Share story"
                 accessibilityRole="button"
               >
-                <Ionicons name="share-social-outline" size={16} color="#F5F9FC" />
+                <Ionicons name="share-social-outline" size={isCompactCard ? 16 : 18} color="#F5F9FC" />
               </TouchableOpacity>
               <TouchableOpacity
-                style={s.actionBtn}
+                style={[s.actionBtn, isCompactCard ? s.actionBtnCompact : null]}
                 onPress={(event) => {
                   stopFlipPropagation(event);
                   onSave();
@@ -326,12 +317,12 @@ export const ArticleCard = memo(function ArticleCard({
                 accessibilityLabel={isSaved ? 'Remove bookmark' : 'Save article'}
                 accessibilityRole="button"
               >
-                <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={16} color="#F5F9FC" />
+                <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={isCompactCard ? 17 : 19} color="#F5F9FC" />
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={s.content}>
+          <View style={[s.content, isCompactCard ? s.contentCompact : null, isVeryCompactCard ? s.contentVeryCompact : null]}>
             <View style={s.metaRow}>
               <Text style={s.publisherMeta}>{sourceName}</Text>
               {showMapPoint ? (
@@ -356,16 +347,16 @@ export const ArticleCard = memo(function ArticleCard({
               ) : null}
             </View>
 
-            <Text style={s.title} numberOfLines={3}>{article.title}</Text>
+            <Text style={[s.title, isCompactCard ? s.titleCompact : null]} numberOfLines={isVeryCompactCard ? 2 : 3}>{article.title}</Text>
 
-            {subtitle ? (
-              <Text style={s.subtitle} numberOfLines={2}>{subtitle}</Text>
+            {subtitle && !isVeryCompactCard ? (
+              <Text style={[s.subtitle, isCompactCard ? s.subtitleCompact : null]} numberOfLines={isCompactCard ? 1 : 2}>{subtitle}</Text>
             ) : null}
 
             <View style={s.footerRow}>
-              <Text style={s.updatedText}>{updatedLabel}</Text>
+              <Text style={[s.updatedText, isCompactCard ? s.updatedTextCompact : null]}>{updatedLabel}</Text>
               <TouchableOpacity
-                style={s.readPill}
+                style={[s.readPill, isCompactCard ? s.readPillCompact : null]}
                 onPress={(event) => {
                   stopFlipPropagation(event);
                   onRead();
@@ -373,8 +364,8 @@ export const ArticleCard = memo(function ArticleCard({
                 accessibilityLabel="Read article"
                 accessibilityRole="button"
               >
-                <Text style={s.readPillText}>Read</Text>
-                <Ionicons name="open-outline" size={15} color="#F5F9FC" />
+                <Text style={[s.readPillText, isCompactCard ? s.readPillTextCompact : null]}>Read</Text>
+                <Ionicons name="open-outline" size={isCompactCard ? 13 : 15} color="#F5F9FC" />
               </TouchableOpacity>
             </View>
           </View>
@@ -494,8 +485,6 @@ export const ArticleCard = memo(function ArticleCard({
   );
 });
 
-export { CARD_WIDTH, CARD_HEIGHT };
-
 const s = StyleSheet.create({
   card: {
     overflow: 'hidden',
@@ -518,6 +507,13 @@ const s = StyleSheet.create({
   image: { ...StyleSheet.absoluteFillObject },
   imagePlaceholder: { ...StyleSheet.absoluteFillObject },
   gradient: { ...StyleSheet.absoluteFillObject },
+  topShade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 132,
+  },
   digestBorder: {
     ...StyleSheet.absoluteFillObject,
     borderRadius: 30,
@@ -540,6 +536,7 @@ const s = StyleSheet.create({
     alignItems: 'flex-start',
     zIndex: 3,
   },
+  topRowCompact: { top: 12, left: 14, right: 14 },
   backOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.02)',
@@ -701,7 +698,7 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(125,76,217,0.46)',
   },
   digestText: { color: '#F7F3EA', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
-  actionBtns: { flexDirection: 'row', gap: 8 },
+  actionBtns: { flexDirection: 'row', gap: 9 },
   actionBtn: {
     width: 44,
     height: 44,
@@ -709,9 +706,15 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    borderColor: 'rgba(255,255,255,0.38)',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    elevation: 7,
   },
+  actionBtnCompact: { width: 38, height: 38, borderRadius: 19 },
   content: {
     position: 'absolute',
     bottom: 0,
@@ -719,17 +722,19 @@ const s = StyleSheet.create({
     right: 0,
     paddingHorizontal: 22,
     paddingBottom: 24,
-    paddingTop: 84,
-    gap: 13,
+    paddingTop: 94,
+    gap: 12,
   },
+  contentCompact: { paddingHorizontal: 18, paddingBottom: 16, paddingTop: 58, gap: 8 },
+  contentVeryCompact: { paddingTop: 48, gap: 6 },
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
   publisherMeta: {
-    color: 'rgba(255,255,255,0.92)',
-    fontSize: 15,
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 14,
     fontWeight: '700',
   },
   metaDot: {
@@ -782,15 +787,17 @@ const s = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 31,
     letterSpacing: -0.4,
-    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowColor: 'rgba(0,0,0,0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
+  titleCompact: { fontSize: 18, lineHeight: 24, letterSpacing: -0.2 },
   subtitle: {
-    color: 'rgba(255,255,255,0.76)',
+    color: 'rgba(255,255,255,0.88)',
     fontSize: 15,
     lineHeight: 24,
   },
+  subtitleCompact: { fontSize: 13, lineHeight: 18 },
   footerRow: {
     marginTop: 2,
     flexDirection: 'row',
@@ -799,26 +806,29 @@ const s = StyleSheet.create({
     gap: 12,
   },
   updatedText: {
-    color: '#FFFFFF',
+    color: 'rgba(255,255,255,0.96)',
     fontSize: 13,
     fontWeight: '700',
   },
+  updatedTextCompact: { fontSize: 11 },
   readPill: {
     height: 48,
     borderRadius: 18,
     paddingHorizontal: 19,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'rgba(255,255,255,0.23)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: 'rgba(255,255,255,0.36)',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
   },
+  readPillCompact: { height: 40, borderRadius: 15, paddingHorizontal: 14, gap: 5 },
   readPillText: {
     color: '#F5F9FC',
     fontSize: 16,
     fontWeight: '700',
   },
+  readPillTextCompact: { fontSize: 14 },
   swipeIndicator: {
     position: 'absolute',
     top: '40%',

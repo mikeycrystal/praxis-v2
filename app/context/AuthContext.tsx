@@ -109,8 +109,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    if (session?.user) await unregisterPushToken(session.user.id);
-    await supabase.auth.signOut();
+    const userId = session?.user?.id;
+
+    // Push cleanup must never prevent someone from leaving their account.
+    if (userId) {
+      await unregisterPushToken(userId).catch(() => {});
+    }
+
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
+    if (error) throw error;
+
+    // Auth events normally perform this update. Setting it here as well keeps
+    // the UI reliable when the browser/native event arrives late.
+    writeGuestMode(false);
+    setIsGuestMode(false);
+    setProfile(null);
+    setSession(null);
+    setLoading(false);
   };
 
   const continueAsGuest = () => {

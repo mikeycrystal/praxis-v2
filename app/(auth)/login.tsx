@@ -7,11 +7,14 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
+import { useNewsPreferences } from '../context/NewsPreferencesContext';
 import { buildHref } from '../lib/buildHref';
+import { resetDailyDigestForNewGuest } from '../lib/dailyDigest';
 import { AuthColors } from '../../constants/AuthTheme';
 
 export default function LoginScreen() {
   const { signIn, continueAsGuest } = useAuth();
+  const { applyTopNewsPreferences } = useNewsPreferences();
   const c = AuthColors;
   const params = useLocalSearchParams<{ returnTo?: string }>();
   const [email, setEmail] = useState('');
@@ -34,7 +37,9 @@ export default function LoginScreen() {
     }
   };
 
-  const handleContinueAsGuest = () => {
+  const handleContinueAsGuest = async () => {
+    await resetDailyDigestForNewGuest();
+    applyTopNewsPreferences(null);
     continueAsGuest();
     router.replace('/');
   };

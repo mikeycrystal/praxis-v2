@@ -1,0 +1,394 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import type { Article } from '../hooks/useFeedArticles';
+import { supabase } from '../services/supabase';
+
+const DAILY_DIGEST_STORAGE_KEY = 'praxis.mobileDailyDigest.v1';
+const DAILY_DIGEST_DISMISSAL_STORAGE_KEY = 'praxis.mobileDigestDismissed.v1';
+const DAILY_DIGEST_OPEN_REQUEST_KEY = 'praxis.mobileDigestOpenRequest.v1';
+const DAILY_DIGEST_PANEL_HINT_STORAGE_KEY = 'praxis.mobileDigestPanelHint.v1';
+const DAILY_DIGEST_STORY_COUNT = 5;
+const DAILY_DIGEST_SELECTOR_VERSION = 7;
+const memoryStorage = new Map<string, string>();
+const dismissalMemoryStorage = new Map<string, string>();
+const openRequestMemoryStorage = new Map<string, string>();
+
+export interface DailyDigestState {
+  date: string;
+  articleIds: number[];
+  completedIds: number[];
+}
+
+export interface DailyDigestFeed {
+  state: DailyDigestState;
+  displayArticles: Article[];
+  digestArticles: Article[];
+  completedCount: number;
+  totalCount: number;
+  isComplete: boolean;
+}
+
+interface DailyDigestDismissalState {
+  date: string;
+  selectorVersion: number;
+  dismissed: boolean;
+}
+
+const getTodayKey = () => {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().split('T')[0];
+  }
+};
+
+const readStorageValue = async () => {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage.getItem(DAILY_DIGEST_STORAGE_KEY);
+    }
+    return memoryStorage.get(DAILY_DIGEST_STORAGE_KEY) ?? null;
+  }
+
+  try {
+    return await AsyncStorage.getItem(DAILY_DIGEST_STORAGE_KEY);
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to read state', error);
+    return null;
+  }
+};
+
+const writeStorageValue = async (state: DailyDigestState) => {
+  const value = JSON.stringify(state);
+
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(DAILY_DIGEST_STORAGE_KEY, value);
+      return;
+    }
+    memoryStorage.set(DAILY_DIGEST_STORAGE_KEY, value);
+    return;
+  }
+
+  try {
+    await AsyncStorage.setItem(DAILY_DIGEST_STORAGE_KEY, value);
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to write state', error);
+  }
+};
+
+const normalizeState = (raw: Partial<DailyDigestState> | null | undefined): DailyDigestState => ({
+  date: typeof raw?.date === 'string' ? raw.date : getTodayKey(),
+  articleIds: Array.isArray(raw?.articleIds)
+    ? raw.articleIds.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    : [],
+  completedIds: Array.isArray(raw?.completedIds)
+    ? raw.completedIds.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    : [],
+});
+
+export const readDailyDigestState = async (): Promise<DailyDigestState> => {
+  const raw = await readStorageValue();
+  if (!raw) {
+    return { date: getTodayKey(), articleIds: [], completedIds: [] };
+  }
+
+  try {
+    return normalizeState(JSON.parse(raw) as Partial<DailyDigestState>);
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to parse state', error);
+    return { date: getTodayKey(), articleIds: [], completedIds: [] };
+  }
+};
+
+export const readDailyDigestDismissal = async (): Promise<boolean> => {
+  try {
+    const raw = Platform.OS === 'web'
+      ? typeof window !== 'undefined' && window.sessionStorage
+        ? window.sessionStorage.getItem(DAILY_DIGEST_DISMISSAL_STORAGE_KEY)
+        : dismissalMemoryStorage.get(DAILY_DIGEST_DISMISSAL_STORAGE_KEY) ?? null
+      : dismissalMemoryStorage.get(DAILY_DIGEST_DISMISSAL_STORAGE_KEY) ?? null;
+    if (!raw) return false;
+
+    const state = JSON.parse(raw) as Partial<DailyDigestDismissalState>;
+    return (
+      state.date === getTodayKey() &&
+      state.selectorVersion === DAILY_DIGEST_SELECTOR_VERSION &&
+      state.dismissed === true
+    );
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to read dismissal state', error);
+    return false;
+  }
+};
+
+export const writeDailyDigestDismissal = async (dismissed: boolean) => {
+  const value = JSON.stringify({
+    date: getTodayKey(),
+    selectorVersion: DAILY_DIGEST_SELECTOR_VERSION,
+    dismissed,
+  } satisfies DailyDigestDismissalState);
+
+  try {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.sessionStorage) {
+        window.sessionStorage.setItem(DAILY_DIGEST_DISMISSAL_STORAGE_KEY, value);
+        return;
+      }
+    }
+    dismissalMemoryStorage.set(DAILY_DIGEST_DISMISSAL_STORAGE_KEY, value);
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to write dismissal state', error);
+  }
+};
+
+// A lightweight, session-only handoff lets Graph reopen today's Digest
+// without adding another persistent Feed control.
+export const readDailyDigestOpenRequest = async (): Promise<boolean> => {
+  try {
+    const raw = Platform.OS === 'web'
+      ? typeof window !== 'undefined' && window.sessionStorage
+        ? window.sessionStorage.getItem(DAILY_DIGEST_OPEN_REQUEST_KEY)
+        : openRequestMemoryStorage.get(DAILY_DIGEST_OPEN_REQUEST_KEY) ?? null
+      : openRequestMemoryStorage.get(DAILY_DIGEST_OPEN_REQUEST_KEY) ?? null;
+    return raw === getTodayKey();
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to read open request', error);
+    return false;
+  }
+};
+
+export const writeDailyDigestOpenRequest = async (requested: boolean) => {
+  try {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.sessionStorage) {
+      if (requested) {
+        window.sessionStorage.setItem(DAILY_DIGEST_OPEN_REQUEST_KEY, getTodayKey());
+      } else {
+        window.sessionStorage.removeItem(DAILY_DIGEST_OPEN_REQUEST_KEY);
+      }
+      return;
+    }
+
+    if (requested) {
+      openRequestMemoryStorage.set(DAILY_DIGEST_OPEN_REQUEST_KEY, getTodayKey());
+    } else {
+      openRequestMemoryStorage.delete(DAILY_DIGEST_OPEN_REQUEST_KEY);
+    }
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to write open request', error);
+  }
+};
+
+// Starting a new guest session should not inherit a prior signed-in user's
+// completed rundown from this device.
+export const resetDailyDigestForNewGuest = async () => {
+  await writeStorageValue({
+    date: getTodayKey(),
+    articleIds: [],
+    completedIds: [],
+  });
+  await writeDailyDigestDismissal(false);
+  await writeDailyDigestOpenRequest(false);
+};
+
+export const readDailyDigestPanelHint = async (): Promise<boolean> => {
+  try {
+    if (Platform.OS === 'web') {
+      return typeof window !== 'undefined' && window.localStorage
+        ? window.localStorage.getItem(DAILY_DIGEST_PANEL_HINT_STORAGE_KEY) === getTodayKey()
+        : memoryStorage.get(DAILY_DIGEST_PANEL_HINT_STORAGE_KEY) === getTodayKey();
+    }
+
+    return await AsyncStorage.getItem(DAILY_DIGEST_PANEL_HINT_STORAGE_KEY) === getTodayKey();
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to read panel hint', error);
+    return false;
+  }
+};
+
+export const writeDailyDigestPanelHint = async () => {
+  const today = getTodayKey();
+  try {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(DAILY_DIGEST_PANEL_HINT_STORAGE_KEY, today);
+        return;
+      }
+      memoryStorage.set(DAILY_DIGEST_PANEL_HINT_STORAGE_KEY, today);
+      return;
+    }
+
+    await AsyncStorage.setItem(DAILY_DIGEST_PANEL_HINT_STORAGE_KEY, today);
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to write panel hint', error);
+  }
+};
+
+const scoreArticleForDigest = (article: Article, index: number) => {
+  const hasSummary = article.meta?.summary || article.lede;
+  const hasImage = article.image_url;
+  const topicCount = article.topics?.length ?? 0;
+
+  return (
+    1000 - index +
+    (hasSummary ? 30 : 0) +
+    (hasImage ? 20 : 0) +
+    Math.min(topicCount, 4) * 4
+  );
+};
+
+const selectDigestArticles = (articles: Article[]) => {
+  const seenSources = new Set<string>();
+  const selected: Article[] = [];
+  const candidates = articles
+    .filter((article) => article.url)
+    .map((article, index) => ({
+      article,
+      score: scoreArticleForDigest(article, index),
+      source: (article.publisher?.name || article.source || '').toLowerCase(),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  candidates.forEach((candidate) => {
+    if (selected.length >= DAILY_DIGEST_STORY_COUNT) return;
+    if (candidate.source && seenSources.has(candidate.source)) return;
+    selected.push(candidate.article);
+    if (candidate.source) seenSources.add(candidate.source);
+  });
+
+  candidates.forEach((candidate) => {
+    if (selected.length >= DAILY_DIGEST_STORY_COUNT) return;
+    if (selected.some((article) => article.id === candidate.article.id)) return;
+    selected.push(candidate.article);
+  });
+
+  return selected;
+};
+
+export const buildDailyDigestFeed = async (articles: Article[]): Promise<DailyDigestFeed> => {
+  const today = getTodayKey();
+  const currentState = await readDailyDigestState();
+  const articleById = new Map(articles.map((article) => [article.id, article]));
+  const canReuseTodayDigest =
+    currentState.date === today &&
+    currentState.articleIds.length > 0 &&
+    currentState.articleIds.every((id) => articleById.has(id));
+
+  const digestArticles = canReuseTodayDigest
+    ? currentState.articleIds
+        .map((id) => articleById.get(id))
+        .filter((article): article is Article => Boolean(article))
+    : selectDigestArticles(articles);
+  const digestIds = digestArticles.map((article) => article.id);
+  const completedIds = canReuseTodayDigest
+    ? currentState.completedIds.filter((id) => digestIds.includes(id))
+    : [];
+  const state: DailyDigestState = {
+    date: today,
+    articleIds: digestIds,
+    completedIds,
+  };
+
+  await writeStorageValue(state);
+
+  const digestIdSet = new Set(digestIds);
+  const remainingArticles = articles.filter((article) => !digestIdSet.has(article.id));
+
+  return {
+    state,
+    // Keep the digest sequence stable while it is being read. Removing a
+    // completed card shifts the deck underneath an active swipe gesture.
+    displayArticles: [...digestArticles, ...remainingArticles],
+    digestArticles,
+    completedCount: completedIds.length,
+    totalCount: digestArticles.length,
+    isComplete: digestArticles.length > 0 && completedIds.length >= digestArticles.length,
+  };
+};
+
+interface CanonicalDailyDigestPayload {
+  article_ids?: unknown;
+}
+
+export const buildCanonicalDailyDigestFeed = async (
+  articles: Article[],
+): Promise<DailyDigestFeed> => {
+  const localFeed = await buildDailyDigestFeed(articles);
+  if (localFeed.digestArticles.length === 0) return localFeed;
+
+  try {
+    const { data, error } = await supabase.functions.invoke<CanonicalDailyDigestPayload>(
+      'get-or-create-daily-digest',
+      {
+        body: {
+          digestDate: getTodayKey(),
+          selectorVersion: DAILY_DIGEST_SELECTOR_VERSION,
+          digestArticleIds: localFeed.digestArticles.map((article) => String(article.id)),
+          digestArticlesSnapshot: localFeed.digestArticles,
+        },
+      },
+    );
+
+    if (error) throw error;
+
+    const canonicalIds = Array.isArray(data?.article_ids)
+      ? data.article_ids.map(String)
+      : [];
+    const articleById = new Map(articles.map((article) => [String(article.id), article]));
+    const canonicalArticles = canonicalIds
+      .map((id) => articleById.get(id))
+      .filter((article): article is Article => Boolean(article));
+
+    // Only accept a complete canonical selection. A stale canonical snapshot
+    // should never leave the mobile digest with a partial or shuffled deck.
+    if (canonicalArticles.length !== DAILY_DIGEST_STORY_COUNT) return localFeed;
+
+    const canonicalIdSet = new Set(canonicalArticles.map((article) => article.id));
+    const completedIds = localFeed.state.completedIds.filter((id) => canonicalIdSet.has(id));
+    const state: DailyDigestState = {
+      date: getTodayKey(),
+      articleIds: canonicalArticles.map((article) => article.id),
+      completedIds,
+    };
+    await writeStorageValue(state);
+
+    return {
+      state,
+      displayArticles: [
+        ...canonicalArticles,
+        ...articles.filter((article) => !canonicalIdSet.has(article.id)),
+      ],
+      digestArticles: canonicalArticles,
+      completedCount: completedIds.length,
+      totalCount: canonicalArticles.length,
+      isComplete: completedIds.length >= canonicalArticles.length,
+    };
+  } catch (error) {
+    console.warn('[dailyDigest] Canonical digest unavailable; using local selection', error);
+    return localFeed;
+  }
+};
+
+export const markDailyDigestArticleComplete = async (
+  articleId: number,
+): Promise<DailyDigestState> => {
+  const state = await readDailyDigestState();
+  if (!state.articleIds.includes(articleId) || state.completedIds.includes(articleId)) {
+    return state;
+  }
+
+  const nextState = {
+    ...state,
+    completedIds: [...state.completedIds, articleId],
+  };
+
+  await writeStorageValue(nextState);
+  return nextState;
+};
+
+export const DAILY_DIGEST_TOTAL_STORIES = DAILY_DIGEST_STORY_COUNT;
