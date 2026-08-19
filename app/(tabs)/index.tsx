@@ -1098,6 +1098,65 @@ export default function FeedScreen() {
     safeIndex,
   ]);
 
+  const completeDigestArticle = useCallback(async (articleId: number) => {
+    if (!isDailyDigestActive || !digestArticleIdSet.has(articleId)) return false;
+
+    const nextState = await markDailyDigestArticleComplete(articleId);
+    const isComplete =
+      nextState.articleIds.length > 0 &&
+      nextState.completedIds.length >= nextState.articleIds.length;
+    setDailyDigestFeed((previous) => {
+      if (!previous) return previous;
+      const completedIds = nextState.completedIds.filter((id) =>
+        previous.state.articleIds.includes(id),
+      );
+      return {
+        ...previous,
+        state: {
+          ...previous.state,
+          completedIds,
+        },
+        completedCount: completedIds.length,
+        isComplete: previous.totalCount > 0 && completedIds.length >= previous.totalCount,
+      };
+    });
+
+    if (!isComplete) return false;
+
+    const digestArticles = dailyDigestFeed?.digestArticles ?? [];
+    setDigestCompletionSummary({
+      storyCount: digestArticles.length,
+      sourceCount: new Set(
+        digestArticles
+          .map((digestArticle) => digestArticle.publisher?.name || digestArticle.source)
+          .filter(Boolean),
+      ).size,
+      topicCount: new Set(
+        digestArticles.flatMap((digestArticle) => digestArticle.topics ?? []),
+      ).size,
+    });
+    celebrateDigestCompletion();
+    setIsDigestHandoffActive(false);
+    setIsDigestCompletionVisible(true);
+    if (isGuestMode || !user) {
+      if (guestStreakPromptTimeoutRef.current) {
+        clearTimeout(guestStreakPromptTimeoutRef.current);
+      }
+      guestStreakPromptTimeoutRef.current = setTimeout(() => {
+        setShowGuestStreakPrompt(true);
+        guestStreakPromptTimeoutRef.current = null;
+      }, 4400);
+    }
+    return true;
+  }, [
+    celebrateDigestCompletion,
+    dailyDigestFeed?.digestArticles,
+    digestArticleIdSet,
+    isDailyDigestActive,
+    isGuestMode,
+    user,
+  ]);
+
   const advance = useCallback((article: Article) => {
     const nextIndex = index + 1;
 
@@ -1108,60 +1167,8 @@ export default function FeedScreen() {
     }
 
     if (isDailyDigestActive && digestArticleIdSet.has(article.id)) {
-      void markDailyDigestArticleComplete(article.id).then((nextState) => {
-        const isComplete =
-          nextState.articleIds.length > 0 &&
-          nextState.completedIds.length >= nextState.articleIds.length;
-        setDailyDigestFeed((previous) => {
-          if (!previous) return previous;
-          const completedIds = nextState.completedIds.filter((id) =>
-            previous.state.articleIds.includes(id),
-          );
-          return {
-            ...previous,
-            state: {
-              ...previous.state,
-              completedIds,
-            },
-            completedCount: completedIds.length,
-            isComplete:
-              previous.totalCount > 0 && completedIds.length >= previous.totalCount,
-          };
-        });
-
-        if (isComplete) {
-          // Match the web handoff: finish the five-story rundown, briefly
-          // celebrate, then return to the ordinary Top News deck.
-          const digestArticles = dailyDigestFeed?.digestArticles ?? [];
-          setDigestCompletionSummary({
-            storyCount: digestArticles.length,
-            sourceCount: new Set(
-              digestArticles
-                .map((digestArticle) => digestArticle.publisher?.name || digestArticle.source)
-                .filter(Boolean),
-            ).size,
-            topicCount: new Set(
-              digestArticles.flatMap((digestArticle) => digestArticle.topics ?? []),
-            ).size,
-          });
-          celebrateDigestCompletion();
-          setIsDigestHandoffActive(false);
-          setIsDigestCompletionVisible(true);
-          if (isGuestMode || !user) {
-            if (guestStreakPromptTimeoutRef.current) {
-              clearTimeout(guestStreakPromptTimeoutRef.current);
-            }
-            // Web waits for the completion handoff to clear before asking a
-            // guest to save the streak, so the two moments do not compete.
-            guestStreakPromptTimeoutRef.current = setTimeout(() => {
-              setShowGuestStreakPrompt(true);
-              guestStreakPromptTimeoutRef.current = null;
-            }, 4400);
-          }
-          return;
-        }
-
-        setCurrentIndex(nextIndex);
+      void completeDigestArticle(article.id).then((isComplete) => {
+        if (!isComplete) setCurrentIndex(nextIndex);
       });
     } else {
       setCurrentIndex(nextIndex);
@@ -1172,7 +1179,7 @@ export default function FeedScreen() {
   }, [
     digestArticleIdSet,
     celebrateDigestCompletion,
-    dailyDigestFeed?.digestArticles,
+    completeDigestArticle,
     feedArticles.length,
     index,
     isDailyDigestActive,
@@ -1374,13 +1381,14 @@ export default function FeedScreen() {
 
   const handleReadArticle = useCallback((article: Article) => {
     markRead(article);
+    void completeDigestArticle(article.id);
     void openPublisherArticle(article.url).catch(() => {
       Alert.alert(
         'Article unavailable',
         'We could not open the publisher article right now.',
       );
     });
-  }, [markRead]);
+  }, [completeDigestArticle, markRead]);
 
   const handleFlipArticle = useCallback((articleId: number, isFlipped: boolean) => {
     setFlippedArticleId(isFlipped ? articleId : null);

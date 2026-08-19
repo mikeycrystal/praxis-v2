@@ -12,6 +12,7 @@ const DAILY_DIGEST_SELECTOR_VERSION = 7;
 const memoryStorage = new Map<string, string>();
 const dismissalMemoryStorage = new Map<string, string>();
 const openRequestMemoryStorage = new Map<string, string>();
+let digestMutationQueue: Promise<void> = Promise.resolve();
 
 export interface DailyDigestState {
   date: string;
@@ -377,18 +378,25 @@ export const buildCanonicalDailyDigestFeed = async (
 export const markDailyDigestArticleComplete = async (
   articleId: number,
 ): Promise<DailyDigestState> => {
-  const state = await readDailyDigestState();
-  if (!state.articleIds.includes(articleId) || state.completedIds.includes(articleId)) {
-    return state;
-  }
+  const mutation = digestMutationQueue.then(async () => {
+    const state = await readDailyDigestState();
+    if (!state.articleIds.includes(articleId) || state.completedIds.includes(articleId)) {
+      return state;
+    }
 
-  const nextState = {
-    ...state,
-    completedIds: [...state.completedIds, articleId],
-  };
+    const nextState = {
+      ...state,
+      completedIds: [...state.completedIds, articleId],
+    };
 
-  await writeStorageValue(nextState);
-  return nextState;
+    await writeStorageValue(nextState);
+    return nextState;
+  });
+
+  // Keep writes ordered even if one storage operation fails, so quick swipes
+  // cannot race and overwrite another completed Digest story.
+  digestMutationQueue = mutation.then(() => undefined, () => undefined);
+  return mutation;
 };
 
 export const DAILY_DIGEST_TOTAL_STORIES = DAILY_DIGEST_STORY_COUNT;
