@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 import {
   ActiveQueryState,
   buildFeedPreferenceSignature,
@@ -820,6 +821,25 @@ export function useFeedArticles() {
     streamControllerRef.current?.abort();
     streamControllerRef.current = null;
     setIsStreaming(false);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') return;
+
+      // iOS can suspend an open stream without resolving it. Abort it while
+      // backgrounded so returning to the app never leaves the feed locked in
+      // an invisible loading state.
+      streamControllerRef.current?.abort();
+      streamControllerRef.current = null;
+      isRequestingMoreRef.current = false;
+      setIsStreaming(false);
+      setIsLoading(false);
+    });
+
+    return () => subscription.remove();
   }, []);
 
   const startStreamingRecommendations = useCallback(async (

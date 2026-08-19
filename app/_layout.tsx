@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Stack, router, useGlobalSearchParams, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NewsPreferencesProvider } from './context/NewsPreferencesContext';
@@ -10,6 +11,31 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
 import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { buildHref } from './lib/buildHref';
+import { supabase } from './services/supabase';
+
+function AppLifecycleManager() {
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    const syncServices = (state: string) => {
+      if (state === 'active') {
+        supabase.auth.startAutoRefresh();
+        if (!supabase.realtime.isConnected()) {
+          supabase.realtime.connect();
+        }
+        return;
+      }
+
+      supabase.auth.stopAutoRefresh();
+    };
+
+    syncServices(AppState.currentState);
+    const subscription = AppState.addEventListener('change', syncServices);
+    return () => subscription.remove();
+  }, []);
+
+  return null;
+}
 
 function RootRedirect() {
   const { session, profile, loading, isGuestMode } = useAuth();
@@ -72,6 +98,7 @@ export default function RootLayout() {
         <BadgeCelebrationProvider>
         <NewsPreferencesProvider>
           <RootRedirect />
+          <AppLifecycleManager />
           <PushNotificationHandler />
           <OfflineBanner />
           <Stack screenOptions={{ headerShown: false }}>
