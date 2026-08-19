@@ -1344,11 +1344,12 @@ export default function FeedScreen() {
       withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) }),
     );
     const exitStartTimeout = setTimeout(() => {
-      // Mount and settle the next deck while the completion card is fully
-      // opaque. Starting the fade on a later frame prevents the old stack
-      // from flashing or visibly snapping back to its first card.
+      // Change the deck mode first, then let the normal index effect settle
+      // Top News at zero after React has committed that replacement. Calling
+      // resetDeckPosition here changes the shared value synchronously, which
+      // briefly redraws the completed Digest from its first card.
       setIsDigestHandoffActive(true);
-      resetDeckPosition();
+      setCurrentIndex(0);
       requestAnimationFrame(() => requestAnimationFrame(() => {
         digestCompletionOpacity.value = withTiming(0, { duration: 260 });
         digestCompletionScale.value = withTiming(0.98, {
@@ -1379,7 +1380,7 @@ export default function FeedScreen() {
     digestCompletionScale,
     digestCompletionTranslateY,
     isDigestCompletionVisible,
-    resetDeckPosition,
+    setCurrentIndex,
     topNewsArticles,
   ]);
   const digestCompletionAnimatedStyle = useAnimatedStyle(() => ({
