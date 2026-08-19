@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import {
   getRecommenderConfig,
   getRecommenderHeaders,
@@ -27,6 +29,11 @@ export interface TrendingTopic {
 export const TOPICS_CACHE_KEY = 'praxis.topicsCache.v1';
 export const TRENDING_TOPICS_CACHE_KEY = 'praxis.trendingTopicsCache.v1';
 
+let cachedTopicsInMemory: TopicsData | undefined;
+let cachedTrendingTopicsInMemory: TrendingTopic[] | undefined;
+let topicsRequest: Promise<TopicsData> | undefined;
+let trendingTopicsRequest: Promise<TrendingTopic[]> | undefined;
+
 // Keep graph discovery data on the same backend default as the feed/recommendation
 // path so mobile topic/trending state does not silently drift to hardcoded
 // fallbacks while the feed itself is using the live recommender service.
@@ -36,7 +43,7 @@ const getHeaders = () => ({
 });
 
 export const readCachedTopics = (): TopicsData | undefined => {
-  if (typeof window === 'undefined') return undefined;
+  if (Platform.OS !== 'web') return cachedTopicsInMemory;
 
   try {
     const raw = window.sessionStorage.getItem(TOPICS_CACHE_KEY);
@@ -51,10 +58,12 @@ export const readCachedTopics = (): TopicsData | undefined => {
       return undefined;
     }
 
-    return {
+    const topics = {
       seedTopics: parsed.seedTopics as TopicRecord[],
       allTopics: parsed.allTopics as TopicRecord[],
     };
+    cachedTopicsInMemory = topics;
+    return topics;
   } catch (error) {
     console.warn('[discoveryData] Failed to read cached topics', error);
     return undefined;
@@ -62,7 +71,14 @@ export const readCachedTopics = (): TopicsData | undefined => {
 };
 
 export const writeCachedTopics = (topics: TopicsData) => {
-  if (typeof window === 'undefined') return;
+  cachedTopicsInMemory = topics;
+
+  if (Platform.OS !== 'web') {
+    void AsyncStorage.setItem(TOPICS_CACHE_KEY, JSON.stringify(topics)).catch((error) => {
+      console.warn('[discoveryData] Failed to cache topics', error);
+    });
+    return;
+  }
 
   try {
     window.sessionStorage.setItem(TOPICS_CACHE_KEY, JSON.stringify(topics));
@@ -72,6 +88,9 @@ export const writeCachedTopics = (topics: TopicsData) => {
 };
 
 export const fetchTopics = async (): Promise<TopicsData> => {
+  if (topicsRequest) return topicsRequest;
+
+  topicsRequest = (async () => {
   const { apiBaseUrl, isEnabled } = getRecommenderConfig();
   if (!isEnabled || !apiBaseUrl) {
     const mockTopics = getMockTopicsData();
@@ -95,17 +114,26 @@ export const fetchTopics = async (): Promise<TopicsData> => {
   };
   writeCachedTopics(topics);
   return topics;
+  })();
+
+  try {
+    return await topicsRequest;
+  } finally {
+    topicsRequest = undefined;
+  }
 };
 
 export const readCachedTrendingTopics = (): TrendingTopic[] | undefined => {
-  if (typeof window === 'undefined') return undefined;
+  if (Platform.OS !== 'web') return cachedTrendingTopicsInMemory;
 
   try {
     const raw = window.sessionStorage.getItem(TRENDING_TOPICS_CACHE_KEY);
     if (!raw) return undefined;
 
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? (parsed as TrendingTopic[]) : undefined;
+    const topics = Array.isArray(parsed) ? (parsed as TrendingTopic[]) : undefined;
+    cachedTrendingTopicsInMemory = topics;
+    return topics;
   } catch (error) {
     console.warn('[discoveryData] Failed to read cached trending topics', error);
     return undefined;
@@ -113,7 +141,14 @@ export const readCachedTrendingTopics = (): TrendingTopic[] | undefined => {
 };
 
 export const writeCachedTrendingTopics = (topics: TrendingTopic[]) => {
-  if (typeof window === 'undefined') return;
+  cachedTrendingTopicsInMemory = topics;
+
+  if (Platform.OS !== 'web') {
+    void AsyncStorage.setItem(TRENDING_TOPICS_CACHE_KEY, JSON.stringify(topics)).catch((error) => {
+      console.warn('[discoveryData] Failed to cache trending topics', error);
+    });
+    return;
+  }
 
   try {
     window.sessionStorage.setItem(
@@ -126,6 +161,9 @@ export const writeCachedTrendingTopics = (topics: TrendingTopic[]) => {
 };
 
 export const fetchTrendingTopics = async (): Promise<TrendingTopic[]> => {
+  if (trendingTopicsRequest) return trendingTopicsRequest;
+
+  trendingTopicsRequest = (async () => {
   const { apiBaseUrl, isEnabled } = getRecommenderConfig();
   if (!isEnabled || !apiBaseUrl) {
     const mockTopics = getMockTrendingTopics();
@@ -146,4 +184,43 @@ export const fetchTrendingTopics = async (): Promise<TrendingTopic[]> => {
   const topics = data.topics as TrendingTopic[];
   writeCachedTrendingTopics(topics);
   return topics;
+  })();
+
+  try {
+    return await trendingTopicsRequest;
+  } finally {
+    trendingTopicsRequest = undefined;
+  }
+};
+
+export const hydrateDiscoveryCache = async () => {
+  if (Platform.OS === 'web') return {
+    topics: readCachedTopics(),
+    trendingTopics: readCachedTrendingTopics(),
+  };
+
+  try {
+    const [storedTopics, storedTrendingTopics] = await AsyncStorage.multiGet([
+      TOPICS_CACHE_KEY,
+      TRENDING_TOPICS_CACHE_KEY,
+    ]);
+
+    if (storedTopics[1]) {
+      const parsed = JSON.parse(storedTopics[1]) as TopicsData;
+      if (Array.isArray(parsed.seedTopics) && Array.isArray(parsed.allTopics)) {
+        cachedTopicsInMemory = parsed;
+      }
+    }
+    if (storedTrendingTopics[1]) {
+      const parsed = JSON.parse(storedTrendingTopics[1]) as unknown;
+      if (Array.isArray(parsed)) cachedTrendingTopicsInMemory = parsed as TrendingTopic[];
+    }
+  } catch (error) {
+    console.warn('[discoveryData] Failed to hydrate native cache', error);
+  }
+
+  return {
+    topics: cachedTopicsInMemory,
+    trendingTopics: cachedTrendingTopicsInMemory,
+  };
 };

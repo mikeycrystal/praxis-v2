@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, SafeAreaView,
   TouchableOpacity, ActivityIndicator, Alert,
-  TextInput, Image, type GestureResponderEvent,
+  TextInput, Image, InteractionManager, type GestureResponderEvent,
 } from 'react-native';
 import { router, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -90,7 +90,11 @@ export default function SavedArticlesModal() {
   }, [isGuestMode, user]);
 
   useEffect(() => {
-    void loadSavedArticles();
+    const task = InteractionManager.runAfterInteractions(() => {
+      void loadSavedArticles();
+    });
+
+    return () => task.cancel();
   }, [loadSavedArticles]);
 
   useEffect(() => {

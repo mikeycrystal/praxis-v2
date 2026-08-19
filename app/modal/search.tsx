@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Image,
   ScrollView,
+  InteractionManager,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +21,7 @@ import {
 } from '../lib/mockPreviewData';
 import {
   fetchTrendingTopics,
+  hydrateDiscoveryCache,
   readCachedTrendingTopics,
   type TrendingTopic,
 } from '../lib/discoveryData';
@@ -120,47 +122,44 @@ export default function SearchModal() {
   );
 
   useEffect(() => {
-    void AsyncStorage.getItem(SEARCH_HISTORY_STORAGE_KEY).then((stored) => {
-      if (!stored) return;
-      try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setSearchHistory(parsed.filter((item): item is string => typeof item === 'string').slice(0, 8));
+    let isActive = true;
+    let unsubscribe = () => {};
+    const task = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        const [storedHistory, articles] = await Promise.all([
+          AsyncStorage.getItem(SEARCH_HISTORY_STORAGE_KEY),
+          readSavedArticles(user?.id),
+        ]);
+        if (!isActive) return;
+
+        if (storedHistory) {
+          try {
+            const parsed = JSON.parse(storedHistory);
+            if (Array.isArray(parsed)) {
+              setSearchHistory(parsed.filter((item): item is string => typeof item === 'string').slice(0, 8));
+            }
+          } catch {}
         }
-      } catch {}
-    });
-  }, []);
+        setSavedArticles(articles);
 
-  useEffect(() => {
-    let isActive = true;
+        unsubscribe = subscribeSavedArticles(user?.id, (nextArticles) => {
+          if (isActive) setSavedArticles(nextArticles);
+        });
 
-    void fetchTrendingTopics()
-      .then((topics) => {
-        if (isActive) setTrendingTopics(topics.slice(0, 8));
-      })
-      .catch((error) => {
-        console.warn('[SearchModal] Trending topics unavailable', error);
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isActive = true;
-
-    void readSavedArticles(user?.id).then((articles) => {
-      if (!isActive) return;
-      setSavedArticles(articles);
-    });
-
-    const unsubscribe = subscribeSavedArticles(user?.id, (articles) => {
-      setSavedArticles(articles);
+        void hydrateDiscoveryCache()
+          .then(() => fetchTrendingTopics())
+          .then((topics) => {
+            if (isActive) setTrendingTopics(topics.slice(0, 8));
+          })
+          .catch((error) => {
+            console.warn('[SearchModal] Trending topics unavailable', error);
+          });
+      })();
     });
 
     return () => {
       isActive = false;
+      task.cancel();
       unsubscribe();
     };
   }, [user?.id]);

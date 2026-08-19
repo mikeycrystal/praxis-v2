@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, useWindowDimensions, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, useWindowDimensions, ViewStyle, InteractionManager } from 'react-native';
 import Svg, { Circle, Image as SvgImage, Line, Text as SvgText } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -32,6 +32,7 @@ import {
 import {
   fetchTopics,
   fetchTrendingTopics,
+  hydrateDiscoveryCache,
   readCachedTopics,
   readCachedTrendingTopics,
 } from '../lib/discoveryData';
@@ -541,14 +542,13 @@ export default function GraphScreen() {
     }
   };
 
-  const loadTopics = useCallback(async () => {
-    let cancelled = false;
-
+  const loadTopics = useCallback(async (isActive: () => boolean) => {
     const applyTopics = async () => {
+      await hydrateDiscoveryCache();
       const cachedTopics = readCachedTopics();
       const cachedTrendingTopics = readCachedTrendingTopics();
 
-      if (!cancelled) {
+      if (isActive()) {
         if (cachedTopics?.seedTopics?.length) {
           setSeedTopics(cachedTopics.seedTopics.map((topic) => topic.name).filter(Boolean));
         }
@@ -585,7 +585,7 @@ export default function GraphScreen() {
             .filter(Boolean);
         }
 
-        if (!cancelled) {
+        if (isActive()) {
           setSeedTopics(
             nextSeedTopics.length
               ? nextSeedTopics
@@ -609,7 +609,7 @@ export default function GraphScreen() {
           );
         }
       } catch {
-        if (!cancelled) {
+        if (isActive()) {
           setSeedTopics(
             cachedTopics?.seedTopics?.length
               ? cachedTopics.seedTopics.map((topic) => topic.name).filter(Boolean)
@@ -627,26 +627,20 @@ export default function GraphScreen() {
           );
         }
       }
-
-      return () => {
-        cancelled = true;
-      };
     };
 
     return applyTopics();
   }, []);
 
   useEffect(() => {
-    let release: (() => void) | void;
-
-    void loadTopics().then((cleanup) => {
-      release = cleanup;
+    let isActive = true;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void loadTopics(() => isActive);
     });
 
     return () => {
-      if (typeof release === 'function') {
-        release();
-      }
+      isActive = false;
+      task.cancel();
     };
   }, [loadTopics]);
 
@@ -667,22 +661,6 @@ export default function GraphScreen() {
       unsubscribe();
     };
   }, [user?.id]);
-
-  useFocusEffect(
-    useCallback(() => {
-      let release: (() => void) | void;
-
-      void loadTopics().then((cleanup) => {
-        release = cleanup;
-      });
-
-      return () => {
-        if (typeof release === 'function') {
-          release();
-        }
-      };
-    }, [loadTopics]),
-  );
 
   const query = search.toLowerCase().trim();
   const visibleTopics = useMemo(() => {
