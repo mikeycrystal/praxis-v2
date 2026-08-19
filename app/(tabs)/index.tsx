@@ -1034,6 +1034,30 @@ export default function FeedScreen() {
     }
   }, [feedArticles, savedIds, user]);
 
+  const promptForAccount = useCallback((feature: 'saved' | 'search') => {
+    const isSavedArticles = feature === 'saved';
+    const returnTo = isSavedArticles ? '/saved' : '/search';
+    const featureLabel = isSavedArticles ? 'Saved Articles' : 'Search';
+
+    Alert.alert(
+      `${featureLabel} needs an account`,
+      isSavedArticles
+        ? 'Create a free account or sign in to save and revisit stories across your devices.'
+        : 'Create a free account or sign in to search Praxis and keep your results connected to your account.',
+      [
+        { text: 'Not now', style: 'cancel' },
+        {
+          text: 'Sign in',
+          onPress: () => router.push(buildHref('/login', { returnTo })),
+        },
+        {
+          text: 'Create account',
+          onPress: () => router.push(buildHref('/register', { returnTo })),
+        },
+      ],
+    );
+  }, []);
+
   const shareArticle = useCallback((article: Article) => {
     setShareSheetArticle(article);
   }, []);
@@ -1504,20 +1528,19 @@ export default function FeedScreen() {
 
         <View style={[s.headerRight, isNarrowScreen && s.headerSideNarrow]}>
           {isGuestMode || !user ? (
-            <Link href={buildHref('/login', { returnTo: '/saved' })} asChild>
-              <TouchableOpacity
-                style={s.headerBtn}
-                accessibilityRole="link"
-                accessibilityLabel="Sign in to view saved articles"
-              >
-                <Ionicons name="bookmark-outline" size={18} color={c.icon} />
-                {savedCount > 0 && (
-                  <View style={[s.badge, { backgroundColor: c.tint }]}>
-                    <Text style={s.badgeText}>{savedCount}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </Link>
+            <TouchableOpacity
+              onPress={() => promptForAccount('saved')}
+              style={s.headerBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Saved Articles requires an account"
+            >
+              <Ionicons name="bookmark-outline" size={18} color={c.icon} />
+              {savedCount > 0 && (
+                <View style={[s.badge, { backgroundColor: c.tint }]}>
+                  <Text style={s.badgeText}>{savedCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
           ) : (
             <TouchableOpacity
               onPress={() => router.push('saved' as any)}
@@ -1532,8 +1555,15 @@ export default function FeedScreen() {
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            onPress={() => router.push('/search')}
+            onPress={() => {
+              if (isGuestMode || !user) {
+                promptForAccount('search');
+                return;
+              }
+              router.push('/search');
+            }}
             style={s.headerBtn}
+            accessibilityLabel={isGuestMode || !user ? 'Search requires an account' : 'Search Praxis'}
           >
             <Ionicons name="search-outline" size={18} color={c.icon} />
           </TouchableOpacity>
