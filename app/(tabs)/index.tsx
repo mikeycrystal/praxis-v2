@@ -385,6 +385,17 @@ export default function FeedScreen() {
   const isDigestModeVisible = isDailyDigestActive || isDigestArchiveViewActive || (
     isDigestCompletionVisible && !isDigestHandoffActive
   );
+  // Never make the ordinary Top News stack interactive while its Digest is
+  // still being assembled. In particular, this prevents cached articles from
+  // appearing briefly before the canonical Digest replaces them.
+  const isDigestPreparing = Boolean(
+    preferences.isTopNewsActive &&
+      (!isDigestDismissalLoaded || (
+        !isDigestDismissed &&
+        !dailyDigestFeed &&
+        (feedMode !== 'top-news' || isStreaming || loading || articles.length > 0)
+      )),
+  );
   const topNewsArticles = useMemo(
     () => dailyDigestFeed && preferences.isTopNewsActive
       ? articles.filter((article) => !dailyDigestFeed.state.articleIds.includes(article.id))
@@ -842,7 +853,9 @@ export default function FeedScreen() {
       !isDigestDismissalLoaded ||
       isDigestDismissed ||
       dailyDigestFeed ||
-      articles.length === 0
+      articles.length === 0 ||
+      feedMode !== 'top-news' ||
+      isStreaming
     ) return;
 
     let cancelled = false;
@@ -859,6 +872,8 @@ export default function FeedScreen() {
     dailyDigestFeed,
     isDigestDismissalLoaded,
     isDigestDismissed,
+    feedMode,
+    isStreaming,
     preferences.isTopNewsActive,
   ]);
 
@@ -1329,29 +1344,32 @@ export default function FeedScreen() {
       withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) }),
     );
     const exitStartTimeout = setTimeout(() => {
-      // Mount and reset Top News while the completion card is still opaque.
-      // Its exit fade then masks the deck replacement and image settlement.
+      // Mount and settle the next deck while the completion card is fully
+      // opaque. Starting the fade on a later frame prevents the old stack
+      // from flashing or visibly snapping back to its first card.
       setIsDigestHandoffActive(true);
       resetDeckPosition();
-      digestCompletionOpacity.value = withTiming(0, { duration: 260 });
-      digestCompletionScale.value = withTiming(0.98, {
-        duration: 260,
-        easing: Easing.in(Easing.cubic),
-      });
-      digestCompletionTranslateY.value = withTiming(-6, {
-        duration: 260,
-        easing: Easing.in(Easing.cubic),
-      });
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        digestCompletionOpacity.value = withTiming(0, { duration: 260 });
+        digestCompletionScale.value = withTiming(0.98, {
+          duration: 260,
+          easing: Easing.in(Easing.cubic),
+        });
+        digestCompletionTranslateY.value = withTiming(-6, {
+          duration: 260,
+          easing: Easing.in(Easing.cubic),
+        });
+      }));
     }, 2540);
     const handoffTimeout = setTimeout(() => {
-      // Reset the deck before revealing Top News so there is no intermediate
-      // frame where the ordinary feed appears partway through.
+      // Give the new Top News stack a frame to paint before removing the
+      // transition layer.
       setIsDigestDismissed(false);
       void writeDailyDigestDismissal(false);
       setIsViewingCompletedDigest(false);
       setIsDigestCompletionVisible(false);
       setIsDigestHandoffActive(false);
-    }, 2800);
+    }, 2880);
     return () => {
       clearTimeout(exitStartTimeout);
       clearTimeout(handoffTimeout);
@@ -1721,7 +1739,13 @@ export default function FeedScreen() {
         </View>
       ) : null}
 
-      {!current && (loading || isStreaming) ? (
+      {isDigestPreparing ? (
+        <View style={s.empty}>
+          <ActivityIndicator size="large" color="#7A55B6" />
+          <Text style={[s.emptyTitle, { color: c.text }]}>Preparing your Daily Digest</Text>
+          <Text style={[s.emptyBody, { color: c.textSecondary }]}>Curating today&apos;s stories before you start.</Text>
+        </View>
+      ) : !current && (loading || isStreaming) ? (
         <View style={s.empty}>
           <ActivityIndicator size="large" color={c.tint} />
           <Text style={[s.emptyTitle, { color: c.text }]}>Finding articles</Text>
@@ -1755,7 +1779,10 @@ export default function FeedScreen() {
       ) : (
         <View style={s.cardStack}>
           <GestureDetector gesture={swipeGesture}>
-            <Animated.View style={[s.deckFrame, { width: cardWidth, height: cardHeight + 14 }]}>
+            <Animated.View
+              key={isDigestModeVisible ? 'daily-digest-deck' : 'top-news-deck'}
+              style={[s.deckFrame, { width: cardWidth, height: cardHeight + 14 }]}
+            >
               {feedArticles
                 .slice(0, maxAvailableArticles)
                 .map((article, articleIndex) => {
@@ -1808,7 +1835,7 @@ export default function FeedScreen() {
       )}
 
       {/* Progress dots */}
-      {maxAvailableArticles > 0 && current && (
+      {!isDigestPreparing && maxAvailableArticles > 0 && current && (
         <View style={s.dotsRow}>
           {(() => {
             try {
