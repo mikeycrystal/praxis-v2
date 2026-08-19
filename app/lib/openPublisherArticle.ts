@@ -34,7 +34,7 @@ export const openPublisherArticle = async (
     toolbarColor: BROWSER_COLORS.toolbar,
     secondaryToolbarColor: BROWSER_COLORS.toolbar,
     controlsColor: BROWSER_COLORS.controls,
-    dismissButtonStyle: 'done',
+    dismissButtonStyle: 'close',
     presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
     enableBarCollapsing: true,
     showTitle: true,
