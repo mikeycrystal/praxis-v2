@@ -110,6 +110,7 @@ type DeckCardProps = {
   onShareArticle: (article: Article) => void;
   onReadArticle: (article: Article) => void;
   onFlipArticle: (articleId: number, isFlipped: boolean) => void;
+  verticalReserve: number;
 };
 
 const DeckCard = memo(function DeckCard({
@@ -125,6 +126,7 @@ const DeckCard = memo(function DeckCard({
   onShareArticle,
   onReadArticle,
   onFlipArticle,
+  verticalReserve,
 }: DeckCardProps) {
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
@@ -234,6 +236,7 @@ const DeckCard = memo(function DeckCard({
         canSwipeRight={false}
         onFlipChange={handleFlipChange}
         isDigestCard={isDigestCard}
+        verticalReserve={verticalReserve}
       />
     </Animated.View>
   );
@@ -242,10 +245,6 @@ const DeckCard = memo(function DeckCard({
 export default function FeedScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isNarrowScreen = screenWidth < 350;
-  const { width: cardWidth, height: cardHeight } = useMemo(
-    () => getArticleCardDimensions(screenWidth, screenHeight),
-    [screenHeight, screenWidth],
-  );
   const swipeExitDistance = screenWidth * 1.05;
   const { isGuestMode, profile, user } = useAuth();
   const { announceAwardedBadgeIds, celebrateDigestCompletion } = useBadgeCelebration();
@@ -1218,6 +1217,13 @@ export default function FeedScreen() {
     digestCompletedCount + (isVisibleDigestStoryInProgress ? 1 : 0),
     digestTotalCount,
   );
+  const digestVerticalReserve = shouldShowDigestProgress
+    ? isDigestProgressOpen ? 166 : 66
+    : shouldShowPausedDigestReminder ? 46 : 0;
+  const { width: cardWidth, height: cardHeight } = useMemo(
+    () => getArticleCardDimensions(screenWidth, screenHeight, digestVerticalReserve),
+    [digestVerticalReserve, screenHeight, screenWidth],
+  );
   const digestRemainingCount = Math.max(digestTotalCount - digestDisplayCompletedCount, 0);
   const digestProgressPercentage = digestTotalCount > 0
     ? Math.min((digestDisplayCompletedCount / digestTotalCount) * 100, 100)
@@ -1732,6 +1738,7 @@ export default function FeedScreen() {
                       onShareArticle={shareArticle}
                       onReadArticle={handleReadArticle}
                       onFlipArticle={handleFlipArticle}
+                      verticalReserve={digestVerticalReserve}
                     />
                   );
                 })}

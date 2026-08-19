@@ -15,13 +15,20 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { Article } from '../../hooks/useFeedArticles';
 
-export const getArticleCardDimensions = (screenWidth: number, screenHeight: number) => {
+export const getArticleCardDimensions = (
+  screenWidth: number,
+  screenHeight: number,
+  verticalReserve = 0,
+) => {
   const horizontalInset = screenWidth <= 340 ? 28 : screenWidth <= 390 ? 42 : 52;
   const maximumWidth = Math.max(screenWidth - 20, 240);
   const width = Math.min(Math.max(screenWidth - horizontalInset, 240), 370, maximumWidth);
   const reservedHeight = screenHeight < 620 ? 268 : screenHeight < 740 ? 286 : 310;
-  const availableHeight = Math.max(screenHeight - reservedHeight, 292);
-  const height = Math.max(292, Math.min(width * 1.58, availableHeight));
+  const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 292);
+  // Digest progress takes real vertical space above the deck. Keep those cards
+  // slightly less tall so the progress controls never cover the story image.
+  const preferredRatio = verticalReserve > 0 ? 1.45 : 1.58;
+  const height = Math.max(292, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
 };
@@ -70,6 +77,7 @@ interface Props {
   canSwipeRight?: boolean;
   showSwipeHints?: boolean;
   isDigestCard?: boolean;
+  verticalReserve?: number;
   swipeEnabled?: boolean;
   swipeX?: Animated.Value;
 }
@@ -85,11 +93,16 @@ export const ArticleCard = memo(function ArticleCard({
   canSwipeRight,
   showSwipeHints,
   isDigestCard,
+  verticalReserve = 0,
   swipeEnabled = false,
   swipeX: externalSwipeX,
 }: Props) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const { width: cardWidth, height: cardHeight } = getArticleCardDimensions(screenWidth, screenHeight);
+  const { width: cardWidth, height: cardHeight } = getArticleCardDimensions(
+    screenWidth,
+    screenHeight,
+    verticalReserve,
+  );
   const isCompactCard = cardHeight < 420;
   const isVeryCompactCard = cardHeight < 340;
   const internalTranslateX = useRef(new Animated.Value(0)).current;
