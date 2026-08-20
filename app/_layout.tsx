@@ -10,7 +10,6 @@ import { NewsPreferencesProvider } from './context/NewsPreferencesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
 import { BadgeCelebrationProvider } from './components/BadgeCelebration';
-import { buildHref } from './lib/buildHref';
 import { supabase } from './services/supabase';
 
 function AppLifecycleManager() {
@@ -58,9 +57,6 @@ function RootRedirect() {
       if (!inAuth) router.replace('/login');
     } else if (!session && isGuestMode) {
       if (!inAppShell && !inAuth) router.replace('/');
-    } else if (session && profile && !profile.onboarding_complete) {
-      const returnTo = typeof params.returnTo === 'string' ? params.returnTo : undefined;
-      router.replace(buildHref('/onboarding', returnTo ? { returnTo } : undefined));
     } else if (session && !inAppShell) {
       const returnTo = typeof params.returnTo === 'string' ? params.returnTo : null;
       router.replace((returnTo || '/') as any);
