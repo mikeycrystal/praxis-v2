@@ -16,6 +16,7 @@ import Animated, {
   cancelAnimation,
   Easing,
   Extrapolation,
+  FadeInDown,
   interpolate,
   runOnJS,
   useAnimatedStyle,
@@ -1261,8 +1262,11 @@ export default function FeedScreen() {
     digestCompletedCount + (isVisibleDigestStoryInProgress ? 1 : 0),
     digestTotalCount,
   );
+  // The expanded Digest summary is intentionally an overlay. Reserving only
+  // the compact progress control keeps the story deck from jumping down when
+  // the details appear.
   const digestVerticalReserve = shouldShowDigestProgress
-    ? isDigestProgressOpen ? 166 : 66
+    ? 66
     : shouldShowPausedDigestReminder ? 46 : 0;
   const { width: cardWidth, height: cardHeight } = useMemo(
     () => getArticleCardDimensions(screenWidth, screenHeight, digestVerticalReserve),
@@ -1703,7 +1707,10 @@ export default function FeedScreen() {
             </View>
           </TouchableOpacity>
           {isDigestProgressOpen ? (
-            <View style={s.digestProgressDetails}>
+            <Animated.View
+              entering={FadeInDown.duration(180)}
+              style={s.digestProgressDetails}
+            >
               <Text style={s.digestProgressDetailTitle}>{digestProgressTitle}</Text>
               <Text style={s.digestProgressDetailBody}>{digestProgressBody}</Text>
               {dailyDigestFeed.isComplete ? (
@@ -1727,7 +1734,7 @@ export default function FeedScreen() {
                   <Text style={s.digestResumeText}>Resume Digest</Text>
                 </TouchableOpacity>
               ) : null}
-            </View>
+            </Animated.View>
           ) : null}
         </View>
       ) : null}
@@ -2045,7 +2052,9 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 18,
     backgroundColor: '#FFFEFA',
-    overflow: 'hidden',
+    // Let the expanded description float over the first card instead of
+    // expanding this row and reflowing the deck below it.
+    overflow: 'visible',
     marginTop: 6,
     marginBottom: 2,
     shadowColor: '#302D28',
@@ -2079,6 +2088,7 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     backgroundColor: '#E9F0DF',
+    borderRadius: 17,
   },
   digestProgressHeader: {
     flexDirection: 'row',
@@ -2103,10 +2113,26 @@ const s = StyleSheet.create({
     backgroundColor: '#B5C79C',
   },
   digestProgressDetails: {
+    position: 'absolute',
+    top: '100%',
+    left: -1,
+    right: -1,
+    zIndex: 101,
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 14,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: '#C8D8B0',
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    backgroundColor: '#FFFEFA',
+    shadowColor: '#302D28',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 101,
   },
   digestProgressDetailTitle: {
     color: '#302D28',
