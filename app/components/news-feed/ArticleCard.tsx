@@ -30,7 +30,7 @@ export const getArticleCardDimensions = (
   const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
   // Digest progress takes real vertical space above the deck. Its card is a
   // touch shorter still so the whole composition remains balanced.
-  const preferredRatio = verticalReserve > 0 ? 1.34 : 1.42;
+  const preferredRatio = verticalReserve > 0 ? 1.40 : 1.48;
   const height = Math.max(280, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
