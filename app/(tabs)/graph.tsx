@@ -312,7 +312,7 @@ export default function GraphScreen() {
   const { isGuestMode, user, profile } = useAuth();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isNarrowScreen = windowWidth < 350;
-  const graphMinSize = windowHeight < 620 ? 168 : windowHeight < 740 ? 190 : GRAPH_MIN_SIZE;
+  const graphMinSize = windowHeight < 620 ? 184 : windowHeight < 740 ? 206 : 240;
   const {
     preferences,
     applyQueryPreferences,
@@ -323,16 +323,16 @@ export default function GraphScreen() {
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
   const graphWidth = useMemo(() => {
     const fallbackWidth = Math.min(
-      Math.max(windowWidth - 56, graphMinSize),
+      Math.max(windowWidth - 34, graphMinSize),
       GRAPH_MAX_SIZE,
     );
     const viewportHeightLimit = Math.min(
-      Math.max(windowHeight - 430, graphMinSize),
+      Math.max(windowHeight - 388, graphMinSize),
       GRAPH_MAX_SIZE,
     );
-    const availableWidth = Math.max(graphViewport.width - 36, 0);
+    const availableWidth = Math.max(graphViewport.width - 12, 0);
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 56, viewportHeightLimit),
+      Math.min(graphViewport.height - 24, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -391,7 +391,7 @@ export default function GraphScreen() {
   const [hasAppliedTopNewsFilter, setHasAppliedTopNewsFilter] = useState(
     () => initialGraphState.hasAppliedTopNewsFilter,
   );
-  const sliderTrackWidth = Math.min(Math.max(windowWidth - 166, 130), 300);
+  const sliderTrackWidth = Math.min(Math.max(windowWidth - 176, 150), 320);
   const [pinX, setPinX] = useState(initialPin.x);
   const [pinY, setPinY] = useState(initialPin.y);
   const animatedPinX = useSharedValue(initialPin.x);
@@ -2049,8 +2049,8 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 18,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 2,
+    paddingBottom: 8,
     position: 'relative',
     zIndex: 1,
   },
@@ -2210,11 +2210,11 @@ const s = StyleSheet.create({
     flexShrink: 1,
     alignSelf: 'stretch',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     maxWidth: 620,
     paddingHorizontal: 4,
-    paddingTop: 14,
-    paddingBottom: 14,
+    paddingTop: 4,
+    paddingBottom: 6,
   },
   graphCanvas: {
     position: 'relative',
@@ -2257,9 +2257,9 @@ const s = StyleSheet.create({
     transform: [{ translateY: -10 }],
   },
   sliderSection: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 12,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 18,
     alignItems: 'center',
     flexShrink: 0,
   },
@@ -2301,34 +2301,35 @@ const s = StyleSheet.create({
     fontWeight: '700',
   },
   sliderLabel: {
-    width: 42,
-    fontSize: 11,
+    width: 50,
+    fontSize: 14,
     color: PAGE.textMuted,
     fontWeight: '500',
     lineHeight: 14,
   },
   sliderTrackWrap: {
     justifyContent: 'center',
+    paddingVertical: 13,
   },
   sliderTrack: {
-    height: 5,
+    height: 8,
     borderRadius: 999,
     overflow: 'visible',
     justifyContent: 'center',
   },
   sliderFill: {
-    height: 5,
+    height: 8,
     borderRadius: 999,
   },
   sliderThumb: {
     position: 'absolute',
-    marginLeft: -8.5,
-    width: 17,
-    height: 17,
-    borderRadius: 8.5,
+    marginLeft: -14,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: '#F7F3EA',
     borderWidth: 1,
-    top: -6,
+    top: -10,
     shadowColor: '#8DAE73',
     shadowOpacity: 0,
     shadowRadius: 0,
@@ -2336,8 +2337,8 @@ const s = StyleSheet.create({
     elevation: 0,
   },
   percentPill: {
-    minWidth: 38,
-    height: 22,
+    minWidth: 54,
+    height: 32,
     borderRadius: 999,
     borderWidth: 1,
     alignItems: 'center',
@@ -2346,7 +2347,7 @@ const s = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   percentText: {
-    fontSize: 11,
+    fontSize: 14,
     color: PAGE.text,
     fontWeight: '500',
   },
