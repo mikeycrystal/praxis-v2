@@ -2211,7 +2211,9 @@ const s = StyleSheet.create({
     flexShrink: 1,
     alignSelf: 'stretch',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    // Keep the larger map centered in the space between topic controls and
+    // the Radius control rather than pinning it toward the top edge.
+    justifyContent: 'center',
     maxWidth: 620,
     paddingHorizontal: 4,
     paddingTop: 4,
