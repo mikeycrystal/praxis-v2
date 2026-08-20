@@ -94,14 +94,14 @@ const FALLBACK_TOPICS = SAFE_MODE_TOPIC_NAMES;
 const FALLBACK_TRENDING_TOPICS = SAFE_MODE_TRENDING_TOPIC_NAMES;
 
 const OUTLETS = [
-  { key: 'reuters', gx: 0, gy: 76, dx: -12, dy: -2, label: 'Reuters', logo: logoReuters, logoWeb: logoUri(logoReuters), width: 34, height: 12, labelDy: 11, blend: true },
-  { key: 'ap', gx: 6, gy: 72, dx: 10, dy: -2, label: 'AP', logo: logoAp, logoWeb: logoUri(logoAp), width: 30, height: 18, labelDy: 11, blend: true },
-  { key: 'bbc', gx: -2, gy: 64, dx: -4, dy: 10, label: 'BBC', logo: logoBbc, logoWeb: logoUri(logoBbc), width: 30, height: 12, labelDy: 11, blend: true },
-  { key: 'nyt', gx: -14, gy: 50, dx: -10, dy: -6, label: 'New York Times', logo: logoNyt, logoWeb: logoUri(logoNyt), width: 42, height: 42, labelDy: 12 },
-  { key: 'politico', gx: -2, gy: 44, dx: 10, dy: 10, label: 'Politico', logo: logoPolitico, logoWeb: logoUri(logoPolitico), width: 38, height: 10, labelDy: 10, blend: true },
-  { key: 'wsj', gx: 22, gy: 42, dx: 10, dy: -6, label: 'WSJ', logo: logoWsj, logoWeb: logoUri(logoWsj), width: 34, height: 34, labelDy: 10, blend: true },
-  { key: 'cnn', gx: -18, gy: 34, dx: -10, dy: 2, label: 'CNN', logo: logoCnn, logoWeb: logoUri(logoCnn), width: 34, height: 18, labelDy: 11, blend: true },
-  { key: 'fox', gx: 50, gy: 28, dx: 14, dy: -4, label: 'Fox News', logo: logoFox, logoWeb: logoUri(logoFox), width: 34, height: 34, labelDy: 10, blend: true },
+  { key: 'reuters', gx: 0, gy: 76, dx: -12, dy: -2, label: 'Reuters', labelDx: -25, labelAlign: 'end', logo: logoReuters, logoWeb: logoUri(logoReuters), width: 34, height: 12, labelDy: 10, blend: true },
+  { key: 'ap', gx: 6, gy: 72, dx: 10, dy: -2, label: 'AP', labelDx: 24, labelAlign: 'start', logo: logoAp, logoWeb: logoUri(logoAp), width: 30, height: 18, labelDy: 9, blend: true },
+  { key: 'bbc', gx: -2, gy: 64, dx: -4, dy: 10, label: 'BBC', labelDx: -23, labelAlign: 'end', logo: logoBbc, logoWeb: logoUri(logoBbc), width: 30, height: 12, labelDy: 10, blend: true },
+  { key: 'nyt', gx: -14, gy: 50, dx: -10, dy: -6, label: 'New York Times', labelDx: -26, labelAlign: 'end', logo: logoNyt, logoWeb: logoUri(logoNyt), width: 42, height: 42, labelDy: 13 },
+  { key: 'politico', gx: -2, gy: 44, dx: 10, dy: 10, label: 'Politico', labelDx: 23, labelAlign: 'start', logo: logoPolitico, logoWeb: logoUri(logoPolitico), width: 38, height: 10, labelDy: 10, blend: true },
+  { key: 'wsj', gx: 22, gy: 42, dx: 10, dy: -6, label: 'WSJ', labelDx: 23, labelAlign: 'start', logo: logoWsj, logoWeb: logoUri(logoWsj), width: 34, height: 34, labelDy: 11, blend: true },
+  { key: 'cnn', gx: -18, gy: 34, dx: -10, dy: 2, label: 'CNN', labelDx: -21, labelAlign: 'end', logo: logoCnn, logoWeb: logoUri(logoCnn), width: 34, height: 18, labelDy: 10, blend: true },
+  { key: 'fox', gx: 50, gy: 28, dx: 14, dy: -4, label: 'Fox News', labelDx: 23, labelAlign: 'start', logo: logoFox, logoWeb: logoUri(logoFox), width: 34, height: 34, labelDy: 10, blend: true },
   { key: 'msnbc', gx: -50, gy: 38, dx: -18, dy: -8, label: 'MSNBC', logo: logoMsnbc, logoWeb: logoUri(logoMsnbc), width: 28, height: 16, labelDy: 10, blend: true },
   { key: 'vox', gx: -50, gy: 24, dx: -14, dy: 10, label: 'Vox', logo: logoVox, logoWeb: logoUri(logoVox), width: 34, height: 22, labelDy: 11, blend: true },
   { key: 'breitbart', gx: 60, gy: -2, dx: 18, dy: -6, label: 'Breitbart', logo: logoBreitbart, logoWeb: logoUri(logoBreitbart), width: 32, height: 22, labelDy: 10, blend: true },
@@ -1092,6 +1092,7 @@ export default function GraphScreen() {
         y: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale,
         imageX: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) * graphScale - (outlet.width * graphScale) / 2,
         imageY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale - (outlet.height * graphScale) / 2,
+        labelX: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) * graphScale + (outlet.labelDx ?? 0) * graphScale,
         labelY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale + (outlet.height * graphScale) / 2 + (outlet.labelDy ?? 10) * graphScale,
       })),
     [graphHeight, graphScale, graphWidth],
@@ -1494,12 +1495,12 @@ export default function GraphScreen() {
                   opacity={0.98}
                 />
                 <SvgText
-                  x={outlet.x}
+                  x={outlet.labelX}
                   y={outlet.labelY}
-                  textAnchor="middle"
+                  textAnchor={(outlet.labelAlign ?? 'middle') as 'start' | 'middle' | 'end'}
                   fill={PAGE.textMuted}
-                  opacity={0.78}
-                  fontSize={clamp(8.5 * graphScale, 6.5, 8.5)}
+                  opacity={0.86}
+                  fontSize={clamp(9.5 * graphScale, 7.5, 10.5)}
                   fontWeight="500"
                 >
                   {outlet.label}
