@@ -349,7 +349,10 @@ export default function FeedScreen() {
   const [isDigestCompletionVisible, setIsDigestCompletionVisible] = useState(false);
   const [isDigestHandoffActive, setIsDigestHandoffActive] = useState(false);
   const [showGuestStreakPrompt, setShowGuestStreakPrompt] = useState(false);
-  const [showSaveAccountPrompt, setShowSaveAccountPrompt] = useState(false);
+  const [accountPrompt, setAccountPrompt] = useState<{
+    feature: 'saved' | 'search';
+    returnTo: string;
+  } | null>(null);
   const [shareSheetArticle, setShareSheetArticle] = useState<Article | null>(null);
   const [digestCompletionSummary, setDigestCompletionSummary] = useState({
     storyCount: 0,
@@ -1003,7 +1006,7 @@ export default function FeedScreen() {
 
   const toggleSave = useCallback(async (articleId: number) => {
     if (!user) {
-      setShowSaveAccountPrompt(true);
+      setAccountPrompt({ feature: 'saved', returnTo: '/' });
       return;
     }
 
@@ -1050,27 +1053,10 @@ export default function FeedScreen() {
   }, [feedArticles, savedIds, user]);
 
   const promptForAccount = useCallback((feature: 'saved' | 'search') => {
-    const isSavedArticles = feature === 'saved';
-    const returnTo = isSavedArticles ? '/saved' : '/search';
-    const featureLabel = isSavedArticles ? 'Saved Articles' : 'Search';
-
-    Alert.alert(
-      `${featureLabel} needs an account`,
-      isSavedArticles
-        ? 'Create a free account or sign in to save and revisit stories across your devices.'
-        : 'Create a free account or sign in to search Praxis and keep your results connected to your account.',
-      [
-        { text: 'Not now', style: 'cancel' },
-        {
-          text: 'Sign in',
-          onPress: () => router.push(buildHref('/login', { returnTo })),
-        },
-        {
-          text: 'Create account',
-          onPress: () => router.push(buildHref('/register', { returnTo })),
-        },
-      ],
-    );
+    setAccountPrompt({
+      feature,
+      returnTo: feature === 'saved' ? '/saved' : '/search',
+    });
   }, []);
 
   const shareArticle = useCallback((article: Article) => {
@@ -1954,9 +1940,10 @@ export default function FeedScreen() {
       onClose={() => setShareSheetArticle(null)}
       />
       <SaveAccountPrompt
-        visible={showSaveAccountPrompt}
-        returnTo="/"
-        onClose={() => setShowSaveAccountPrompt(false)}
+        visible={accountPrompt !== null}
+        feature={accountPrompt?.feature ?? 'saved'}
+        returnTo={accountPrompt?.returnTo ?? '/'}
+        onClose={() => setAccountPrompt(null)}
       />
 
     </SafeAreaView>

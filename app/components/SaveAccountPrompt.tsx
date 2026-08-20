@@ -6,11 +6,22 @@ import { buildHref } from '../lib/buildHref';
 
 type SaveAccountPromptProps = {
   visible: boolean;
+  feature?: 'saved' | 'search';
   returnTo: string;
   onClose: () => void;
 };
 
-export function SaveAccountPrompt({ visible, returnTo, onClose }: SaveAccountPromptProps) {
+export function SaveAccountPrompt({
+  visible,
+  feature = 'saved',
+  returnTo,
+  onClose,
+}: SaveAccountPromptProps) {
+  const isSaved = feature === 'saved';
+  const title = isSaved ? 'Save stories for later' : 'Search Praxis';
+  const body = isSaved
+    ? 'Create a free account or sign in to save articles and keep them synced across your devices.'
+    : 'Create a free account or sign in to search Praxis and keep your results connected to your account.';
   const openAuth = (route: '/login' | '/register') => {
     onClose();
     router.push(buildHref(route, { returnTo }));
@@ -27,12 +38,10 @@ export function SaveAccountPrompt({ visible, returnTo, onClose }: SaveAccountPro
         />
         <View style={s.card}>
           <View style={s.iconWrap}>
-            <Ionicons name="bookmark-outline" size={24} color="#6B9456" />
+            <Ionicons name={isSaved ? 'bookmark-outline' : 'search-outline'} size={24} color="#6B9456" />
           </View>
-          <Text style={s.title}>Save stories for later</Text>
-          <Text style={s.body}>
-            Create a free account or sign in to save articles and keep them synced across your devices.
-          </Text>
+          <Text style={s.title}>{title}</Text>
+          <Text style={s.body}>{body}</Text>
           <TouchableOpacity
             style={s.primaryButton}
             onPress={() => openAuth('/register')}
