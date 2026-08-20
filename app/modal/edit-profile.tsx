@@ -27,15 +27,28 @@ export default function EditProfileModal() {
   const [username, setUsername] = useState(profile?.username ?? '');
   const [bio, setBio] = useState(profile?.bio ?? '');
   const [avatarUri, setAvatarUri] = useState<string | null>(profile?.avatar_url ?? null);
+  const [newAvatarBase64, setNewAvatarBase64] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const pickAvatar = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Photo access needed',
+        'Allow photo access in Settings to choose a profile picture.',
+      );
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      // Native file:// URIs are not reliable upload bodies for Supabase.
+      // ImagePicker provides JPEG base64 data that we turn into an ArrayBuffer.
+      base64: true,
     });
     if (result.canceled) return;
     const asset = result.assets[0];
@@ -43,34 +56,32 @@ export default function EditProfileModal() {
       Alert.alert('File too large', 'Please choose an image under 2MB.');
       return;
     }
+    if (!asset.base64) {
+      Alert.alert('Could not read image', 'Please choose another photo and try again.');
+      return;
+    }
     setAvatarUri(asset.uri);
+    setNewAvatarBase64(asset.base64);
   };
 
-  const uploadAvatar = async (uri: string): Promise<string | null> => {
+  const uploadAvatar = async (base64: string): Promise<string> => {
     setUploading(true);
     try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const ext = uri.split('.').pop() ?? 'jpg';
-      const path = `${user!.id}/${Date.now()}.${ext}`;
-
-      // Delete old avatar
-      if (profile?.avatar_url) {
-        const oldPath = profile.avatar_url.split('/storage/v1/object/public/avatars/')[1];
-        if (oldPath) await supabase.storage.from('avatars').remove([oldPath]);
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
       }
+      const path = `${user!.id}/${Date.now()}.jpg`;
 
-      const { error } = await supabase.storage.from('avatars').upload(path, blob, {
-        contentType: `image/${ext}`,
+      const { error } = await supabase.storage.from('avatars').upload(path, bytes.buffer, {
+        contentType: 'image/jpeg',
         upsert: true,
       });
       if (error) throw error;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(path);
       return data.publicUrl;
-    } catch (err: any) {
-      Alert.alert('Upload failed', err.message);
-      return null;
     } finally {
       setUploading(false);
     }
@@ -89,8 +100,8 @@ export default function EditProfileModal() {
     setSaving(true);
     try {
       let newAvatarUrl = profile?.avatar_url ?? null;
-      if (avatarUri && avatarUri !== profile?.avatar_url) {
-        newAvatarUrl = await uploadAvatar(avatarUri);
+      if (newAvatarBase64) {
+        newAvatarUrl = await uploadAvatar(newAvatarBase64);
       }
       const { error } = await supabase
         .from('profiles')
@@ -102,6 +113,13 @@ export default function EditProfileModal() {
         })
         .eq('id', user!.id);
       if (error) throw error;
+
+      // Keep the old image until the replacement and profile update both
+      // succeed, so a failed upload never erases a person's existing photo.
+      if (newAvatarBase64 && profile?.avatar_url) {
+        const oldPath = profile.avatar_url.split('/storage/v1/object/public/avatars/')[1];
+        if (oldPath) await supabase.storage.from('avatars').remove([oldPath]);
+      }
       await refreshProfile();
       router.back();
     } catch (err: any) {
