@@ -20,15 +20,18 @@ export const getArticleCardDimensions = (
   screenHeight: number,
   verticalReserve = 0,
 ) => {
-  const horizontalInset = screenWidth <= 340 ? 28 : screenWidth <= 390 ? 42 : 52;
-  const maximumWidth = Math.max(screenWidth - 20, 240);
-  const width = Math.min(Math.max(screenWidth - horizontalInset, 240), 370, maximumWidth);
-  const reservedHeight = screenHeight < 620 ? 268 : screenHeight < 740 ? 286 : 310;
-  const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 292);
-  // Digest progress takes real vertical space above the deck. Keep those cards
-  // slightly less tall so the progress controls never cover the story image.
-  const preferredRatio = verticalReserve > 0 ? 1.45 : 1.58;
-  const height = Math.max(292, Math.min(width * preferredRatio, availableHeight));
+  // Keep the deck intentionally inset from the device edges. A narrower,
+  // shorter card reads as a focused story unit instead of a full-screen panel
+  // and leaves visible space for the header, progress controls, and next card.
+  const horizontalInset = screenWidth <= 340 ? 34 : screenWidth <= 390 ? 58 : 72;
+  const maximumWidth = Math.max(screenWidth - 32, 240);
+  const width = Math.min(Math.max(screenWidth - horizontalInset, 240), 352, maximumWidth);
+  const reservedHeight = screenHeight < 620 ? 276 : screenHeight < 740 ? 300 : 326;
+  const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
+  // Digest progress takes real vertical space above the deck. Its card is a
+  // touch shorter still so the whole composition remains balanced.
+  const preferredRatio = verticalReserve > 0 ? 1.34 : 1.42;
+  const height = Math.max(280, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
 };
