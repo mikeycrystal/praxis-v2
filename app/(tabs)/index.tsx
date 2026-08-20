@@ -1151,7 +1151,17 @@ export default function FeedScreen() {
       ).size,
     });
     celebrateDigestCompletion();
-    setIsDigestHandoffActive(false);
+    // Replace the deck immediately, while the final Digest card is leaving.
+    // The recap then sits over the first Top News card for its full duration;
+    // it never has to switch card stacks in the background.
+    articles
+      .filter((article) => !nextState.articleIds.includes(article.id))
+      .slice(0, STACK_RENDER_COUNT)
+      .forEach((article) => {
+        if (article.image_url) void Image.prefetch(article.image_url);
+      });
+    setIsDigestHandoffActive(true);
+    setCurrentIndex(0);
     setIsDigestCompletionVisible(true);
     if (isGuestMode || !user) {
       if (guestStreakPromptTimeoutRef.current) {
@@ -1164,11 +1174,13 @@ export default function FeedScreen() {
     }
     return true;
   }, [
+    articles,
     celebrateDigestCompletion,
     dailyDigestFeed?.digestArticles,
     digestArticleIdSet,
     isDailyDigestActive,
     isGuestMode,
+    setCurrentIndex,
     user,
   ]);
 
@@ -1344,12 +1356,9 @@ export default function FeedScreen() {
       withTiming(0, { duration: 200, easing: Easing.out(Easing.cubic) }),
     );
     const exitStartTimeout = setTimeout(() => {
-      // Change the deck mode first, then let the normal index effect settle
-      // Top News at zero after React has committed that replacement. Calling
-      // resetDeckPosition here changes the shared value synchronously, which
-      // briefly redraws the completed Digest from its first card.
-      setIsDigestHandoffActive(true);
-      setCurrentIndex(0);
+      // The Top News deck has already been mounted behind this card. Only
+      // dismiss the recap now; do not touch the underlying deck or its index.
+      // That keeps a single stable story visible for the whole handoff.
       requestAnimationFrame(() => requestAnimationFrame(() => {
         digestCompletionOpacity.value = withTiming(0, { duration: 260 });
         digestCompletionScale.value = withTiming(0.98, {
@@ -1363,8 +1372,6 @@ export default function FeedScreen() {
       }));
     }, 2540);
     const handoffTimeout = setTimeout(() => {
-      // Give the new Top News stack a frame to paint before removing the
-      // transition layer.
       setIsDigestDismissed(false);
       void writeDailyDigestDismissal(false);
       setIsViewingCompletedDigest(false);
@@ -1380,7 +1387,6 @@ export default function FeedScreen() {
     digestCompletionScale,
     digestCompletionTranslateY,
     isDigestCompletionVisible,
-    setCurrentIndex,
     topNewsArticles,
   ]);
   const digestCompletionAnimatedStyle = useAnimatedStyle(() => ({
