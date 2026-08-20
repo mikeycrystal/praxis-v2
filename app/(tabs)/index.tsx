@@ -98,6 +98,18 @@ const humanizeTopicLabel = (value: string) =>
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
+function PraxisLoadingState() {
+  return (
+    <View style={s.praxisLoader} accessibilityRole="progressbar" accessibilityLabel="Loading Praxis">
+      <Text style={s.praxisLoaderWordmark}>Praxis</Text>
+      <Text style={s.praxisLoaderTagline}>
+        Building you a more transparent and trustworthy news experience.
+      </Text>
+      <View style={s.praxisLoaderAccent} />
+    </View>
+  );
+}
+
 type DeckCardProps = {
   article: Article;
   articleIndex: number;
@@ -1507,7 +1519,7 @@ export default function FeedScreen() {
   if (loading) {
     return (
       <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
-        <ActivityIndicator size="large" color={c.tint} style={{ flex: 1 }} />
+        <PraxisLoadingState />
       </SafeAreaView>
     );
   }
@@ -1740,19 +1752,9 @@ export default function FeedScreen() {
       ) : null}
 
       {isDigestPreparing ? (
-        <View style={s.empty}>
-          <ActivityIndicator size="large" color="#7A55B6" />
-          <Text style={[s.emptyTitle, { color: c.text }]}>Preparing your Daily Digest</Text>
-          <Text style={[s.emptyBody, { color: c.textSecondary }]}>Curating today&apos;s stories before you start.</Text>
-        </View>
+        <PraxisLoadingState />
       ) : !current && (loading || isStreaming) ? (
-        <View style={s.empty}>
-          <ActivityIndicator size="large" color={c.tint} />
-          <Text style={[s.emptyTitle, { color: c.text }]}>Finding articles</Text>
-          <Text style={[s.emptyBody, { color: c.textSecondary }]}>
-            Loading the next stories for this feed.
-          </Text>
-        </View>
+        <PraxisLoadingState />
       ) : !current ? (
         <View style={s.empty}>
           <View style={[s.emptyBadge, { backgroundColor: c.secondary, borderColor: c.border }]}>
@@ -2427,6 +2429,35 @@ const s = StyleSheet.create({
     fontWeight: '600',
   },
   dot: { height: 6, borderRadius: 3 },
+  praxisLoader: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 42,
+    paddingBottom: 36,
+  },
+  praxisLoaderWordmark: {
+    color: '#22201C',
+    fontSize: 42,
+    fontWeight: '800',
+    letterSpacing: -1.5,
+  },
+  praxisLoaderTagline: {
+    maxWidth: 270,
+    marginTop: 11,
+    color: '#777168',
+    fontSize: 15,
+    fontWeight: '500',
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  praxisLoaderAccent: {
+    width: 46,
+    height: 4,
+    marginTop: 24,
+    borderRadius: 999,
+    backgroundColor: '#8DAE73',
+  },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40 },
   emptyBadge: {
     flexDirection: 'row',
