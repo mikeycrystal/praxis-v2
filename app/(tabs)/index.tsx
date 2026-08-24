@@ -100,12 +100,19 @@ const humanizeTopicLabel = (value: string) =>
 
 function PraxisLoadingState() {
   return (
-    <View style={s.praxisLoader} accessibilityRole="progressbar" accessibilityLabel="Loading Praxis">
+    <View
+      style={s.praxisLoader}
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading Praxis. Preparing your feed."
+    >
       <Text style={s.praxisLoaderWordmark}>Praxis</Text>
       <Text style={s.praxisLoaderTagline}>
         Building you a more transparent and trustworthy news experience.
       </Text>
-      <View style={s.praxisLoaderAccent} />
+      <View style={s.praxisLoaderStatus}>
+        <ActivityIndicator size="small" color="#8DAE73" />
+        <Text style={s.praxisLoaderStatusText}>Preparing your feed</Text>
+      </View>
     </View>
   );
 }
@@ -2498,12 +2505,17 @@ const s = StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
   },
-  praxisLoaderAccent: {
-    width: 46,
-    height: 4,
+  praxisLoaderStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginTop: 24,
-    borderRadius: 999,
-    backgroundColor: '#8DAE73',
+  },
+  praxisLoaderStatusText: {
+    color: '#8DAE73',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingHorizontal: 40 },
   emptyBadge: {
