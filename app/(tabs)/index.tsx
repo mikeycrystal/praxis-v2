@@ -1633,6 +1633,7 @@ export default function FeedScreen() {
                 {isDailyDigestActive ? 'Daily Digest' : `Daily Digest ${digestDisplayCompletedCount}/${digestTotalCount}`}
               </Text>
             </TouchableOpacity>
+            <View pointerEvents="none" style={s.feedModeDivider} />
           </View>
         ) : (
           <TouchableOpacity
@@ -2040,6 +2041,7 @@ const s = StyleSheet.create({
     borderColor: '#DED5C7',
     backgroundColor: '#F5F0E7',
     overflow: 'hidden',
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2061,18 +2063,26 @@ const s = StyleSheet.create({
   feedModeOptionRight: {
     borderTopRightRadius: 999,
     borderBottomRightRadius: 999,
-    borderLeftWidth: 1,
-    borderLeftColor: '#DED5C7',
+  },
+  feedModeDivider: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: '50%',
+    width: 1,
+    backgroundColor: '#DED5C7',
   },
   feedModeOptionActive: {
     margin: 2,
     borderRadius: 999,
     backgroundColor: '#F9E6D6',
+    zIndex: 1,
   },
   feedModeOptionDigestActive: {
     margin: 2,
     borderRadius: 999,
     backgroundColor: '#EFE7FB',
+    zIndex: 1,
   },
   feedModeOptionText: {
     color: '#817A70',
