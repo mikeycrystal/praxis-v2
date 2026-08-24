@@ -1661,9 +1661,10 @@ export default function FeedScreen() {
               testID="feed-daily-digest-toggle"
               style={s.digestResumePill}
             >
-              <Ionicons name="sparkles-outline" size={13} color="#5F438E" />
+              <Ionicons name="sparkles-outline" size={13} color="#7A55B6" />
               <Text style={s.digestResumePillText}>
-                Daily Digest {digestDisplayCompletedCount}/{digestTotalCount} · Resume
+                Daily Digest {digestDisplayCompletedCount}/{digestTotalCount}
+                <Text style={s.digestResumePillAction}> · Resume</Text>
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -2039,10 +2040,11 @@ const s = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#D5C3F3',
-    backgroundColor: '#F4EEFC',
+    borderColor: '#DED5C7',
+    backgroundColor: '#F5F0E7',
   },
-  digestResumePillText: { color: '#5F438E', fontSize: 10, fontWeight: '700' },
+  digestResumePillText: { color: '#817A70', fontSize: 10, fontWeight: '700' },
+  digestResumePillAction: { color: '#6B4A9D' },
   queryPill: {
     flexDirection: 'row',
     alignItems: 'center',
