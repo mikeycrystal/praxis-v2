@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, useWindowDimensions, ViewStyle, InteractionManager } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, Keyboard, useWindowDimensions, ViewStyle, InteractionManager } from 'react-native';
 import Svg, { Circle, Image as SvgImage, Line, Text as SvgText } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -370,6 +370,7 @@ export default function GraphScreen() {
   );
 
   const [search, setSearch] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedTopics, setSelectedTopics] = useState<string[]>(
     () => initialGraphState.selectedTopics,
   );
@@ -719,6 +720,13 @@ export default function GraphScreen() {
     setIsDropdownOpen(false);
   }, [cancelScheduledDropdownClose]);
 
+  const dismissSearch = useCallback(() => {
+    cancelScheduledDropdownClose();
+    searchInputRef.current?.blur();
+    Keyboard.dismiss();
+    setIsDropdownOpen(false);
+  }, [cancelScheduledDropdownClose]);
+
   const scheduleDropdownClose = useCallback(() => {
     cancelScheduledDropdownClose();
     dropdownCloseTimeoutRef.current = setTimeout(() => {
@@ -907,7 +915,10 @@ export default function GraphScreen() {
 
   const handleSearchSubmit = () => {
     const trimmed = search.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      dismissSearch();
+      return;
+    }
     const matchedTopic = allTopics.find((topic) => normalizeTopicId(topic) === normalizeTopicId(trimmed));
     if (matchedTopic) {
       handleTopicSelect(matchedTopic);
@@ -1111,7 +1122,7 @@ export default function GraphScreen() {
         />
       ) : null}
 
-      <Pressable onPress={isDropdownOpen ? closeDropdown : undefined}>
+      <Pressable onPress={dismissSearch}>
       <View style={[s.header, isNarrowScreen && s.headerNarrow, { borderBottomColor: PAGE.border }]}>
         <View style={[s.headerLeft, isNarrowScreen && s.headerSideNarrow]}>
           {isGuestMode || !user ? (
@@ -1187,8 +1198,14 @@ export default function GraphScreen() {
                   setSearch(value);
                   if (!isDropdownOpen) openDropdown();
                 }}
-                onFocus={openDropdown}
-                onBlur={scheduleDropdownClose}
+                onFocus={() => {
+                  setIsSearchFocused(true);
+                  openDropdown();
+                }}
+                onBlur={() => {
+                  setIsSearchFocused(false);
+                  scheduleDropdownClose();
+                }}
                 onSubmitEditing={handleSearchSubmit}
                 placeholder="Search topics or add keywords..."
                 placeholderTextColor={PAGE.textMuted}
@@ -1197,13 +1214,11 @@ export default function GraphScreen() {
                 testID="graph-search-input"
                 accessibilityLabel="Search topics or add keywords"
               />
-              {(search.length > 0 || isDropdownOpen) ? (
+              {isSearchFocused ? (
                 <TouchableOpacity
                   onPress={() => {
-                    cancelScheduledDropdownClose();
                     setSearch('');
-                    searchInputRef.current?.blur();
-                    closeDropdown();
+                    dismissSearch();
                   }}
                   style={s.clearButton}
                   accessibilityRole="button"
@@ -1432,7 +1447,7 @@ export default function GraphScreen() {
         </View>
       </View>
 
-      <Pressable style={s.graphSection} onPress={isDropdownOpen ? closeDropdown : undefined}>
+      <Pressable style={s.graphSection} onPress={dismissSearch}>
         <View
           style={s.graphWrap}
           onLayout={(event) => {
