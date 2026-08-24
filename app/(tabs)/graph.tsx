@@ -1399,7 +1399,12 @@ export default function GraphScreen() {
           ) : null}
         </View>
 
-        <View style={s.filterArea}>
+        <View
+          style={[
+            s.filterArea,
+            (topNewsFilterState || hasSearchCriteria) && s.filterAreaBelowSelected,
+          ]}
+        >
           {availableTrendingTopics.length > 0 ? (
             <ScrollView
               horizontal
@@ -1744,6 +1749,10 @@ const s = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   controls: {
+    // This is a stable stage for the optional filter rows. The rows themselves
+    // float below Search, so Trending can sit directly below it when there is
+    // no active filter without changing the map's available space.
+    height: 136,
     paddingHorizontal: 18,
     paddingTop: 12,
     paddingBottom: 2,
@@ -1929,11 +1938,22 @@ const s = StyleSheet.create({
     textAlign: 'center',
   },
   filterArea: {
+    position: 'absolute',
+    top: 60,
+    left: 18,
+    right: 0,
     minHeight: 30,
     justifyContent: 'center',
     zIndex: 10,
   },
+  filterAreaBelowSelected: {
+    top: 104,
+  },
   selectedFiltersSection: {
+    position: 'absolute',
+    top: 60,
+    left: 18,
+    right: 0,
     minHeight: 36,
     justifyContent: 'center',
     zIndex: 10,
