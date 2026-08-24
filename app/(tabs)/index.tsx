@@ -2075,12 +2075,16 @@ const s = StyleSheet.create({
   feedModeOptionActive: {
     margin: 2,
     borderRadius: 999,
+    borderWidth: 2,
+    borderColor: '#C9824F',
     backgroundColor: '#F9E6D6',
     zIndex: 1,
   },
   feedModeOptionDigestActive: {
     margin: 2,
     borderRadius: 999,
+    borderWidth: 2,
+    borderColor: '#7654A7',
     backgroundColor: '#EFE7FB',
     zIndex: 1,
   },
