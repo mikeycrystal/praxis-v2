@@ -1606,31 +1606,31 @@ export default function FeedScreen() {
         {hasIncompleteDailyDigest ? (
           <View style={s.feedModeToggle} accessibilityRole="tablist">
             <TouchableOpacity
-              onPress={isDailyDigestActive ? handleDigestPillPress : undefined}
-              disabled={!isDailyDigestActive}
-              accessibilityRole="tab"
-              accessibilityState={{ selected: !isDailyDigestActive }}
-              accessibilityLabel="View Top News"
-              testID="feed-top-news-toggle"
-              style={[s.feedModeOption, s.feedModeOptionLeft, !isDailyDigestActive && s.feedModeOptionActive]}
-            >
-              <Ionicons name="flame-outline" size={14} color={!isDailyDigestActive ? '#A86532' : '#817A70'} />
-              <Text style={[s.feedModeOptionText, !isDailyDigestActive && s.feedModeOptionTextActive]}>
-                Top News
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               onPress={!isDailyDigestActive ? handleResumeDailyDigest : undefined}
               disabled={isDailyDigestActive}
               accessibilityRole="tab"
               accessibilityState={{ selected: isDailyDigestActive }}
               accessibilityLabel={`Open Daily Digest, ${digestDisplayCompletedCount} of ${digestTotalCount} complete`}
               testID="feed-daily-digest-toggle"
-              style={[s.feedModeOption, s.feedModeOptionRight, isDailyDigestActive && s.feedModeOptionDigestActive]}
+              style={[s.feedModeOption, s.feedModeOptionLeft, isDailyDigestActive && s.feedModeOptionDigestActive]}
             >
               <Ionicons name="sparkles-outline" size={14} color={isDailyDigestActive ? '#664A92' : '#817A70'} />
               <Text style={[s.feedModeOptionText, isDailyDigestActive && s.feedModeOptionDigestTextActive]}>
                 {isDailyDigestActive ? 'Daily Digest' : `Daily Digest ${digestDisplayCompletedCount}/${digestTotalCount}`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={isDailyDigestActive ? handleDigestPillPress : undefined}
+              disabled={!isDailyDigestActive}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: !isDailyDigestActive }}
+              accessibilityLabel="View Top News"
+              testID="feed-top-news-toggle"
+              style={[s.feedModeOption, s.feedModeOptionRight, !isDailyDigestActive && s.feedModeOptionActive]}
+            >
+              <Ionicons name="flame-outline" size={14} color={!isDailyDigestActive ? '#A86532' : '#817A70'} />
+              <Text style={[s.feedModeOptionText, !isDailyDigestActive && s.feedModeOptionTextActive]}>
+                Top News
               </Text>
             </TouchableOpacity>
           </View>
