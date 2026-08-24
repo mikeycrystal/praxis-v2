@@ -2031,14 +2031,10 @@ const s = StyleSheet.create({
   },
   headerPillText: { fontSize: 11, fontWeight: '600', letterSpacing: 0.2, color: '#B7652F' },
   feedModeToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-  },
-  feedModeOption: {
+    width: 258,
+    maxWidth: '90%',
     minHeight: 34,
-    paddingHorizontal: 12,
+    padding: 2,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#DED5C7',
@@ -2046,15 +2042,22 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  feedModeOption: {
+    flex: 1,
+    minHeight: 30,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
   },
   feedModeOptionActive: {
     backgroundColor: '#F9E6D6',
-    borderColor: '#EDC9AE',
   },
   feedModeOptionDigestActive: {
     backgroundColor: '#EFE7FB',
-    borderColor: '#D5C3F3',
   },
   feedModeOptionText: {
     color: '#817A70',
