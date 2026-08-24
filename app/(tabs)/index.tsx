@@ -1612,7 +1612,7 @@ export default function FeedScreen() {
               accessibilityState={{ selected: !isDailyDigestActive }}
               accessibilityLabel="View Top News"
               testID="feed-top-news-toggle"
-              style={[s.feedModeOption, !isDailyDigestActive && s.feedModeOptionActive]}
+              style={[s.feedModeOption, s.feedModeOptionLeft, !isDailyDigestActive && s.feedModeOptionActive]}
             >
               <Ionicons name="flame-outline" size={14} color={!isDailyDigestActive ? '#A86532' : '#817A70'} />
               <Text style={[s.feedModeOptionText, !isDailyDigestActive && s.feedModeOptionTextActive]}>
@@ -1626,7 +1626,7 @@ export default function FeedScreen() {
               accessibilityState={{ selected: isDailyDigestActive }}
               accessibilityLabel={`Open Daily Digest, ${digestDisplayCompletedCount} of ${digestTotalCount} complete`}
               testID="feed-daily-digest-toggle"
-              style={[s.feedModeOption, isDailyDigestActive && s.feedModeOptionDigestActive]}
+              style={[s.feedModeOption, s.feedModeOptionRight, isDailyDigestActive && s.feedModeOptionDigestActive]}
             >
               <Ionicons name="sparkles-outline" size={14} color={isDailyDigestActive ? '#664A92' : '#817A70'} />
               <Text style={[s.feedModeOptionText, isDailyDigestActive && s.feedModeOptionDigestTextActive]}>
@@ -2034,24 +2034,35 @@ const s = StyleSheet.create({
     width: 258,
     maxWidth: '90%',
     minHeight: 34,
-    padding: 2,
+    padding: 0,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#DED5C7',
     backgroundColor: '#F5F0E7',
+    overflow: 'hidden',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   feedModeOption: {
     flex: 1,
-    minHeight: 30,
+    alignSelf: 'stretch',
+    minHeight: 32,
     paddingHorizontal: 8,
-    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 5,
+  },
+  feedModeOptionLeft: {
+    borderTopLeftRadius: 999,
+    borderBottomLeftRadius: 999,
+  },
+  feedModeOptionRight: {
+    borderTopRightRadius: 999,
+    borderBottomRightRadius: 999,
+    borderLeftWidth: 1,
+    borderLeftColor: '#DED5C7',
   },
   feedModeOptionActive: {
     backgroundColor: '#F9E6D6',
