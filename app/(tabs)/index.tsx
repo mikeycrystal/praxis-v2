@@ -391,6 +391,9 @@ export default function FeedScreen() {
       !dailyDigestFeed.isComplete &&
       !isDigestDismissed,
   );
+  const hasIncompleteDailyDigest = Boolean(
+    preferences.isTopNewsActive && dailyDigestFeed && !dailyDigestFeed.isComplete,
+  );
   const isDigestArchiveViewActive = Boolean(
     preferences.isTopNewsActive &&
       dailyDigestFeed?.isComplete &&
@@ -1257,13 +1260,6 @@ export default function FeedScreen() {
       digestTotalCount > 0 &&
       !dailyDigestFeed.isComplete,
   );
-  const shouldShowPausedDigestReminder = Boolean(
-    shouldShowDigestProgress && isDigestDismissed && !isDailyDigestActive,
-  );
-  const pausedDigestDisplayCount = Math.min(
-    Math.max(digestResumeIndex, digestCompletedCount) + 1,
-    digestTotalCount,
-  );
   const isVisibleDigestStoryInProgress = Boolean(
     isDailyDigestActive &&
       current &&
@@ -1278,8 +1274,9 @@ export default function FeedScreen() {
   // the compact progress control keeps the story deck from jumping down when
   // the details appear.
   const digestVerticalReserve = shouldShowDigestProgress
+    && isDailyDigestActive
     ? 66
-    : shouldShowPausedDigestReminder ? 46 : 0;
+    : 0;
   const { width: cardWidth, height: cardHeight } = useMemo(
     () => getArticleCardDimensions(screenWidth, screenHeight, digestVerticalReserve),
     [digestVerticalReserve, screenHeight, screenWidth],
@@ -1606,48 +1603,81 @@ export default function FeedScreen() {
       </View>
 
       <View style={s.topNewsRow}>
-        <TouchableOpacity
-          onPress={isDigestModeVisible ? handleDigestPillPress : handleToggleTopNews}
-          accessibilityRole="button"
-          accessibilityLabel={isDigestModeVisible ? 'Exit Daily Digest' : 'Toggle Top News'}
-          testID="feed-top-news-toggle"
-          style={[
-            s.headerPill,
-            isDigestModeVisible
-              ? { backgroundColor: '#EFE7FB', borderColor: '#D5C3F3' }
-              : preferences.isTopNewsActive
-                ? { backgroundColor: '#F9E6D6', borderColor: '#EDC9AE' }
-                : { backgroundColor: c.secondary, borderColor: c.border },
-          ]}
-        >
-          <Ionicons
-            name={isDigestModeVisible
-              ? 'sparkles-outline'
-              : preferences.isTopNewsActive
-                ? 'flame-outline'
-                : 'sparkles-outline'}
-            size={13}
-            color={isDigestModeVisible
-              ? '#7A55B6'
-              : preferences.isTopNewsActive
-                ? '#E48439'
-                : c.textMuted}
-          />
-          <Text
+        {hasIncompleteDailyDigest ? (
+          <View style={s.feedModeToggle} accessibilityRole="tablist">
+            <TouchableOpacity
+              onPress={isDailyDigestActive ? handleDigestPillPress : undefined}
+              disabled={!isDailyDigestActive}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: !isDailyDigestActive }}
+              accessibilityLabel="View Top News"
+              testID="feed-top-news-toggle"
+              style={[s.feedModeOption, !isDailyDigestActive && s.feedModeOptionActive]}
+            >
+              <Ionicons name="flame-outline" size={14} color={!isDailyDigestActive ? '#A86532' : '#817A70'} />
+              <Text style={[s.feedModeOptionText, !isDailyDigestActive && s.feedModeOptionTextActive]}>
+                Top News
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={!isDailyDigestActive ? handleResumeDailyDigest : undefined}
+              disabled={isDailyDigestActive}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isDailyDigestActive }}
+              accessibilityLabel={`Open Daily Digest, ${digestDisplayCompletedCount} of ${digestTotalCount} complete`}
+              testID="feed-daily-digest-toggle"
+              style={[s.feedModeOption, isDailyDigestActive && s.feedModeOptionDigestActive]}
+            >
+              <Ionicons name="sparkles-outline" size={14} color={isDailyDigestActive ? '#664A92' : '#817A70'} />
+              <Text style={[s.feedModeOptionText, isDailyDigestActive && s.feedModeOptionDigestTextActive]}>
+                {isDailyDigestActive ? 'Daily Digest' : `Daily Digest ${digestDisplayCompletedCount}/${digestTotalCount}`}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={isDigestModeVisible ? handleDigestPillPress : handleToggleTopNews}
+            accessibilityRole="button"
+            accessibilityLabel={isDigestModeVisible ? 'Exit Daily Digest' : 'Toggle Top News'}
+            testID="feed-top-news-toggle"
             style={[
-              s.headerPillText,
-              {
-                color: isDigestModeVisible
-                  ? '#5F438E'
-                  : preferences.isTopNewsActive
-                    ? c.textSecondary
-                    : c.textMuted,
-              },
+              s.headerPill,
+              isDigestModeVisible
+                ? { backgroundColor: '#EFE7FB', borderColor: '#D5C3F3' }
+                : preferences.isTopNewsActive
+                  ? { backgroundColor: '#F9E6D6', borderColor: '#EDC9AE' }
+                  : { backgroundColor: c.secondary, borderColor: c.border },
             ]}
           >
-            {isDigestModeVisible ? 'Daily Digest' : 'Top News'}
-          </Text>
-        </TouchableOpacity>
+            <Ionicons
+              name={isDigestModeVisible
+                ? 'sparkles-outline'
+                : preferences.isTopNewsActive
+                  ? 'flame-outline'
+                  : 'sparkles-outline'}
+              size={13}
+              color={isDigestModeVisible
+                ? '#7A55B6'
+                : preferences.isTopNewsActive
+                  ? '#E48439'
+                  : c.textMuted}
+            />
+            <Text
+              style={[
+                s.headerPillText,
+                {
+                  color: isDigestModeVisible
+                    ? '#5F438E'
+                    : preferences.isTopNewsActive
+                      ? c.textSecondary
+                      : c.textMuted,
+                },
+              ]}
+            >
+              {isDigestModeVisible ? 'Daily Digest' : 'Top News'}
+            </Text>
+          </TouchableOpacity>
+        )}
         {!preferences.isTopNewsActive && hasCustomQuery ? (
           <TouchableOpacity
             onPress={handleEditQuery}
@@ -1678,21 +1708,7 @@ export default function FeedScreen() {
         ) : null}
       </View>
 
-      {shouldShowPausedDigestReminder ? (
-        <TouchableOpacity
-          onPress={handleResumeDailyDigest}
-          accessibilityRole="button"
-          accessibilityLabel={`Resume Daily Digest at story ${pausedDigestDisplayCount} of ${digestTotalCount}`}
-          style={s.digestPausedReminder}
-        >
-          <Ionicons name="flame-outline" size={14} color="#5D7C50" />
-          <Text style={s.digestPausedReminderText}>
-            Daily Digest · {pausedDigestDisplayCount}/{digestTotalCount}
-          </Text>
-          <Text style={s.digestPausedResumeText}>Resume</Text>
-          <Ionicons name="chevron-forward-outline" size={13} color="#718368" />
-        </TouchableOpacity>
-      ) : shouldShowDigestProgress ? (
+      {shouldShowDigestProgress && isDailyDigestActive ? (
         <View style={[s.digestProgressCard, { borderColor: '#C8D8B0' }]}>
           <TouchableOpacity
             onPress={() => setIsDigestProgressOpen((open) => !open)}
@@ -2014,6 +2030,44 @@ const s = StyleSheet.create({
     minHeight: 34,
   },
   headerPillText: { fontSize: 11, fontWeight: '600', letterSpacing: 0.2, color: '#B7652F' },
+  feedModeToggle: {
+    width: 312,
+    maxWidth: '92%',
+    minHeight: 44,
+    padding: 3,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#DED5C7',
+    backgroundColor: '#F1EBDF',
+    flexDirection: 'row',
+  },
+  feedModeOption: {
+    flex: 1,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  feedModeOptionActive: {
+    backgroundColor: '#F9E6D6',
+    borderWidth: 1,
+    borderColor: '#EDC9AE',
+  },
+  feedModeOptionDigestActive: {
+    backgroundColor: '#EFE7FB',
+    borderWidth: 1,
+    borderColor: '#D5C3F3',
+  },
+  feedModeOptionText: {
+    color: '#817A70',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  feedModeOptionTextActive: { color: '#7D5435' },
+  feedModeOptionDigestTextActive: { color: '#5F438E' },
   queryPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2065,26 +2119,6 @@ const s = StyleSheet.create({
     shadowRadius: 16,
     elevation: 100,
   },
-  digestPausedReminder: {
-    position: 'relative',
-    zIndex: 100,
-    elevation: 100,
-    alignSelf: 'center',
-    minHeight: 34,
-    marginTop: 6,
-    marginBottom: 2,
-    paddingLeft: 12,
-    paddingRight: 9,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#CBD9BB',
-    backgroundColor: '#F0F5E9',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  digestPausedReminderText: { color: '#42563B', fontSize: 11, fontWeight: '700' },
-  digestPausedResumeText: { color: '#6B825F', fontSize: 10, fontWeight: '700' },
   digestProgressToggle: {
     minHeight: 44,
     justifyContent: 'center',
