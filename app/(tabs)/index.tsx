@@ -1609,7 +1609,7 @@ export default function FeedScreen() {
         </View>
       </View>
 
-      {!hasIncompleteDailyDigest ? (
+      {!isDailyDigestActive ? (
         <View style={s.topNewsRow}>
           <TouchableOpacity
             onPress={isDigestModeVisible ? handleDigestPillPress : handleToggleTopNews}
@@ -1653,6 +1653,20 @@ export default function FeedScreen() {
               {isDigestModeVisible ? 'Daily Digest' : 'Top News'}
             </Text>
           </TouchableOpacity>
+          {hasIncompleteDailyDigest ? (
+            <TouchableOpacity
+              onPress={handleResumeDailyDigest}
+              accessibilityRole="button"
+              accessibilityLabel={`Resume Daily Digest, ${digestDisplayCompletedCount} of ${digestTotalCount} complete`}
+              testID="feed-daily-digest-toggle"
+              style={s.digestResumePill}
+            >
+              <Ionicons name="sparkles-outline" size={13} color="#5F438E" />
+              <Text style={s.digestResumePillText}>
+                Daily Digest {digestDisplayCompletedCount}/{digestTotalCount} · Resume
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         {!preferences.isTopNewsActive && hasCustomQuery ? (
           <TouchableOpacity
             onPress={handleEditQuery}
@@ -1684,8 +1698,8 @@ export default function FeedScreen() {
         </View>
       ) : null}
 
-      {shouldShowDigestProgress ? (
-        <View style={[s.digestProgressCard, { borderColor: '#C8D8B0' }]}>
+      {shouldShowDigestProgress && isDailyDigestActive ? (
+        <View style={[s.digestProgressCard, s.digestProgressCardWithModeGap, { borderColor: '#C8D8B0' }]}>
           <TouchableOpacity
             onPress={() => setIsDigestProgressOpen((open) => !open)}
             accessibilityRole="button"
@@ -1745,7 +1759,7 @@ export default function FeedScreen() {
                   style={s.digestTopNewsButton}
                 >
                   <Ionicons name="flame-outline" size={13} color="#A86532" />
-                  <Text style={s.digestTopNewsText}>Browse Top News instead</Text>
+                  <Text style={s.digestTopNewsText}>Continue to Top News</Text>
                 </TouchableOpacity>
               )}
             </Animated.View>
@@ -2016,6 +2030,19 @@ const s = StyleSheet.create({
     minHeight: 34,
   },
   headerPillText: { fontSize: 11, fontWeight: '600', letterSpacing: 0.2, color: '#B7652F' },
+  digestResumePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 34,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D5C3F3',
+    backgroundColor: '#F4EEFC',
+  },
+  digestResumePillText: { color: '#5F438E', fontSize: 10, fontWeight: '700' },
   queryPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2066,6 +2093,11 @@ const s = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 16,
     elevation: 100,
+  },
+  digestProgressCardWithModeGap: {
+    // Preserve the familiar vertical position the bar had below the former
+    // mode row, without retaining a second navigation control above it.
+    marginTop: 58,
   },
   digestProgressToggle: {
     minHeight: 44,
