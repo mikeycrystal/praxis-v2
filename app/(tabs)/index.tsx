@@ -2048,9 +2048,7 @@ const s = StyleSheet.create({
     flex: 1,
     alignSelf: 'stretch',
     minHeight: 32,
-    margin: 2,
     paddingHorizontal: 8,
-    borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2067,9 +2065,13 @@ const s = StyleSheet.create({
     borderLeftColor: '#DED5C7',
   },
   feedModeOptionActive: {
+    margin: 2,
+    borderRadius: 999,
     backgroundColor: '#F9E6D6',
   },
   feedModeOptionDigestActive: {
+    margin: 2,
+    borderRadius: 999,
     backgroundColor: '#EFE7FB',
   },
   feedModeOptionText: {
