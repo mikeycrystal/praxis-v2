@@ -1333,8 +1333,8 @@ export default function GraphScreen() {
           </TouchableOpacity>
         </View>
 
-        {topNewsFilterState ? (
-          <View style={s.selectedFiltersSection}>
+        <View style={s.selectedFiltersSection}>
+          {topNewsFilterState ? (
             <TouchableOpacity
               onPress={handleTopNewsReset}
               style={s.topNewsPill}
@@ -1345,9 +1345,7 @@ export default function GraphScreen() {
               <Ionicons name="flame-outline" size={14} color="#D57A24" />
               <Text style={s.topNewsPillText}>Top News</Text>
             </TouchableOpacity>
-          </View>
-        ) : hasSearchCriteria ? (
-          <View style={s.selectedFiltersSection}>
+          ) : hasSearchCriteria ? (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -1398,11 +1396,11 @@ export default function GraphScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        ) : null}
+          ) : null}
+        </View>
 
-        {availableTrendingTopics.length > 0 ? (
-          <View style={s.filterArea}>
+        <View style={s.filterArea}>
+          {availableTrendingTopics.length > 0 ? (
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -1425,8 +1423,8 @@ export default function GraphScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        ) : null}
+          ) : null}
+        </View>
       </View>
 
       <Pressable style={s.graphSection} onPress={isDropdownOpen ? closeDropdown : undefined}>
@@ -1543,8 +1541,10 @@ export default function GraphScreen() {
         </View>
       </Pressable>
 
-      {hasChanges || isApplying ? (
-        <View style={s.applyBar}>
+      <View
+        style={[s.applyBar, !(hasChanges || isApplying) && s.applyBarPlaceholder]}
+        pointerEvents={hasChanges || isApplying ? 'auto' : 'none'}
+      >
           <TouchableOpacity
             style={[
               s.applyButton,
@@ -1560,8 +1560,7 @@ export default function GraphScreen() {
               {isApplying ? 'Loading...' : 'Apply Changes →'}
             </Text>
           </TouchableOpacity>
-        </View>
-      ) : null}
+      </View>
 
       {isHelpOpen ? (
         <View style={s.modalWrap} pointerEvents="box-none">
@@ -2281,6 +2280,11 @@ const s = StyleSheet.create({
     paddingHorizontal: 18,
     paddingBottom: 10,
     paddingTop: 2,
+  },
+  // Reserve this space even before a change is made. Otherwise the map moves
+  // whenever filter chips or the Apply button enter/leave the layout.
+  applyBarPlaceholder: {
+    opacity: 0,
   },
   applyButton: {
     pointerEvents: 'auto',
