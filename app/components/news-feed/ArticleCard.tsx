@@ -114,6 +114,7 @@ export const ArticleCard = memo(function ArticleCard({
   const isSwipeDrivenByParent = Boolean(externalSwipeX);
   const [isFlipped, setIsFlipped] = useState(false);
   const [openInsightId, setOpenInsightId] = useState<string | null>(null);
+  const [hasImageLoadError, setHasImageLoadError] = useState(false);
   const flipAnim = useRef(new Animated.Value(0)).current;
 
   const rotate = translateX.interpolate({
@@ -136,7 +137,7 @@ export const ArticleCard = memo(function ArticleCard({
   const showMapPoint = typeof article.x === 'number' || typeof article.y === 'number';
   const mapLeft = ((clampCoord(article.x) + 1) / 2) * MAP_BOX_SIZE;
   const mapTop = ((1 - clampCoord(article.y)) / 2) * MAP_BOX_SIZE;
-  const cardImageUri = article.image_url || `https://picsum.photos/seed/${article.id}/1400/1000`;
+  const cardImageUri = hasImageLoadError ? null : article.image_url;
   const subtitle = article.meta?.summary || article.lede || '';
   const sourceName = article.source || article.publisher?.name || 'Unknown';
   const updatedLabel = `Updated ${formatTimeAgo(article.ts_pub)}`;
@@ -170,6 +171,7 @@ export const ArticleCard = memo(function ArticleCard({
   useEffect(() => {
     setIsFlipped(false);
     setOpenInsightId(null);
+    setHasImageLoadError(false);
     flipAnim.setValue(0);
   }, [article.id, flipAnim]);
 
@@ -266,6 +268,7 @@ export const ArticleCard = memo(function ArticleCard({
               source={{ uri: cardImageUri }}
               style={s.image}
               resizeMode="cover"
+              onError={() => setHasImageLoadError(true)}
               onLoad={() => {
                 if (SWIPE_DIAGNOSTICS) {
                   console.info('[SwipePerf] image loaded', {

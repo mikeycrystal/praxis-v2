@@ -368,7 +368,6 @@ export default function FeedScreen() {
   });
   const visualIndex = useSharedValue(externalIndex);
   const digestProgressValue = useSharedValue(0);
-  const deckTransitionOpacity = useSharedValue(1);
   const deckTransitionTranslateY = useSharedValue(0);
   const digestCompletionOpacity = useSharedValue(0);
   const digestCompletionScale = useSharedValue(0.95);
@@ -789,25 +788,18 @@ export default function FeedScreen() {
   }, [setExternalIndex, visualIndex]);
 
   // Digest and Top News use different card collections. Keep the card reset
-  // that prevents stale cards from flashing, but soften the handoff so the
-  // controls feel immediate instead of making the deck appear to jump.
+  // that prevents stale cards from flashing, but soften the handoff without
+  // lowering deck opacity (which can reveal the cards behind it).
   const transitionDeckMode = useCallback(() => {
-    cancelAnimation(deckTransitionOpacity);
     cancelAnimation(deckTransitionTranslateY);
-    deckTransitionOpacity.value = 0.74;
-    deckTransitionTranslateY.value = 8;
-    deckTransitionOpacity.value = withTiming(1, {
-      duration: 210,
-      easing: Easing.out(Easing.cubic),
-    });
+    deckTransitionTranslateY.value = 6;
     deckTransitionTranslateY.value = withTiming(0, {
-      duration: 210,
+      duration: 180,
       easing: Easing.out(Easing.cubic),
     });
-  }, [deckTransitionOpacity, deckTransitionTranslateY]);
+  }, [deckTransitionTranslateY]);
 
   const deckTransitionAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: deckTransitionOpacity.value,
     transform: [{ translateY: deckTransitionTranslateY.value }],
   }));
 
