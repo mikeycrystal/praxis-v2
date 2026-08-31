@@ -35,7 +35,9 @@ export const openPublisherArticle = async (
     secondaryToolbarColor: BROWSER_COLORS.toolbar,
     controlsColor: BROWSER_COLORS.controls,
     dismissButtonStyle: 'close',
-    presentationStyle: WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET,
+    // Page sheets can expand to full screen during dismissal on iPhone,
+    // producing a visible flash before returning to Praxis.
+    presentationStyle: WebBrowser.WebBrowserPresentationStyle.OVER_FULL_SCREEN,
     enableBarCollapsing: true,
     showTitle: true,
     enableDefaultShareMenuItem: true,
