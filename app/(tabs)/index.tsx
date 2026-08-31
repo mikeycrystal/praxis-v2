@@ -368,6 +368,8 @@ export default function FeedScreen() {
   });
   const visualIndex = useSharedValue(externalIndex);
   const digestProgressValue = useSharedValue(0);
+  const deckTransitionOpacity = useSharedValue(1);
+  const deckTransitionTranslateY = useSharedValue(0);
   const digestCompletionOpacity = useSharedValue(0);
   const digestCompletionScale = useSharedValue(0.95);
   const digestCompletionTranslateY = useSharedValue(12);
@@ -786,7 +788,31 @@ export default function FeedScreen() {
     setExternalIndex(0);
   }, [setExternalIndex, visualIndex]);
 
+  // Digest and Top News use different card collections. Keep the card reset
+  // that prevents stale cards from flashing, but soften the handoff so the
+  // controls feel immediate instead of making the deck appear to jump.
+  const transitionDeckMode = useCallback(() => {
+    cancelAnimation(deckTransitionOpacity);
+    cancelAnimation(deckTransitionTranslateY);
+    deckTransitionOpacity.value = 0.74;
+    deckTransitionTranslateY.value = 8;
+    deckTransitionOpacity.value = withTiming(1, {
+      duration: 210,
+      easing: Easing.out(Easing.cubic),
+    });
+    deckTransitionTranslateY.value = withTiming(0, {
+      duration: 210,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [deckTransitionOpacity, deckTransitionTranslateY]);
+
+  const deckTransitionAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: deckTransitionOpacity.value,
+    transform: [{ translateY: deckTransitionTranslateY.value }],
+  }));
+
   const handleToggleTopNews = useCallback(() => {
+    transitionDeckMode();
     if (!preferences.isTopNewsActive) {
       setIsDigestDismissed(false);
       void writeDailyDigestDismissal(false);
@@ -806,6 +832,7 @@ export default function FeedScreen() {
     setFeedContext('personalized', personalizedSignature);
   }, [
     applyTopNewsPreferences,
+    transitionDeckMode,
     preferences.isTopNewsActive,
     profileTopics,
     setFeedContext,
@@ -814,12 +841,14 @@ export default function FeedScreen() {
 
   const handleDigestPillPress = useCallback(() => {
     if (isDigestArchiveViewActive) {
+      transitionDeckMode();
       setIsViewingCompletedDigest(false);
       resetDeckPosition();
       return;
     }
 
     if (isDailyDigestActive) {
+      transitionDeckMode();
       setDigestResumeIndex(safeIndex);
       setIsDigestDismissed(true);
       void writeDailyDigestDismissal(true);
@@ -833,10 +862,12 @@ export default function FeedScreen() {
     handleToggleTopNews,
     resetDeckPosition,
     safeIndex,
+    transitionDeckMode,
   ]);
 
   const handleResumeDailyDigest = useCallback(() => {
     if (!dailyDigestFeed || dailyDigestFeed.isComplete) return;
+    transitionDeckMode();
     const targetIndex = Math.min(
       Math.max(digestResumeIndex, dailyDigestFeed.completedCount),
       Math.max(dailyDigestFeed.displayArticles.length - 1, 0),
@@ -857,6 +888,7 @@ export default function FeedScreen() {
     digestResumeIndex,
     preferences.isTopNewsActive,
     setCurrentIndex,
+    transitionDeckMode,
   ]);
 
   useEffect(() => {
@@ -1775,36 +1807,38 @@ export default function FeedScreen() {
         </View>
       ) : (
         <View style={s.cardStack}>
-          <GestureDetector gesture={swipeGesture}>
-            <Animated.View
-              key={isDigestModeVisible ? 'daily-digest-deck' : 'top-news-deck'}
-              style={[s.deckFrame, { width: cardWidth, height: cardHeight + 14 }]}
-            >
-              {feedArticles
-                .slice(0, maxAvailableArticles)
-                .map((article, articleIndex) => {
-                  const isActive = articleIndex === safeIndex;
+          <Animated.View style={deckTransitionAnimatedStyle}>
+            <GestureDetector gesture={swipeGesture}>
+              <Animated.View
+                key={isDigestModeVisible ? 'daily-digest-deck' : 'top-news-deck'}
+                style={[s.deckFrame, { width: cardWidth, height: cardHeight + 14 }]}
+              >
+                {feedArticles
+                  .slice(0, maxAvailableArticles)
+                  .map((article, articleIndex) => {
+                    const isActive = articleIndex === safeIndex;
 
-                  return (
-                    <DeckCard
-                      key={article.id}
-                      article={article}
-                      articleIndex={articleIndex}
-                      isActive={isActive}
-                      isSaved={savedIds.has(article.id)}
-                      isDigestCard={isDigestModeVisible && digestArticleIdSet.has(article.id)}
-                      visualIndex={visualIndex}
-                      screenWidth={screenWidth}
-                      swipeExitDistance={swipeExitDistance}
-                      onSaveArticle={toggleSave}
-                      onShareArticle={shareArticle}
-                      onReadArticle={handleReadArticle}
-                      verticalReserve={digestVerticalReserve}
-                    />
-                  );
-                })}
-            </Animated.View>
-          </GestureDetector>
+                    return (
+                      <DeckCard
+                        key={article.id}
+                        article={article}
+                        articleIndex={articleIndex}
+                        isActive={isActive}
+                        isSaved={savedIds.has(article.id)}
+                        isDigestCard={isDigestModeVisible && digestArticleIdSet.has(article.id)}
+                        visualIndex={visualIndex}
+                        screenWidth={screenWidth}
+                        swipeExitDistance={swipeExitDistance}
+                        onSaveArticle={toggleSave}
+                        onShareArticle={shareArticle}
+                        onReadArticle={handleReadArticle}
+                        verticalReserve={digestVerticalReserve}
+                      />
+                    );
+                  })}
+              </Animated.View>
+            </GestureDetector>
+          </Animated.View>
           {isDigestCompletionVisible ? (
             <View pointerEvents="none" style={s.digestCompletionOverlay}>
               <Animated.View style={[s.digestCompletionCard, digestCompletionAnimatedStyle]}>
