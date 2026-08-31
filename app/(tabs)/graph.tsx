@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, Keyboard, useWindowDimensions, ViewStyle, InteractionManager } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, Keyboard, InputAccessoryView, useWindowDimensions, ViewStyle, InteractionManager } from 'react-native';
 import Svg, { Circle, Image as SvgImage, Line, Text as SvgText } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -75,6 +75,7 @@ const logoUri = (module: number | string | { uri?: string } | undefined) => {
 const GRAPH_MIN_SIZE = 220;
 const GRAPH_MAX_SIZE = 540;
 const FALLBACK_GRAPH_SIZE = 320;
+const SEARCH_INPUT_ACCESSORY_ID = 'graph-search-dismiss';
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const PAGE = {
@@ -1210,21 +1211,20 @@ export default function GraphScreen() {
                 placeholder="Search topics or add keywords..."
                 placeholderTextColor={PAGE.textMuted}
                 style={s.searchInput}
+                blurOnSubmit
+                inputAccessoryViewID={Platform.OS === 'ios' ? SEARCH_INPUT_ACCESSORY_ID : undefined}
                 returnKeyType="search"
                 testID="graph-search-input"
                 accessibilityLabel="Search topics or add keywords"
               />
               {isSearchFocused ? (
                 <TouchableOpacity
-                  onPress={() => {
-                    setSearch('');
-                    dismissSearch();
-                  }}
+                  onPress={dismissSearch}
                   style={s.clearButton}
                   accessibilityRole="button"
-                  accessibilityLabel="Clear topic search"
+                  accessibilityLabel="Close topic search and hide keyboard"
                 >
-                  <Ionicons name="close" size={12} color={PAGE.textMuted} />
+                  <Ionicons name="close" size={16} color={PAGE.textMuted} />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -1446,6 +1446,21 @@ export default function GraphScreen() {
           ) : null}
         </View>
       </View>
+
+      {Platform.OS === 'ios' ? (
+        <InputAccessoryView nativeID={SEARCH_INPUT_ACCESSORY_ID}>
+          <View style={s.keyboardAccessory}>
+            <TouchableOpacity
+              onPress={dismissSearch}
+              accessibilityRole="button"
+              accessibilityLabel="Done typing"
+              style={s.keyboardDoneButton}
+            >
+              <Text style={s.keyboardDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      ) : null}
 
       <Pressable style={s.graphSection} onPress={dismissSearch}>
         <View
@@ -1802,12 +1817,34 @@ const s = StyleSheet.create({
     color: PAGE.text,
   },
   clearButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EEE7DA',
+    backgroundColor: '#F0E9DD',
+    borderWidth: 1,
+    borderColor: '#DDD4C5',
+  },
+  keyboardAccessory: {
+    height: 42,
+    backgroundColor: '#F7F3EA',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#DDD4C5',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  keyboardDoneButton: {
+    minWidth: 56,
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keyboardDoneText: {
+    color: '#58704E',
+    fontSize: 16,
+    fontWeight: '700',
   },
   saveButton: {
     height: 40,
