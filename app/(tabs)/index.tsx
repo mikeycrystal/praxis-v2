@@ -2097,9 +2097,9 @@ const s = StyleSheet.create({
     elevation: 100,
   },
   digestProgressCardWithModeGap: {
-    // Preserve the familiar vertical position the bar had below the former
-    // mode row, without retaining a second navigation control above it.
-    marginTop: 58,
+    // Keep the card transition close to the ordinary Top News layout after
+    // Digest completion, while leaving enough breathing room below the header.
+    marginTop: 24,
   },
   digestProgressToggle: {
     minHeight: 44,
