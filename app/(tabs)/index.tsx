@@ -129,7 +129,6 @@ type DeckCardProps = {
   onSaveArticle: (articleId: number) => void;
   onShareArticle: (article: Article) => void;
   onReadArticle: (article: Article) => void;
-  onFlipArticle: (articleId: number, isFlipped: boolean) => void;
   verticalReserve: number;
 };
 
@@ -145,12 +144,8 @@ const DeckCard = memo(function DeckCard({
   onSaveArticle,
   onShareArticle,
   onReadArticle,
-  onFlipArticle,
   verticalReserve,
 }: DeckCardProps) {
-  const isActiveRef = useRef(isActive);
-  isActiveRef.current = isActive;
-
   const handleSave = useCallback(() => {
     onSaveArticle(article.id);
   }, [article.id, onSaveArticle]);
@@ -162,12 +157,6 @@ const DeckCard = memo(function DeckCard({
   const handleRead = useCallback(() => {
     onReadArticle(article);
   }, [article, onReadArticle]);
-
-  const handleFlipChange = useCallback((isFlipped: boolean) => {
-    if (isActiveRef.current) {
-      onFlipArticle(article.id, isFlipped);
-    }
-  }, [article.id, onFlipArticle]);
 
   useEffect(() => {
     if (!SWIPE_DIAGNOSTICS) return;
@@ -254,7 +243,6 @@ const DeckCard = memo(function DeckCard({
         onShare={handleShare}
         onRead={handleRead}
         canSwipeRight={false}
-        onFlipChange={handleFlipChange}
         isDigestCard={isDigestCard}
         verticalReserve={verticalReserve}
       />
@@ -358,7 +346,6 @@ export default function FeedScreen() {
   });
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
   const [savedCount, setSavedCount] = useState(0);
-  const [flippedArticleId, setFlippedArticleId] = useState<number | null>(null);
   const [localStreakCount, setLocalStreakCount] = useState(0);
   const [isViewingCompletedDigest, setIsViewingCompletedDigest] = useState(false);
   const [isDigestDismissed, setIsDigestDismissed] = useState(false);
@@ -598,7 +585,6 @@ export default function FeedScreen() {
     setDisplayIndex(nextIndex);
 
     setLoadedArticlesCount(ARTICLES_PER_PAGE);
-    setFlippedArticleId(null);
   }, [preferences.requestNonce, visualIndex]);
 
   useEffect(() => {
@@ -1244,7 +1230,6 @@ export default function FeedScreen() {
   }
 
   useEffect(() => {
-    setFlippedArticleId(null);
   }, [current?.id]);
 
   const canSwipeLeft = safeIndex < maxAvailableArticles - 1;
@@ -1421,10 +1406,6 @@ export default function FeedScreen() {
     });
   }, [completeDigestArticle, markRead]);
 
-  const handleFlipArticle = useCallback((articleId: number, isFlipped: boolean) => {
-    setFlippedArticleId(isFlipped ? articleId : null);
-  }, []);
-
   const logSwipeEvent = useCallback((
     phase: 'release' | 'animation-complete',
     fromIndex: number,
@@ -1440,7 +1421,6 @@ export default function FeedScreen() {
 
   const swipeGesture = useMemo(
     () => Gesture.Pan()
-      .enabled(flippedArticleId !== current?.id)
       .activeOffsetX([-12, 12])
       .failOffsetY([-22, 22])
       .onBegin(() => {
@@ -1509,10 +1489,8 @@ export default function FeedScreen() {
     [
       canSwipeLeft,
       canSwipeRight,
-      current?.id,
       finishSwipeLeft,
       finishSwipeRight,
-      flippedArticleId,
       index,
       logSwipeEvent,
       swipeExitDistance,
@@ -1821,7 +1799,6 @@ export default function FeedScreen() {
                       onSaveArticle={toggleSave}
                       onShareArticle={shareArticle}
                       onReadArticle={handleReadArticle}
-                      onFlipArticle={handleFlipArticle}
                       verticalReserve={digestVerticalReserve}
                     />
                   );
