@@ -670,10 +670,6 @@ export default function GraphScreen() {
     return pool.filter(topic => !selectedTopics.includes(normalizeTopicId(topic)));
   }, [allTopics, query, seedTopics, selectedTopics]);
 
-  const isExactTopicMatch = useMemo(
-    () => allTopics.some(topic => topic.toLowerCase() === query),
-    [allTopics, query],
-  );
   const exactMatchingTopicLabel = useMemo(
     () => allTopics.find((topic) => normalizeTopicId(topic) === normalizeTopicId(search.trim())) || null,
     [allTopics, search],
@@ -682,8 +678,6 @@ export default function GraphScreen() {
     () => Boolean(exactMatchingTopicLabel && selectedTopics.includes(normalizeTopicId(exactMatchingTopicLabel))),
     [exactMatchingTopicLabel, selectedTopics],
   );
-
-  const showAddAsPrompt = query.length > 0 && !isExactTopicMatch && !promptTerms.includes(search.trim());
 
   const hasSearchCriteria = selectedTopics.length > 0 || promptTerms.length > 0;
   const radiusPercent = Math.round(radius * 100);
@@ -905,29 +899,6 @@ export default function GraphScreen() {
     closeDropdown();
   };
 
-  const handlePromptAdd = () => {
-    const trimmed = search.trim();
-    if (!trimmed || promptTerms.includes(trimmed)) return;
-    setPromptTerms((prev) => [...prev, trimmed]);
-    setSearch('');
-    searchInputRef.current?.blur();
-    closeDropdown();
-  };
-
-  const handleSearchSubmit = () => {
-    const trimmed = search.trim();
-    if (!trimmed) {
-      dismissSearch();
-      return;
-    }
-    const matchedTopic = allTopics.find((topic) => normalizeTopicId(topic) === normalizeTopicId(trimmed));
-    if (matchedTopic) {
-      handleTopicSelect(matchedTopic);
-      return;
-    }
-    handlePromptAdd();
-  };
-
   const removeTopic = (topic: string) => {
     setSelectedTopics((prev) => prev.filter((item) => item !== topic));
   };
@@ -936,22 +907,26 @@ export default function GraphScreen() {
     setPromptTerms((prev) => prev.filter((item) => item !== term));
   };
 
-  const handleApplyChanges = () => {
+  const applyGraphChanges = (
+    nextTopics: string[],
+    nextPromptTerms: string[],
+  ) => {
     if (isApplying) return;
     setIsApplying(true);
 
     try {
       const nextRecommendationRequest: RecommendationRequestState = {
-        prompt: promptTerms.join('; '),
-        topics: selectedTopics,
+        prompt: nextPromptTerms.join('; '),
+        topics: nextTopics,
         position: {
           x: currentGraphPosition.x / 100,
           y: currentGraphPosition.y / 100,
         },
         radius: radiusPercent / 100,
       };
+      const nextHasSearchCriteria = nextTopics.length > 0 || nextPromptTerms.length > 0;
       const nextTopNewsGraphFilter =
-        hasSearchCriteria || isDefaultGraphSelection(currentGraphPosition, radiusPercent)
+        nextHasSearchCriteria || isDefaultGraphSelection(currentGraphPosition, radiusPercent)
           ? null
           : {
               position: { ...currentGraphPosition },
@@ -959,27 +934,27 @@ export default function GraphScreen() {
             };
 
       setInitialState({
-        topics: [...selectedTopics],
-        promptTerms: [...promptTerms],
+        topics: [...nextTopics],
+        promptTerms: [...nextPromptTerms],
         position: { ...currentGraphPosition },
         radius: radiusPercent,
       });
 
-      if (hasSearchCriteria) {
+      if (nextHasSearchCriteria) {
         setHasAppliedTopNewsFilter(false);
         closeDropdown();
         const prefetchedArticles = getRecommenderConfig().isEnabled
           ? null
           : buildSafeModePrefetchedArticles({
-              topics: selectedTopics,
-              promptTerms,
+              topics: nextTopics,
+              promptTerms: nextPromptTerms,
               position: currentGraphPosition,
               radius: radiusPercent,
             });
         applyQueryPreferences({
           activeQuery: {
-            topics: selectedTopics,
-            promptTerms,
+            topics: nextTopics,
+            promptTerms: nextPromptTerms,
           },
           recommendationRequest: nextRecommendationRequest,
           prefetchedArticles,
@@ -1002,6 +977,35 @@ export default function GraphScreen() {
         'Please try again.',
       );
     }
+  };
+
+  const handleApplyChanges = () => {
+    applyGraphChanges(selectedTopics, promptTerms);
+  };
+
+  const handleGraphSearch = () => {
+    const trimmed = search.trim();
+    if (!trimmed) {
+      dismissSearch();
+      return;
+    }
+
+    const matchedTopic = allTopics.find(
+      (topic) => normalizeTopicId(topic) === normalizeTopicId(trimmed),
+    );
+    const normalizedTopic = matchedTopic ? normalizeTopicId(matchedTopic) : null;
+    const nextTopics = normalizedTopic && !selectedTopics.includes(normalizedTopic)
+      ? [...selectedTopics, normalizedTopic]
+      : selectedTopics;
+    const nextPromptTerms = matchedTopic || promptTerms.includes(trimmed)
+      ? promptTerms
+      : [...promptTerms, trimmed];
+
+    setSelectedTopics(nextTopics);
+    setPromptTerms(nextPromptTerms);
+    setSearch('');
+    dismissSearch();
+    applyGraphChanges(nextTopics, nextPromptTerms);
   };
 
   const handleTopNewsReset = () => {
@@ -1207,7 +1211,7 @@ export default function GraphScreen() {
                   setIsSearchFocused(false);
                   scheduleDropdownClose();
                 }}
-                onSubmitEditing={handleSearchSubmit}
+                onSubmitEditing={handleGraphSearch}
                 placeholder="Search topics or add keywords..."
                 placeholderTextColor={PAGE.textMuted}
                 style={s.searchInput}
@@ -1284,20 +1288,20 @@ export default function GraphScreen() {
                     </View>
                   ) : null}
 
-                  {showAddAsPrompt ? (
+                  {query ? (
                     <TouchableOpacity
-                      onPress={handlePromptAdd}
+                      onPress={handleGraphSearch}
                       style={s.dropdownSearchRow}
                       accessibilityRole="button"
-                      accessibilityLabel={`Search for ${search.trim()}`}
+                      accessibilityLabel={`Search articles for ${search.trim()}`}
                     >
                       <View style={s.dropdownSearchLeft}>
-                        <Ionicons name="chatbubble-ellipses-outline" size={14} color={PAGE.textMuted} />
+                        <Ionicons name="search-outline" size={14} color={PAGE.textMuted} />
                         <Text style={s.dropdownSearchText} numberOfLines={1}>
-                          Search for "<Text style={s.dropdownSearchTerm}>{search.trim()}</Text>"
+                          Search articles for "<Text style={s.dropdownSearchTerm}>{search.trim()}</Text>"
                         </Text>
                       </View>
-                      <Ionicons name="add" size={15} color={PAGE.textMuted} />
+                      <Ionicons name="arrow-forward" size={15} color={PAGE.textMuted} />
                     </TouchableOpacity>
                   ) : null}
 
@@ -1319,7 +1323,7 @@ export default function GraphScreen() {
                         ))}
                       </View>
                     </View>
-                  ) : query && !showAddAsPrompt ? (
+                  ) : query ? (
                     <Text style={[s.emptyDropdownText, s.emptyDropdownCentered]}>
                       {isAlreadySelectedTopic ? 'Topic already selected' : 'No matching topics'}
                     </Text>
