@@ -392,6 +392,10 @@ const rankArticlesForTerms = (articles: Article[], terms: string[]) =>
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .map(({ article }) => article);
 
+const getTermMatchedArticles = (articles: Article[], terms: string[]) =>
+  rankArticlesForTerms(articles, terms)
+    .filter((article) => scoreArticleTerms(article, terms) > 0);
+
 export const fetchTopNewsArticles = async (
   graphFilter: TopNewsGraphFilterState | null,
 ): Promise<Article[]> => {
@@ -644,12 +648,7 @@ export const searchLiveArticles = async (query: string, limit = 12): Promise<Art
   if (!normalizedQuery) return [];
 
   const articles = await fetchTopNewsArticles(null);
-  return articles
-    .map((article) => ({ article, score: scoreArticleTerms(article, [normalizedQuery]) }))
-    .filter(({ score }) => score > 0)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, limit)
-    .map(({ article }) => article);
+  return getTermMatchedArticles(articles, [normalizedQuery]).slice(0, limit);
 };
 
 export const fetchLiveArticleById = async (articleId: number): Promise<Article | null> => {
@@ -1081,13 +1080,40 @@ export function useFeedArticles() {
     const explicitTopics = Array.isArray(activeQuery?.topics)
       ? activeQuery.topics.filter((topic): topic is string => typeof topic === 'string' && topic.trim().length > 0)
       : [];
+    const promptTerms = getPromptTermsFromRequest(recommendationRequest, activeQuery);
+    const searchTerms = [...explicitTopics, ...promptTerms];
+    const graphFilter = deriveGraphFilterFromRequest(recommendationRequest);
+
+    // This is the recovery path for a failed recommendation request. It must
+    // preserve a typed Graph search (for example, "Russia") instead of
+    // silently replacing it with the default news feed. Use the same live
+    // text matching as the top-right search, then keep graph proximity as a
+    // secondary ranking signal.
+    if (searchTerms.length > 0) {
+      try {
+        const graphArticles = await fetchTopNewsArticlesWithRetry(graphFilter);
+        const matchedArticles = getTermMatchedArticles(graphArticles, searchTerms);
+        if (matchedArticles.length > 0) {
+          const rankedMatches = rankArticlesForGraphRange(
+            matchedArticles,
+            recommendationRequest,
+          );
+          if (isOperationCurrent(operationId)) {
+            replaceArticles(rankedMatches, 'query');
+          }
+          return rankedMatches;
+        }
+      } catch (error) {
+        console.warn('[useFeedArticles] Text-aware query fallback failed', error);
+      }
+    }
 
     if (explicitTopics.length > 0) {
       try {
           const topicArticles = await fetchTopicArticles(
             explicitTopics,
             [],
-            getPromptTermsFromRequest(recommendationRequest, activeQuery),
+            promptTerms,
           );
         if (topicArticles.length > 0) {
           const rankedTopicArticles = rankArticlesForGraphRange(
@@ -1106,11 +1132,16 @@ export function useFeedArticles() {
       }
     }
 
-    return loadFallbackArticles(
-      'query',
-      deriveGraphFilterFromRequest(recommendationRequest),
-      operationId,
-    );
+    // A typed query with no matches should remain an empty query result. It
+    // is clearer than showing unrelated default news under the user's search.
+    if (searchTerms.length > 0) {
+      if (isOperationCurrent(operationId)) {
+        replaceArticles([], 'query');
+      }
+      return [];
+    }
+
+    return loadFallbackArticles('query', graphFilter, operationId);
   }, [isOperationCurrent, loadFallbackArticles, replaceArticles]);
 
   const loadFromPreferences = useCallback(async ({
