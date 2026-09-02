@@ -76,6 +76,7 @@ const GRAPH_MIN_SIZE = 220;
 const GRAPH_MAX_SIZE = 540;
 const FALLBACK_GRAPH_SIZE = 320;
 const SEARCH_INPUT_ACCESSORY_ID = 'graph-search-dismiss';
+const MAX_TOPIC_SUGGESTIONS = 8;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const PAGE = {
@@ -667,7 +668,12 @@ export default function GraphScreen() {
   const query = search.toLowerCase().trim();
   const visibleTopics = useMemo(() => {
     const pool = query ? allTopics.filter(topic => topic.toLowerCase().includes(query)) : seedTopics;
-    return pool.filter(topic => !selectedTopics.includes(normalizeTopicId(topic)));
+    // Rendering the entire topic catalog on every keystroke can make the
+    // mobile search field lag or even force the app to reload. The direct
+    // article-search action remains available above this short suggestion set.
+    return pool
+      .filter(topic => !selectedTopics.includes(normalizeTopicId(topic)))
+      .slice(0, MAX_TOPIC_SUGGESTIONS);
   }, [allTopics, query, seedTopics, selectedTopics]);
 
   const exactMatchingTopicLabel = useMemo(
