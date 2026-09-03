@@ -19,6 +19,10 @@ export interface RecommendationRequestState {
   position: { x: number; y: number };
   radius: number;
   exclude_article_ids?: number[];
+  // Free-text searches submitted from the Graph use the cached article pool
+  // rather than the AI recommendation stream. This keeps the interaction
+  // predictable and prevents a request from being made for each keystroke.
+  searchStrategy?: 'deterministic';
 }
 
 export interface DigestPreset {
@@ -259,6 +263,7 @@ export const readRecommendationRequest =
       position?: { x?: unknown; y?: unknown };
       radius?: unknown;
       exclude_article_ids?: unknown;
+      searchStrategy?: unknown;
     }>(RECOMMENDATION_REQUEST_STORAGE_KEY);
 
     if (
@@ -286,6 +291,10 @@ export const readRecommendationRequest =
             (value): value is number => typeof value === 'number',
           )
         : [],
+      searchStrategy:
+        parsed.searchStrategy === 'deterministic'
+          ? 'deterministic'
+          : undefined,
     };
   };
 
@@ -397,6 +406,7 @@ export const buildFeedPreferenceSignature = ({
           topics: [...recommendationRequest.topics],
           position: recommendationRequest.position,
           radius: recommendationRequest.radius,
+          searchStrategy: recommendationRequest.searchStrategy ?? null,
         }
       : null,
     topNewsGraphFilter,

@@ -651,6 +651,30 @@ export const searchLiveArticles = async (query: string, limit = 12): Promise<Art
   return getTermMatchedArticles(articles, [normalizedQuery]).slice(0, limit);
 };
 
+// Graph free-text search deliberately uses the same cached article pool as
+// the top-right search. It is only called after an explicit submit, never as
+// the user types, and it never falls through to the AI recommendation stream.
+export const searchGraphArticles = async (
+  query: string,
+  graphFilter: TopNewsGraphFilterState | null,
+  limit = 20,
+): Promise<Article[]> => {
+  const normalizedQuery = normalizeSearchTerm(query);
+  if (!normalizedQuery) return [];
+
+  const scopedArticles = await fetchTopNewsArticles(graphFilter);
+  const scopedMatches = getTermMatchedArticles(scopedArticles, [normalizedQuery]);
+  if (scopedMatches.length > 0 || !graphFilter) {
+    return scopedMatches.slice(0, limit);
+  }
+
+  // A narrow graph range should not make a valid text search look broken.
+  // Expand once to the cached unfiltered pool, rather than returning generic
+  // Top News. This is at most one additional request and is normally cached.
+  const broaderArticles = await fetchTopNewsArticles(null);
+  return getTermMatchedArticles(broaderArticles, [normalizedQuery]).slice(0, limit);
+};
+
 export const fetchLiveArticleById = async (articleId: number): Promise<Article | null> => {
   const { apiBaseUrl, isEnabled } = getRecommenderConfig();
   if (!isEnabled || !apiBaseUrl) return null;
@@ -950,6 +974,18 @@ export function useFeedArticles() {
     prefetchedQueryArticles: Article[] | null | undefined,
     _profileTopics: string[],
   ) => {
+    if (
+      recommendationRequest?.searchStrategy === 'deterministic' &&
+      Array.isArray(prefetchedQueryArticles)
+    ) {
+      currentRequestRef.current = recommendationRequest;
+      currentModeRef.current = 'query';
+      currentRecencyIndexRef.current = 0;
+      seenArticleIdsRef.current = new Set(prefetchedQueryArticles.map((article) => article.id));
+      replaceArticles(prefetchedQueryArticles, 'query');
+      return prefetchedQueryArticles;
+    }
+
     if (Array.isArray(prefetchedQueryArticles) && prefetchedQueryArticles.length > 0) {
       currentRequestRef.current = recommendationRequest;
       currentModeRef.current = 'query';
@@ -962,6 +998,15 @@ export function useFeedArticles() {
     if (!recommendationRequest) {
       replaceArticles([], 'query');
       return [];
+    }
+
+    if (recommendationRequest.searchStrategy === 'deterministic') {
+      const directResults = await searchGraphArticles(
+        recommendationRequest.prompt,
+        deriveGraphFilterFromRequest(recommendationRequest),
+      );
+      replaceArticles(directResults, 'query');
+      return directResults;
     }
 
     return startStreamingRecommendations(recommendationRequest);

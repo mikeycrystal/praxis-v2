@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, Image as RNImage, Platform, Keyboard, InputAccessoryView, useWindowDimensions, ViewStyle, InteractionManager } from 'react-native';
+import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, TextInput, ScrollView, Pressable, Alert, ActivityIndicator, Image as RNImage, Platform, Keyboard, InputAccessoryView, useWindowDimensions, ViewStyle, InteractionManager } from 'react-native';
 import Svg, { Circle, Image as SvgImage, Line, Text as SvgText } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -48,6 +48,7 @@ import {
 import { buildHref } from '../lib/buildHref';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
 import { writeDailyDigestOpenRequest } from '../lib/dailyDigest';
+import { searchGraphArticles } from '../hooks/useFeedArticles';
 
 const logoAp = require('../../assets/logos/ap.png');
 const logoAtlantic = require('../../assets/logos/atlantic.png');
@@ -989,12 +990,15 @@ export default function GraphScreen() {
     applyGraphChanges(selectedTopics, promptTerms);
   };
 
-  const handleGraphSearch = () => {
+  const handleGraphSearch = async () => {
     const trimmed = search.trim();
     if (!trimmed) {
       dismissSearch();
       return;
     }
+
+    if (isApplying) return;
+    setIsApplying(true);
 
     const matchedTopic = allTopics.find(
       (topic) => normalizeTopicId(topic) === normalizeTopicId(trimmed),
@@ -1007,11 +1011,55 @@ export default function GraphScreen() {
       ? promptTerms
       : [...promptTerms, trimmed];
 
-    setSelectedTopics(nextTopics);
-    setPromptTerms(nextPromptTerms);
-    setSearch('');
-    dismissSearch();
-    applyGraphChanges(nextTopics, nextPromptTerms);
+    const nextRecommendationRequest: RecommendationRequestState = {
+      prompt: trimmed,
+      topics: nextTopics,
+      position: {
+        x: currentGraphPosition.x / 100,
+        y: currentGraphPosition.y / 100,
+      },
+      radius: radiusPercent / 100,
+      searchStrategy: 'deterministic',
+    };
+
+    try {
+      // This is the only live lookup a free-text Graph search performs. The
+      // helper uses the five-minute article cache and never calls AI.
+      const prefetchedArticles = await searchGraphArticles(trimmed, {
+        position: { ...currentGraphPosition },
+        radius: radiusPercent,
+      });
+
+      setInitialState({
+        topics: [...nextTopics],
+        promptTerms: [...nextPromptTerms],
+        position: { ...currentGraphPosition },
+        radius: radiusPercent,
+      });
+      setSelectedTopics(nextTopics);
+      setPromptTerms(nextPromptTerms);
+      setSearch('');
+      dismissSearch();
+      closeDropdown();
+      setHasAppliedTopNewsFilter(false);
+      applyQueryPreferences({
+        activeQuery: {
+          topics: nextTopics,
+          promptTerms: nextPromptTerms,
+        },
+        recommendationRequest: nextRecommendationRequest,
+        prefetchedArticles,
+      });
+      router.navigate('/');
+    } catch (error) {
+      console.warn('[GraphScreen] Text search failed', error);
+      Alert.alert(
+        'Search unavailable',
+        'We could not load articles right now. Please try again.',
+      );
+    } finally {
+      setIsApplying(false);
+    }
   };
 
   const handleTopNewsReset = () => {
@@ -1297,17 +1345,23 @@ export default function GraphScreen() {
                   {query ? (
                     <TouchableOpacity
                       onPress={handleGraphSearch}
+                      disabled={isApplying}
                       style={s.dropdownSearchRow}
                       accessibilityRole="button"
                       accessibilityLabel={`Search articles for ${search.trim()}`}
+                      accessibilityState={{ disabled: isApplying, busy: isApplying }}
                     >
                       <View style={s.dropdownSearchLeft}>
                         <Ionicons name="search-outline" size={14} color={PAGE.textMuted} />
                         <Text style={s.dropdownSearchText} numberOfLines={1}>
-                          Search articles for "<Text style={s.dropdownSearchTerm}>{search.trim()}</Text>"
+                          {isApplying ? 'Searching articles…' : <>Search articles for "<Text style={s.dropdownSearchTerm}>{search.trim()}</Text>"</>}
                         </Text>
                       </View>
-                      <Ionicons name="arrow-forward" size={15} color={PAGE.textMuted} />
+                      {isApplying ? (
+                        <ActivityIndicator size="small" color={PAGE.green} />
+                      ) : (
+                        <Ionicons name="arrow-forward" size={15} color={PAGE.textMuted} />
+                      )}
                     </TouchableOpacity>
                   ) : null}
 
