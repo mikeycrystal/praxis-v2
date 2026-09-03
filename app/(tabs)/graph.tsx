@@ -986,30 +986,15 @@ export default function GraphScreen() {
     }
   };
 
-  const handleApplyChanges = () => {
-    applyGraphChanges(selectedTopics, promptTerms);
-  };
-
-  const handleGraphSearch = async () => {
-    const trimmed = search.trim();
-    if (!trimmed) {
-      dismissSearch();
-      return;
-    }
-
+  const runDeterministicGraphSearch = async (
+    query: string,
+    nextTopics: string[],
+    nextPromptTerms: string[],
+  ) => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
     if (isApplying) return;
     setIsApplying(true);
-
-    const matchedTopic = allTopics.find(
-      (topic) => normalizeTopicId(topic) === normalizeTopicId(trimmed),
-    );
-    const normalizedTopic = matchedTopic ? normalizeTopicId(matchedTopic) : null;
-    const nextTopics = normalizedTopic && !selectedTopics.includes(normalizedTopic)
-      ? [...selectedTopics, normalizedTopic]
-      : selectedTopics;
-    const nextPromptTerms = matchedTopic || promptTerms.includes(trimmed)
-      ? promptTerms
-      : [...promptTerms, trimmed];
 
     const nextRecommendationRequest: RecommendationRequestState = {
       prompt: trimmed,
@@ -1060,6 +1045,39 @@ export default function GraphScreen() {
     } finally {
       setIsApplying(false);
     }
+  };
+
+  const handleApplyChanges = () => {
+    // One selected preset/topic is a search intent, not a recommendation
+    // prompt. Send it through the same full-corpus Graph search as typed
+    // terms so choosing “Landslides and Flooding” reliably returns that story
+    // area without an AI stream.
+    if (selectedTopics.length === 1 && promptTerms.length === 0) {
+      void runDeterministicGraphSearch(selectedTopics[0], selectedTopics, []);
+      return;
+    }
+    applyGraphChanges(selectedTopics, promptTerms);
+  };
+
+  const handleGraphSearch = async () => {
+    const trimmed = search.trim();
+    if (!trimmed) {
+      dismissSearch();
+      return;
+    }
+
+    const matchedTopic = allTopics.find(
+      (topic) => normalizeTopicId(topic) === normalizeTopicId(trimmed),
+    );
+    const normalizedTopic = matchedTopic ? normalizeTopicId(matchedTopic) : null;
+    const nextTopics = normalizedTopic && !selectedTopics.includes(normalizedTopic)
+      ? [...selectedTopics, normalizedTopic]
+      : selectedTopics;
+    const nextPromptTerms = matchedTopic || promptTerms.includes(trimmed)
+      ? promptTerms
+      : [...promptTerms, trimmed];
+
+    await runDeterministicGraphSearch(trimmed, nextTopics, nextPromptTerms);
   };
 
   const handleTopNewsReset = () => {

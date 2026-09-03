@@ -662,6 +662,34 @@ export const searchGraphArticles = async (
   const normalizedQuery = normalizeSearchTerm(query);
   if (!normalizedQuery) return [];
 
+  const { apiBaseUrl, isEnabled } = getRecommenderConfig();
+  if (isEnabled && apiBaseUrl) {
+    const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
+    if (graphFilter) {
+      params.set('center_x', (graphFilter.position.x / 100).toString());
+      params.set('center_y', (graphFilter.position.y / 100).toString());
+      params.set('radius', (graphFilter.radius / 100).toString());
+    }
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl.replace(/\/$/, '')}/v1/articles/search?${params.toString()}`,
+        { headers: getRecommenderHeaders() },
+      );
+      if (response.ok) {
+        const json = await response.json();
+        return Array.isArray(json?.articles)
+          ? json.articles.map(mapFallbackArticle).filter((article: Article) => Boolean(article.url))
+          : [];
+      }
+      console.warn(`[useFeedArticles] Full-corpus Graph search returned ${response.status}; using cached fallback`);
+    } catch (error) {
+      // Keep the existing cached-pool search as a safe temporary fallback
+      // until an app update reaches a backend deployment.
+      console.warn('[useFeedArticles] Full-corpus Graph search unavailable; using cached fallback', error);
+    }
+  }
+
   const scopedArticles = await fetchTopNewsArticles(graphFilter);
   const scopedMatches = getTermMatchedArticles(scopedArticles, [normalizedQuery]);
   if (scopedMatches.length > 0 || !graphFilter) {
