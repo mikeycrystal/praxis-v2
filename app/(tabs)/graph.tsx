@@ -77,7 +77,7 @@ const GRAPH_MIN_SIZE = 220;
 const GRAPH_MAX_SIZE = 540;
 const FALLBACK_GRAPH_SIZE = 320;
 const SEARCH_INPUT_ACCESSORY_ID = 'graph-search-dismiss';
-const MAX_TOPIC_SUGGESTIONS = 8;
+const MAX_TOPIC_SUGGESTIONS = 12;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const PAGE = {
@@ -668,13 +668,13 @@ export default function GraphScreen() {
 
   const query = search.toLowerCase().trim();
   const visibleTopics = useMemo(() => {
+    // Browsing (no query): show every seed topic — the curated list is small
+    // and users expect the full set of categories in the dropdown.
+    // Typing: filter the full 12k-topic catalog but keep the suggestion set
+    // short, since rendering the entire catalog per keystroke lags the field.
     const pool = query ? allTopics.filter(topic => topic.toLowerCase().includes(query)) : seedTopics;
-    // Rendering the entire topic catalog on every keystroke can make the
-    // mobile search field lag or even force the app to reload. The direct
-    // article-search action remains available above this short suggestion set.
-    return pool
-      .filter(topic => !selectedTopics.includes(normalizeTopicId(topic)))
-      .slice(0, MAX_TOPIC_SUGGESTIONS);
+    const filtered = pool.filter(topic => !selectedTopics.includes(normalizeTopicId(topic)));
+    return query ? filtered.slice(0, MAX_TOPIC_SUGGESTIONS) : filtered;
   }, [allTopics, query, seedTopics, selectedTopics]);
 
   const exactMatchingTopicLabel = useMemo(
