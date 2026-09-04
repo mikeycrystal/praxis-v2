@@ -225,7 +225,7 @@ export default function ProfileScreen() {
   const canAccessAnalytics = isAnalyticsAdmin(user);
   const displayBio = profile.bio ?? 'No bio yet';
   const displayArticlesRead = Math.max(profile.articles_read ?? 0, activity.totalArticlesRead);
-  const displayStreak = Math.max(profile.current_streak ?? profile.reading_streak ?? 0, activity.currentStreak);
+  const displayStreak = profile.reading_streak ?? 0;
   const badgeCount = earnedBadges.length;
   const followersCount = profile.followers ?? profile.followers_count ?? 0;
   const followingCount = profile.following ?? profile.following_count ?? 0;
