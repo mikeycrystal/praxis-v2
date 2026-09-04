@@ -260,3 +260,22 @@ export const subscribeReadingActivity = (
     }
   };
 };
+
+// The server's update_reading_streak RPC increments on every call made on a
+// day after a prior read day, so calling it per article inflates streaks by the
+// article count. Gate it to once per UTC day per user (UTC matches the RPC's
+// CURRENT_DATE). Returns true when the caller should run the RPC.
+const STREAK_CLAIM_PREFIX = 'praxis.streakRpcDate.v1';
+
+export const claimDailyStreakUpdate = async (userId: string): Promise<boolean> => {
+  const key = `${STREAK_CLAIM_PREFIX}:${userId}`;
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    const last = await AsyncStorage.getItem(key);
+    if (last === today) return false;
+    await AsyncStorage.setItem(key, today);
+  } catch (error) {
+    console.warn('[readingActivity] Failed to read/write streak claim', error);
+  }
+  return true;
+};

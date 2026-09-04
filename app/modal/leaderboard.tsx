@@ -23,7 +23,6 @@ interface LeaderboardProfile {
   avatar_url: string | null;
   articles_read: number | null;
   reading_streak: number | null;
-  current_streak?: number | null;
 }
 
 const PAGE = {
@@ -82,16 +81,16 @@ export default function LeaderboardModal() {
 
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, full_name, username, avatar_url, articles_read, reading_streak, current_streak')
+          .select('id, full_name, username, avatar_url, articles_read, reading_streak')
           .in('id', friendIds)
-          .order('current_streak', { ascending: false })
+          .order('reading_streak', { ascending: false })
           .limit(10);
         if (error) throw error;
         setProfiles((data ?? []) as LeaderboardProfile[]);
         return;
       }
 
-      const orderColumn = activeTab === 'readers' ? 'articles_read' : 'current_streak';
+      const orderColumn = activeTab === 'readers' ? 'articles_read' : 'reading_streak';
       const { data, error } = await supabase
         .from('profiles')
         .select('id, full_name, username, avatar_url, articles_read, reading_streak, current_streak')
@@ -115,7 +114,7 @@ export default function LeaderboardModal() {
   const statValue = (profile: LeaderboardProfile) => (
     activeTab === 'readers'
       ? profile.articles_read ?? 0
-      : profile.current_streak ?? profile.reading_streak ?? 0
+      : profile.reading_streak ?? 0
   );
 
   if (authLoading || isGuestMode || !user) return null;

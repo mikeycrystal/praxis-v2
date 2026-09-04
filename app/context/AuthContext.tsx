@@ -19,7 +19,6 @@ export interface Profile {
   following_count: number;
   onboarding_complete: boolean;
   created_at?: string | null;
-  current_streak?: number | null;
   followers?: number | null;
   following?: number | null;
   longest_streak?: number | null;
