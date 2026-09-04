@@ -79,7 +79,7 @@
         "origin": false
       },
       "eas": {
-        "projectId": "6b0e82ef-a2df-4785-aa51-ad2ae216dc43"
+        "projectId": "cf8c3507-ecda-4da1-8013-3f2ee7bb4704"
       }
     },
     "runtimeVersion": {
@@ -87,6 +87,7 @@
     },
     "updates": {
       "enabled": false
-    }
+    },
+    "owner": "ace3572s-team"
   }
 }
