@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  View, Text, Image, ScrollView, StyleSheet, SafeAreaView,
+  View, Text, ScrollView, StyleSheet, SafeAreaView,
   TouchableOpacity, ActivityIndicator, Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
@@ -101,7 +102,8 @@ export default function AIAnalysisScreen() {
           <Image
             source={{ uri: article.image_url }}
             style={[s.heroImage, { borderRadius: Radius.xxl }]}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
           />
         )}
 
