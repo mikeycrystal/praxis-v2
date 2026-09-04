@@ -3,6 +3,7 @@ import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { registerPushToken, unregisterPushToken } from '../utils/notifications';
 import { readGuestMode, writeGuestMode } from '../lib/guestMode';
+import { trackAuth } from '../lib/analytics';
 
 export interface Profile {
   id: string;
@@ -86,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
     writeGuestMode(false);
     setIsGuestMode(false);
+    void trackAuth('sign_in', 'password');
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
@@ -106,6 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (signInError) throw signInError;
     }
+    void trackAuth('signup', 'password');
   };
 
   const signOut = async () => {

@@ -1,6 +1,6 @@
 import './lib/webRuntimePolyfills';
 import { useEffect, useRef } from 'react';
-import { Stack, router, useGlobalSearchParams, useSegments } from 'expo-router';
+import { Stack, router, useGlobalSearchParams, usePathname, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppState, Platform } from 'react-native';
@@ -11,6 +11,31 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
 import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { supabase } from './services/supabase';
+import { endSession, startSession, trackPageView } from './lib/analytics';
+
+function AnalyticsTracker() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    void startSession();
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void startSession();
+      } else if (state === 'background') {
+        void endSession();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!pathname) return;
+    void trackPageView(pathname);
+  }, [pathname]);
+
+  return null;
+}
 
 function AppLifecycleManager() {
   useEffect(() => {
@@ -94,6 +119,7 @@ export default function RootLayout() {
         <BadgeCelebrationProvider>
         <NewsPreferencesProvider>
           <RootRedirect />
+          <AnalyticsTracker />
           <AppLifecycleManager />
           <PushNotificationHandler />
           <OfflineBanner />

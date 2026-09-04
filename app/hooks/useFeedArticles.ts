@@ -17,6 +17,7 @@ import {
   getMockTopicArticles,
 } from '../lib/mockPreviewData';
 import { supabase } from '../services/supabase';
+import { normalizeFeedMode, trackFeedLoad } from '../lib/analytics';
 
 export interface Article {
   id: number;
@@ -804,6 +805,18 @@ export function useFeedArticles() {
       setFeedPreferenceSignature(nextPreferenceSignature);
     }
     setIsAllCaughtUp(false);
+    const analyticsFeedMode = normalizeFeedMode(nextMode ?? currentModeRef.current);
+    if (analyticsFeedMode && nextArticles.length > 0) {
+      void trackFeedLoad({
+        feedMode: analyticsFeedMode,
+        articleCount: nextArticles.length,
+        sourceCount: new Set(
+          nextArticles
+            .map((article) => article.publisher?.name ?? article.source)
+            .filter(Boolean),
+        ).size,
+      });
+    }
     updateCache({
       articles: nextArticles,
       currentIndex: 0,

@@ -64,6 +64,13 @@ import {
   subscribeReadingActivity,
 } from '../lib/readingActivity';
 import { buildHref } from '../lib/buildHref';
+import {
+  buildArticleAnalyticsContext,
+  normalizeFeedMode,
+  trackArticleImpression,
+  trackArticleOpen,
+  trackArticleReadComplete,
+} from '../lib/analytics';
 import { openPublisherArticle } from '../lib/openPublisherArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
@@ -982,11 +989,39 @@ export default function FeedScreen() {
     };
   }, [handleOpenTodayDigest]));
 
-  const markRead = useCallback((article: Article) => {
+  const articleAnalyticsContext = useCallback((
+    article: Article,
+    extras: { positionInFeed?: number } = {},
+  ) => buildArticleAnalyticsContext(
+    {
+      id: article.id,
+      title: article.title,
+      source: article.source ?? article.publisher?.name ?? null,
+      url: article.url,
+      category: article.category,
+      x: article.x,
+      meta: article.meta,
+    },
+    {
+      surface: 'home_feed',
+      feedMode: normalizeFeedMode(feedMode),
+      topics: article.topics,
+      ...extras,
+    },
+  ), [feedMode]);
+
+  const markRead = useCallback((article: Article, completionMethod: 'swipe' | 'open') => {
     void logArticleRead(user?.id, {
       id: article.id,
       topics: article.topics,
       title: article.title,
+    });
+
+    // Fires for guests too — the old inline analytics insert only counted
+    // signed-in users, which is why mobile engagement was invisible.
+    void trackArticleReadComplete({
+      ...articleAnalyticsContext(article),
+      completionMethod,
     });
 
     if (!user) return;
@@ -1014,16 +1049,6 @@ export default function FeedScreen() {
           supabase.rpc('update_reading_streak', { uid: user.id }),
         ]);
 
-        void supabase.from('analytics_events').insert({
-          user_id: user.id,
-          event_name: 'article_view',
-          properties: { article_id: article.id },
-        }).then(({ error: analyticsError }) => {
-          if (analyticsError) {
-            console.warn('[FeedScreen] Failed to track article view', analyticsError);
-          }
-        });
-
         const { data: awardResult, error: badgeError } = await supabase.functions.invoke('award-badge', { body: { userId: user.id } });
         if (badgeError) {
           console.warn('[FeedScreen] Failed to check badges after read', badgeError);
@@ -1035,7 +1060,7 @@ export default function FeedScreen() {
         console.warn('[FeedScreen] Failed to mark article read', error);
       }
     })();
-  }, [announceAwardedBadgeIds, user]);
+  }, [announceAwardedBadgeIds, articleAnalyticsContext, user]);
 
   const toggleSave = useCallback(async (articleId: number) => {
     if (!user) {
@@ -1220,7 +1245,7 @@ export default function FeedScreen() {
       setCurrentIndex(nextIndex);
     }
     InteractionManager.runAfterInteractions(() => {
-      markRead(article);
+      markRead(article, 'swipe');
     });
   }, [
     digestArticleIdSet,
@@ -1254,6 +1279,12 @@ export default function FeedScreen() {
   }
 
   useEffect(() => {
+    if (!current) return;
+    void trackArticleImpression(
+      articleAnalyticsContext(current, { positionInFeed: safeIndex + 1 }),
+    );
+    // Deps intentionally limited: fire once per top-card change, not on
+    // context-builder identity churn.
   }, [current?.id]);
 
   const canSwipeLeft = safeIndex < maxAvailableArticles - 1;
@@ -1420,7 +1451,8 @@ export default function FeedScreen() {
   }, [retreat]);
 
   const handleReadArticle = useCallback((article: Article) => {
-    markRead(article);
+    markRead(article, 'open');
+    void trackArticleOpen(articleAnalyticsContext(article));
     void completeDigestArticle(article.id);
     void openPublisherArticle(article.url).catch(() => {
       Alert.alert(
@@ -1428,7 +1460,7 @@ export default function FeedScreen() {
         'We could not open the publisher article right now.',
       );
     });
-  }, [completeDigestArticle, markRead]);
+  }, [articleAnalyticsContext, completeDigestArticle, markRead]);
 
   const logSwipeEvent = useCallback((
     phase: 'release' | 'animation-complete',

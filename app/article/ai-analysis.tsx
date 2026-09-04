@@ -7,6 +7,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { supabase } from '../services/supabase';
 import { useTheme } from '../hooks/useTheme';
 import { openPublisherArticle } from '../lib/openPublisherArticle';
+import { buildArticleAnalyticsContext, trackAIAnalysisOpen } from '../lib/analytics';
 
 interface AIAnalysis {
   summary: string;
@@ -34,6 +35,17 @@ export default function AIAnalysisScreen() {
         .single();
       setArticle(data);
       setLoading(false);
+      if (data) {
+        void trackAIAnalysisOpen(buildArticleAnalyticsContext({
+          id: data.id,
+          title: data.title,
+          source: data.publisher?.name ?? null,
+          url: data.url,
+          category: data.category ?? null,
+          x: data.x,
+          meta: data.meta ?? null,
+        }, { surface: 'article_detail' }));
+      }
       // Auto-trigger analysis
       fetchAnalysis(data);
     };
