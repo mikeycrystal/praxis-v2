@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ActivityIndicator,
-  Image,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
@@ -303,7 +303,7 @@ export default function ArticlePreviewScreen() {
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         {isHydratingSharedStory ? <ActivityIndicator color={COLORS.green} style={s.sharedStoryLoader} /> : null}
         {article.imageUrl ? (
-          <Image source={{ uri: article.imageUrl }} style={s.heroImage} resizeMode="cover" />
+          <Image source={{ uri: article.imageUrl }} style={s.heroImage} contentFit="cover" cachePolicy="memory-disk" />
         ) : (
           <View style={s.heroFallback}>
             <Ionicons name="newspaper-outline" size={34} color={COLORS.textMuted} />
