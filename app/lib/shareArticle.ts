@@ -12,10 +12,14 @@ export interface ShareableArticle {
 
 const PRAXIS_WEB_URL = 'https://www.praxismedia.us';
 
-// Install link for the "Download the Praxis app" line. No public App Store
-// listing yet, so this points at the website; replace with the store URL
-// once the app is listed.
-const PRAXIS_APP_DOWNLOAD_URL = PRAXIS_WEB_URL;
+// Install link for the "Download the Praxis app" line. Set this to the App
+// Store URL once the app is listed. While it would only point at the same
+// website as the story link it is left empty: a second praxismedia.us link
+// makes Messages preview the homepage instead of the story card.
+const PRAXIS_APP_DOWNLOAD_URL = '';
+
+const buildDownloadLine = () =>
+  PRAXIS_APP_DOWNLOAD_URL ? `Download the Praxis app: ${PRAXIS_APP_DOWNLOAD_URL}` : null;
 
 export const buildPraxisStoryUrl = (articleId: ShareableArticle['id']) =>
   `${PRAXIS_WEB_URL}/story/${encodeURIComponent(String(articleId))}`;
@@ -28,11 +32,7 @@ export const buildPraxisAppUrl = (articleId: ShareableArticle['id']) =>
 // link. The https link opens the app when installed (universal link) and the
 // web deck otherwise, so no custom-scheme URL is included.
 export const buildPraxisShareText = (article: ShareableArticle) =>
-  [
-    article.title.trim(),
-    buildPraxisStoryUrl(article.id),
-    PRAXIS_APP_DOWNLOAD_URL ? `Download the Praxis app: ${PRAXIS_APP_DOWNLOAD_URL}` : null,
-  ]
+  [article.title.trim(), buildPraxisStoryUrl(article.id), buildDownloadLine()]
     .filter((value): value is string => Boolean(value))
     .join('\n\n');
 
@@ -41,10 +41,15 @@ export const copyPraxisStoryLink = async (article: ShareableArticle) => {
 };
 
 export const sharePraxisStory = async (article: ShareableArticle) => {
+  const storyUrl = buildPraxisStoryUrl(article.id);
   try {
-    // Message only: passing `url` as well makes iOS targets like Messages
-    // append the link a second time.
-    await Share.share({ title: article.title, message: buildPraxisShareText(article) });
+    // iOS renders the share-sheet header and the Messages story card from
+    // `url`, so the link goes there and stays out of the text (otherwise it
+    // appears twice). Android ignores `url`, so its text carries the link.
+    const message = Platform.OS === 'ios'
+      ? [article.title.trim(), buildDownloadLine()].filter((value): value is string => Boolean(value)).join('\n\n')
+      : buildPraxisShareText(article);
+    await Share.share({ title: article.title, message, url: storyUrl });
   } catch (error) {
     console.warn('[shareArticle] Share failed', error);
     Alert.alert('Share unavailable', 'We could not open the share sheet for this story right now.');
