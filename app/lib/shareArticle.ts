@@ -12,10 +12,10 @@ export interface ShareableArticle {
 
 const PRAXIS_WEB_URL = 'https://www.praxismedia.us';
 
-// Public install link for the "Download the Praxis app" line. The app has no
-// public App Store listing yet, so this stays empty (line omitted) until a
-// store or public TestFlight link exists.
-const PRAXIS_APP_DOWNLOAD_URL = '';
+// Install link for the "Download the Praxis app" line. No public App Store
+// listing yet, so this points at the website; replace with the store URL
+// once the app is listed.
+const PRAXIS_APP_DOWNLOAD_URL = PRAXIS_WEB_URL;
 
 export const buildPraxisStoryUrl = (articleId: ShareableArticle['id']) =>
   `${PRAXIS_WEB_URL}/story/${encodeURIComponent(String(articleId))}`;
