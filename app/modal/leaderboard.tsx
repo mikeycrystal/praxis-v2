@@ -36,16 +36,22 @@ const PROFILE_SELECT =
 
 // Same sanitising as the web leaderboard: a streak whose last digest
 // completion is older than yesterday (New York) is dead and shows as 0.
-const sanitizeProfiles = (profiles: LeaderboardProfile[] | null) =>
-  (profiles ?? [])
-    .filter((profile) => Boolean(profile.id))
-    .map((profile) => ({
+const sanitizeProfiles = (profiles: LeaderboardProfile[] | null) => {
+  const rows = (profiles ?? []).filter((profile) => Boolean(profile.id));
+  try {
+    return rows.map((profile) => ({
       ...profile,
       current_streak: isStreakLive(profile.streak_last_completed_date)
         ? profile.current_streak ?? 0
         : 0,
       articles_read: profile.articles_read ?? 0,
     }));
+  } catch (error) {
+    // Never let the live-streak rule empty the board; show stored values.
+    console.warn('[Leaderboard] Live-streak rule failed; showing stored streaks', error);
+    return rows;
+  }
+};
 
 const sortProfiles = (
   profiles: LeaderboardProfile[],
@@ -84,6 +90,7 @@ export default function LeaderboardModal() {
   const [profiles, setProfiles] = useState<LeaderboardProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -95,6 +102,7 @@ export default function LeaderboardModal() {
   const loadLeaderboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
+    setLoadError(null);
 
     try {
       if (isGuestMode || !user) {
@@ -142,6 +150,12 @@ export default function LeaderboardModal() {
       );
     } catch (error) {
       console.warn('[Leaderboard] Failed to load leaderboard', error);
+      const message = error instanceof Error
+        ? error.message
+        : typeof (error as { message?: unknown })?.message === 'string'
+          ? String((error as { message: string }).message)
+          : 'Unknown error';
+      setLoadError(message);
       setProfiles([]);
     } finally {
       setLoading(false);
@@ -219,12 +233,16 @@ export default function LeaderboardModal() {
                 color={PAGE.tint}
               />
               <Text style={s.emptyTitle}>
-                {activeTab === 'friends' ? 'Follow a few readers' : 'No rankings yet'}
+                {loadError
+                  ? 'Could not load the leaderboard'
+                  : activeTab === 'friends' ? 'Follow a few readers' : 'No rankings yet'}
               </Text>
               <Text style={s.emptyText}>
-                {activeTab === 'friends'
-                  ? 'People you follow will appear in this leaderboard.'
-                  : 'Reading activity will populate this leaderboard.'}
+                {loadError
+                  ? `Tap refresh to try again. (${loadError})`
+                  : activeTab === 'friends'
+                    ? 'People you follow will appear in this leaderboard.'
+                    : 'Reading activity will populate this leaderboard.'}
               </Text>
             </View>
           )}
