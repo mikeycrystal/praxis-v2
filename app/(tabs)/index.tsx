@@ -73,6 +73,7 @@ import {
   trackArticleReadComplete,
 } from '../lib/analytics';
 import { consumeSharedStoryRequest, fetchSharedStoryArticle } from '../lib/sharedStory';
+import { awardDigestStreak } from '../lib/digestStreak';
 import { openPublisherArticle } from '../lib/openPublisherArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
@@ -263,7 +264,7 @@ export default function FeedScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isNarrowScreen = screenWidth < 350;
   const swipeExitDistance = screenWidth * 1.05;
-  const { isGuestMode, profile, user } = useAuth();
+  const { isGuestMode, profile, refreshProfile, user } = useAuth();
   const { announceAwardedBadgeIds, celebrateDigestCompletion } = useBadgeCelebration();
   const {
     preferences,
@@ -1212,6 +1213,12 @@ export default function FeedScreen() {
 
     if (!isComplete) return false;
 
+    if (user) {
+      void awardDigestStreak(user.id).then((streak) => {
+        if (streak !== null) void refreshProfile();
+      });
+    }
+
     const digestArticles = dailyDigestFeed?.digestArticles ?? [];
     setDigestCompletionSummary({
       storyCount: digestArticles.length,
@@ -1248,6 +1255,8 @@ export default function FeedScreen() {
     }
     return true;
   }, [
+    refreshProfile,
+    user,
     articles,
     celebrateDigestCompletion,
     dailyDigestFeed?.digestArticles,
@@ -1632,7 +1641,7 @@ export default function FeedScreen() {
                 style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}
               >
                 <Ionicons name="flame-outline" size={15} color="#8DAE73" />
-                <Text style={s.streakText}>{profile ? (profile.reading_streak ?? 0) : localStreakCount}</Text>
+                <Text style={s.streakText}>{profile ? (profile.current_streak ?? 0) : localStreakCount}</Text>
               </TouchableOpacity>
             </>
           )}
