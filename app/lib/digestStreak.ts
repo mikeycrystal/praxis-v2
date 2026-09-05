@@ -4,7 +4,7 @@ import { supabase } from '../services/supabase';
 // streak is profiles.current_streak, advanced once per America/New_York day
 // when the Daily Digest is completed, then badges are re-checked. Mobile
 // previously never touched this column, so mobile-only readers stayed flat.
-const getNewYorkDate = (date = new Date()) => {
+export const getNewYorkDate = (date = new Date()) => {
   const local = new Date(date.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const year = local.getFullYear();
   const month = String(local.getMonth() + 1).padStart(2, '0');
@@ -12,12 +12,26 @@ const getNewYorkDate = (date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
+// The calendar day before a YYYY-MM-DD string, computed in UTC so the
+// device timezone cannot shift it.
+export const getPreviousDate = (isoDate: string) => {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().split('T')[0];
+};
+
+// Web rule (card-page useLeaderboard.tsx): a streak counts as live only if
+// the digest was completed today or yesterday, New York time. Anything older
+// is shown as 0 until the nightly reset catches up with it.
+export const isStreakLive = (lastCompletedDate: string | null | undefined) => {
+  if (!lastCompletedDate) return false;
+  const today = getNewYorkDate();
+  return lastCompletedDate >= getPreviousDate(today);
+};
+
 export const awardDigestStreak = async (userId: string): Promise<number | null> => {
   try {
     const todayEST = getNewYorkDate();
-    const yesterday = new Date(todayEST);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayEST = yesterday.toISOString().split('T')[0];
+    const yesterdayEST = getPreviousDate(todayEST);
 
     const { data: profile, error: readError } = await supabase
       .from('profiles')
