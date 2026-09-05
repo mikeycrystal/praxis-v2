@@ -18,6 +18,10 @@ export interface DailyDigestState {
   date: string;
   articleIds: number[];
   completedIds: number[];
+  // Saved copies of the digest stories. The top-news pool rotates all day,
+  // so without these the digest was re-picked (and progress lost) as soon
+  // as one of its stories fell out of the pool. Web keeps the same snapshot.
+  articlesSnapshot?: Article[];
 }
 
 export interface DailyDigestFeed {
@@ -83,6 +87,58 @@ const writeStorageValue = async (state: DailyDigestState) => {
   }
 };
 
+const ARTICLE_CATEGORIES: NonNullable<Article['category']>[] = [
+  'business', 'tech', 'environment', 'sports', 'world',
+];
+
+// Accepts a mobile Article or a web NewsArticle (the canonical snapshot on
+// the server is written by whichever client created the day's digest first)
+// and returns a mobile Article, or null if it cannot be rendered.
+export const normalizeSnapshotArticle = (raw: unknown): Article | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const c = raw as Record<string, any>;
+  const id = Number(c.id ?? c.article_id);
+  const url = typeof c.url === 'string' ? c.url : '';
+  if (!Number.isFinite(id) || id <= 0 || !url) return null;
+
+  const publisherObject = c.publisher && typeof c.publisher === 'object' ? c.publisher : null;
+  const publisherName: string | null =
+    typeof publisherObject?.name === 'string' ? publisherObject.name
+      : typeof c.publisher === 'string' ? c.publisher
+        : typeof c.author === 'string' ? c.author
+          : typeof c.source === 'string' ? c.source
+            : null;
+  const stringList = (value: unknown) =>
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  const topics = stringList(c.topics).length > 0 ? stringList(c.topics) : stringList(c.meta?.topics);
+
+  return {
+    id,
+    title: typeof c.title === 'string' ? c.title : 'Untitled',
+    lede: typeof c.lede === 'string' ? c.lede
+      : typeof c.subtitle === 'string' ? c.subtitle
+        : typeof c.excerpt === 'string' ? c.excerpt
+          : null,
+    image_url: typeof c.image_url === 'string' ? c.image_url
+      : typeof c.image === 'string' ? c.image
+        : null,
+    url,
+    ts_pub: typeof c.ts_pub === 'string' ? c.ts_pub
+      : typeof c.publishedAt === 'string' ? c.publishedAt
+        : new Date().toISOString(),
+    x: typeof c.x === 'number' && Number.isFinite(c.x) ? c.x : 0,
+    y: typeof c.y === 'number' && Number.isFinite(c.y) ? c.y : 0,
+    publisher: publisherName
+      ? { name: publisherName, domain: typeof publisherObject?.domain === 'string' ? publisherObject.domain : '' }
+      : null,
+    topics,
+    source: typeof c.source === 'string' ? c.source : publisherName ?? 'Unknown',
+    category: ARTICLE_CATEGORIES.includes(c.category) ? c.category : 'world',
+    meta: c.meta && typeof c.meta === 'object' ? c.meta : null,
+    reasons: stringList(c.reasons).length > 0 ? stringList(c.reasons) : undefined,
+  };
+};
+
 const normalizeState = (raw: Partial<DailyDigestState> | null | undefined): DailyDigestState => ({
   date: typeof raw?.date === 'string' ? raw.date : getTodayKey(),
   articleIds: Array.isArray(raw?.articleIds)
@@ -90,6 +146,11 @@ const normalizeState = (raw: Partial<DailyDigestState> | null | undefined): Dail
     : [],
   completedIds: Array.isArray(raw?.completedIds)
     ? raw.completedIds.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    : [],
+  articlesSnapshot: Array.isArray(raw?.articlesSnapshot)
+    ? raw.articlesSnapshot
+        .map(normalizeSnapshotArticle)
+        .filter((article): article is Article => Boolean(article))
     : [],
 });
 
@@ -271,28 +332,46 @@ const selectDigestArticles = (articles: Article[]) => {
   return selected;
 };
 
-export const buildDailyDigestFeed = async (articles: Article[]): Promise<DailyDigestFeed> => {
+// Resolves a digest from preferred ids (stored or canonical), using the
+// live pool first and saved snapshots second, then tops up to five stories
+// and keeps only the completions that still belong to the digest. Mirrors
+// the web's buildDigestFeedFromSelection.
+const finalizeDigestSelection = async (
+  articles: Article[],
+  preferredIds: number[],
+  snapshot: Article[],
+  completedIds: number[],
+): Promise<DailyDigestFeed> => {
   const today = getTodayKey();
-  const currentState = await readDailyDigestState();
   const articleById = new Map(articles.map((article) => [article.id, article]));
-  const canReuseTodayDigest =
-    currentState.date === today &&
-    currentState.articleIds.length > 0 &&
-    currentState.articleIds.every((id) => articleById.has(id));
+  const snapshotById = new Map(snapshot.map((article) => [article.id, article]));
+  const resolve = (id: number) => articleById.get(id) ?? snapshotById.get(id);
 
-  const digestArticles = canReuseTodayDigest
-    ? currentState.articleIds
-        .map((id) => articleById.get(id))
+  const digestArticles: Article[] = preferredIds.length > 0
+    ? preferredIds
+        .map(resolve)
         .filter((article): article is Article => Boolean(article))
     : selectDigestArticles(articles);
+  const has = (id: number) => digestArticles.some((article) => article.id === id);
+
+  if (digestArticles.length < DAILY_DIGEST_STORY_COUNT) {
+    for (const article of snapshot) {
+      if (digestArticles.length >= DAILY_DIGEST_STORY_COUNT) break;
+      if (!has(article.id)) digestArticles.push(article);
+    }
+    for (const article of selectDigestArticles(articles.filter((candidate) => !has(candidate.id)))) {
+      if (digestArticles.length >= DAILY_DIGEST_STORY_COUNT) break;
+      digestArticles.push(article);
+    }
+  }
+
   const digestIds = digestArticles.map((article) => article.id);
-  const completedIds = canReuseTodayDigest
-    ? currentState.completedIds.filter((id) => digestIds.includes(id))
-    : [];
+  const nextCompletedIds = completedIds.filter((id) => digestIds.includes(id));
   const state: DailyDigestState = {
     date: today,
     articleIds: digestIds,
-    completedIds,
+    completedIds: nextCompletedIds,
+    articlesSnapshot: digestArticles,
   };
 
   await writeStorageValue(state);
@@ -306,14 +385,28 @@ export const buildDailyDigestFeed = async (articles: Article[]): Promise<DailyDi
     // completed card shifts the deck underneath an active swipe gesture.
     displayArticles: [...digestArticles, ...remainingArticles],
     digestArticles,
-    completedCount: completedIds.length,
+    completedCount: nextCompletedIds.length,
     totalCount: digestArticles.length,
-    isComplete: digestArticles.length > 0 && completedIds.length >= digestArticles.length,
+    isComplete: digestArticles.length > 0 && nextCompletedIds.length >= digestArticles.length,
   };
+};
+
+export const buildDailyDigestFeed = async (articles: Article[]): Promise<DailyDigestFeed> => {
+  const today = getTodayKey();
+  const currentState = await readDailyDigestState();
+  const isToday = currentState.date === today;
+
+  return finalizeDigestSelection(
+    articles,
+    isToday ? currentState.articleIds : [],
+    isToday ? currentState.articlesSnapshot ?? [] : [],
+    isToday ? currentState.completedIds : [],
+  );
 };
 
 interface CanonicalDailyDigestPayload {
   article_ids?: unknown;
+  digest_articles_snapshot?: unknown;
 }
 
 export const buildCanonicalDailyDigestFeed = async (
@@ -338,37 +431,25 @@ export const buildCanonicalDailyDigestFeed = async (
     if (error) throw error;
 
     const canonicalIds = Array.isArray(data?.article_ids)
-      ? data.article_ids.map(String)
+      ? data.article_ids.map(Number).filter((id) => Number.isFinite(id) && id > 0)
       : [];
-    const articleById = new Map(articles.map((article) => [String(article.id), article]));
-    const canonicalArticles = canonicalIds
-      .map((id) => articleById.get(id))
-      .filter((article): article is Article => Boolean(article));
+    if (canonicalIds.length === 0) return localFeed;
 
-    // Only accept a complete canonical selection. A stale canonical snapshot
-    // should never leave the mobile digest with a partial or shuffled deck.
-    if (canonicalArticles.length !== DAILY_DIGEST_STORY_COUNT) return localFeed;
+    const canonicalSnapshot = Array.isArray(data?.digest_articles_snapshot)
+      ? data.digest_articles_snapshot
+          .map(normalizeSnapshotArticle)
+          .filter((article): article is Article => Boolean(article))
+      : [];
 
-    const canonicalIdSet = new Set(canonicalArticles.map((article) => article.id));
-    const completedIds = localFeed.state.completedIds.filter((id) => canonicalIdSet.has(id));
-    const state: DailyDigestState = {
-      date: getTodayKey(),
-      articleIds: canonicalArticles.map((article) => article.id),
-      completedIds,
-    };
-    await writeStorageValue(state);
-
-    return {
-      state,
-      displayArticles: [
-        ...canonicalArticles,
-        ...articles.filter((article) => !canonicalIdSet.has(article.id)),
-      ],
-      digestArticles: canonicalArticles,
-      completedCount: completedIds.length,
-      totalCount: canonicalArticles.length,
-      isComplete: completedIds.length >= canonicalArticles.length,
-    };
+    // The canonical digest is fixed for the day, so once it is stored
+    // locally every later launch resolves the same five stories, from the
+    // live pool when present and from the saved copies when not.
+    return finalizeDigestSelection(
+      articles,
+      canonicalIds,
+      [...canonicalSnapshot, ...localFeed.digestArticles],
+      localFeed.state.completedIds,
+    );
   } catch (error) {
     console.warn('[dailyDigest] Canonical digest unavailable; using local selection', error);
     return localFeed;
