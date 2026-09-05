@@ -49,6 +49,12 @@ import { buildHref } from '../lib/buildHref';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
 import { writeDailyDigestOpenRequest } from '../lib/dailyDigest';
 import { searchGraphArticles } from '../hooks/useFeedArticles';
+import {
+  RECENCY_OPTIONS,
+  readSearchRecencyDays,
+  writeSearchRecencyDays,
+  type RecencyDays,
+} from '../lib/searchRecency';
 
 const logoAp = require('../../assets/logos/ap.png');
 const logoAtlantic = require('../../assets/logos/atlantic.png');
@@ -386,6 +392,10 @@ export default function GraphScreen() {
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [digestName, setDigestName] = useState('');
   const [isApplying, setIsApplying] = useState(false);
+  // Recency window for typed searches; remembered for the session so the
+  // second search is one tap.
+  const [recencyDays, setRecencyDays] = useState<RecencyDays>(() => readSearchRecencyDays());
+  const [appliedRecencyDays, setAppliedRecencyDays] = useState<RecencyDays>(() => readSearchRecencyDays());
   const [localStreakCount, setLocalStreakCount] = useState(0);
   const [seedTopics, setSeedTopics] = useState<string[]>(FALLBACK_TOPICS);
   const [allTopics, setAllTopics] = useState<string[]>(FALLBACK_TOPICS);
@@ -693,7 +703,8 @@ export default function GraphScreen() {
     JSON.stringify(promptTerms) !== JSON.stringify(initialState.promptTerms) ||
     currentGraphPosition.x !== initialState.position.x ||
     currentGraphPosition.y !== initialState.position.y ||
-    radiusPercent !== initialState.radius;
+    radiusPercent !== initialState.radius ||
+    (promptTerms.length > 0 && recencyDays !== appliedRecencyDays);
   const topNewsFilterState =
     hasSearchCriteria
       ? null
@@ -1013,7 +1024,7 @@ export default function GraphScreen() {
       const prefetchedArticles = await searchGraphArticles(trimmed, {
         position: { ...currentGraphPosition },
         radius: radiusPercent,
-      });
+      }, 20, recencyDays);
 
       setInitialState({
         topics: [...nextTopics],
@@ -1021,6 +1032,8 @@ export default function GraphScreen() {
         position: { ...currentGraphPosition },
         radius: radiusPercent,
       });
+      setAppliedRecencyDays(recencyDays);
+      writeSearchRecencyDays(recencyDays);
       setSelectedTopics(nextTopics);
       setPromptTerms(nextPromptTerms);
       setSearch('');
@@ -1048,6 +1061,12 @@ export default function GraphScreen() {
   };
 
   const handleApplyChanges = () => {
+    // Typed terms wait here as chips until the range and recency are set;
+    // Apply runs the deterministic full-corpus search, never the AI stream.
+    if (promptTerms.length > 0) {
+      void runDeterministicGraphSearch(promptTerms.join(' '), selectedTopics, promptTerms);
+      return;
+    }
     // One selected preset/topic is a search intent, not a recommendation
     // prompt. Send it through the same full-corpus Graph search as typed
     // terms so choosing “Landslides and Flooding” reliably returns that story
@@ -1077,7 +1096,13 @@ export default function GraphScreen() {
       ? promptTerms
       : [...promptTerms, trimmed];
 
-    await runDeterministicGraphSearch(trimmed, nextTopics, nextPromptTerms);
+    // Stage the term as a chip; the user sets the circle and recency, then
+    // "Apply Changes" runs the search.
+    setSelectedTopics(nextTopics);
+    setPromptTerms(nextPromptTerms);
+    setSearch('');
+    dismissSearch();
+    closeDropdown();
   };
 
   const handleTopNewsReset = () => {
@@ -1662,6 +1687,26 @@ export default function GraphScreen() {
         style={[s.applyBar, !(hasChanges || isApplying) && s.applyBarPlaceholder]}
         pointerEvents={hasChanges || isApplying ? 'auto' : 'none'}
       >
+          {promptTerms.length > 0 ? (
+            <View style={s.recencyRow}>
+              <Text style={s.recencyLabel}>Stories from</Text>
+              {RECENCY_OPTIONS.map((option) => {
+                const selected = option.value === recencyDays;
+                return (
+                  <TouchableOpacity
+                    key={option.label}
+                    style={[s.recencyChip, selected && s.recencyChipSelected]}
+                    onPress={() => setRecencyDays(option.value)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    accessibilityLabel={`Stories from ${option.label}`}
+                  >
+                    <Text style={[s.recencyChipText, selected && s.recencyChipTextSelected]}>{option.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : null}
           <TouchableOpacity
             style={[
               s.applyButton,
@@ -2439,6 +2484,39 @@ const s = StyleSheet.create({
   // whenever filter chips or the Apply button enter/leave the layout.
   applyBarPlaceholder: {
     opacity: 0,
+  },
+  recencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 8,
+  },
+  recencyLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: PAGE.textSoft,
+    marginRight: 2,
+  },
+  recencyChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#DDD1BF',
+    backgroundColor: '#FFFDF9',
+  },
+  recencyChipSelected: {
+    borderColor: '#2F2A24',
+    backgroundColor: '#2F2A24',
+  },
+  recencyChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#5D554C',
+  },
+  recencyChipTextSelected: {
+    color: '#FFFDF9',
   },
   applyButton: {
     pointerEvents: 'auto',
