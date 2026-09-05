@@ -1641,7 +1641,12 @@ export default function FeedScreen() {
                 style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}
               >
                 <Ionicons name="flame-outline" size={15} color="#8DAE73" />
-                <Text style={s.streakText}>{profile ? (profile.current_streak ?? 0) : localStreakCount}</Text>
+                <Text style={s.streakText}>
+                  {/* Signed in: only the account streak, a dash while it loads.
+                      The device-only count (consecutive read days) is for
+                      guests; showing it first flashed a different number. */}
+                  {user ? (profile ? (profile.current_streak ?? 0) : '–') : localStreakCount}
+                </Text>
               </TouchableOpacity>
             </>
           )}
