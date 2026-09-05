@@ -17,6 +17,7 @@ import {
   getMockTopicArticles,
 } from '../lib/mockPreviewData';
 import { supabase } from '../services/supabase';
+import { isWithinRecencyWindow, type RecencyDays } from '../lib/searchRecency';
 
 export interface Article {
   id: number;
@@ -658,9 +659,15 @@ export const searchGraphArticles = async (
   query: string,
   graphFilter: TopNewsGraphFilterState | null,
   limit = 20,
+  recencyDays: RecencyDays = null,
 ): Promise<Article[]> => {
   const normalizedQuery = normalizeSearchTerm(query);
   if (!normalizedQuery) return [];
+
+  // The backend honors max_age_days once deployed; filtering here as well
+  // keeps the window correct against older backends and the cached fallback.
+  const withinWindow = (articles: Article[]) =>
+    articles.filter((article) => isWithinRecencyWindow(article.ts_pub, recencyDays));
 
   const { apiBaseUrl, isEnabled } = getRecommenderConfig();
   if (isEnabled && apiBaseUrl) {
@@ -669,6 +676,9 @@ export const searchGraphArticles = async (
       params.set('center_x', (graphFilter.position.x / 100).toString());
       params.set('center_y', (graphFilter.position.y / 100).toString());
       params.set('radius', (graphFilter.radius / 100).toString());
+    }
+    if (recencyDays !== null) {
+      params.set('max_age_days', String(recencyDays));
     }
 
     try {
@@ -679,7 +689,7 @@ export const searchGraphArticles = async (
       if (response.ok) {
         const json = await response.json();
         return Array.isArray(json?.articles)
-          ? json.articles.map(mapFallbackArticle).filter((article: Article) => Boolean(article.url))
+          ? withinWindow(json.articles.map(mapFallbackArticle).filter((article: Article) => Boolean(article.url)))
           : [];
       }
       console.warn(`[useFeedArticles] Full-corpus Graph search returned ${response.status}; using cached fallback`);
@@ -691,7 +701,7 @@ export const searchGraphArticles = async (
   }
 
   const scopedArticles = await fetchTopNewsArticles(graphFilter);
-  const scopedMatches = getTermMatchedArticles(scopedArticles, [normalizedQuery]);
+  const scopedMatches = withinWindow(getTermMatchedArticles(scopedArticles, [normalizedQuery]));
   if (scopedMatches.length > 0 || !graphFilter) {
     return scopedMatches.slice(0, limit);
   }
@@ -700,7 +710,7 @@ export const searchGraphArticles = async (
   // Expand once to the cached unfiltered pool, rather than returning generic
   // Top News. This is at most one additional request and is normally cached.
   const broaderArticles = await fetchTopNewsArticles(null);
-  return getTermMatchedArticles(broaderArticles, [normalizedQuery]).slice(0, limit);
+  return withinWindow(getTermMatchedArticles(broaderArticles, [normalizedQuery])).slice(0, limit);
 };
 
 export const fetchLiveArticleById = async (articleId: number): Promise<Article | null> => {
