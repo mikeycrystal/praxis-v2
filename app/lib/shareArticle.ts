@@ -27,12 +27,12 @@ export const buildPraxisStoryUrl = (articleId: ShareableArticle['id']) =>
 export const buildPraxisAppUrl = (articleId: ShareableArticle['id']) =>
   `praxis://article/${encodeURIComponent(String(articleId))}`;
 
-// Mirrors the web share: headline, then the story link. The story link comes
-// first so messaging apps unfurl the Praxis card rather than the download
-// link. The https link opens the app when installed (universal link) and the
-// web deck otherwise, so no custom-scheme URL is included.
+// The message is the story link (plus the download line once a store link
+// exists). No headline or summary: the link unfurls into the Praxis card,
+// which already carries them. The https link opens the app when installed
+// (universal link) and the web deck otherwise, so no custom-scheme URL.
 export const buildPraxisShareText = (article: ShareableArticle) =>
-  [article.title.trim(), buildPraxisStoryUrl(article.id), buildDownloadLine()]
+  [buildPraxisStoryUrl(article.id), buildDownloadLine()]
     .filter((value): value is string => Boolean(value))
     .join('\n\n');
 
@@ -46,10 +46,12 @@ export const sharePraxisStory = async (article: ShareableArticle) => {
     // iOS renders the share-sheet header and the Messages story card from
     // `url`, so the link goes there and stays out of the text (otherwise it
     // appears twice). Android ignores `url`, so its text carries the link.
-    const message = Platform.OS === 'ios'
-      ? [article.title.trim(), buildDownloadLine()].filter((value): value is string => Boolean(value)).join('\n\n')
-      : buildPraxisShareText(article);
-    await Share.share({ title: article.title, message, url: storyUrl });
+    const downloadLine = buildDownloadLine();
+    await Share.share(
+      Platform.OS === 'ios'
+        ? { title: article.title, url: storyUrl, ...(downloadLine ? { message: downloadLine } : {}) }
+        : { title: article.title, message: buildPraxisShareText(article) },
+    );
   } catch (error) {
     console.warn('[shareArticle] Share failed', error);
     Alert.alert('Share unavailable', 'We could not open the share sheet for this story right now.');
