@@ -1008,8 +1008,8 @@ export default function GraphScreen() {
     };
 
     try {
-      // This is the only live lookup a free-text Graph search performs. The
-      // helper uses the five-minute article cache and never calls AI.
+      // Single-topic Apply uses the deterministic full-corpus search (never
+      // AI). Typed terms no longer come through here; see handleGraphSearch.
       const prefetchedArticles = await searchGraphArticles(trimmed, {
         position: { ...currentGraphPosition },
         radius: radiusPercent,
@@ -1077,7 +1077,16 @@ export default function GraphScreen() {
       ? promptTerms
       : [...promptTerms, trimmed];
 
-    await runDeterministicGraphSearch(trimmed, nextTopics, nextPromptTerms);
+    // Typed terms go straight to the AI recommender, the way the web app's
+    // Graph search works: the circle is context, results stream in at once,
+    // and the recency ladder (one week first) widens only when results are
+    // thin. Word order and phrasing stop mattering, unlike the substring
+    // match behind the full-corpus search.
+    setSelectedTopics(nextTopics);
+    setPromptTerms(nextPromptTerms);
+    setSearch('');
+    dismissSearch();
+    applyGraphChanges(nextTopics, nextPromptTerms);
   };
 
   const handleTopNewsReset = () => {
