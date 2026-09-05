@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, SafeAreaView,
   TouchableOpacity, ActivityIndicator, Alert,
-  TextInput, Image, InteractionManager, type GestureResponderEvent,
+  TextInput, InteractionManager, type GestureResponderEvent,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { router, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
@@ -283,7 +284,8 @@ export default function SavedArticlesModal() {
                 <Image
                   source={{ uri: item.image_url }}
                   style={[s.thumbnail, { backgroundColor: c.background }]}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
                   onError={() => {
                     setFailedImages((previous) => ({ ...previous, [item.id]: true }));
                   }}

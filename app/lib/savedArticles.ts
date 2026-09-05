@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { buildArticleAnalyticsContext, trackBookmarkChange } from './analytics';
 
 const STORAGE_PREFIX = 'praxis.savedArticles.v1';
 
@@ -176,6 +177,15 @@ export const upsertSavedArticle = async (
   ]);
 
   await writeSavedArticles(userId, next);
+  void trackBookmarkChange('bookmark_add', buildArticleAnalyticsContext({
+    id: normalized.id,
+    title: normalized.title,
+    source: normalized.publisher?.name ?? null,
+    url: normalized.url,
+    category: normalized.category,
+    x: normalized.x,
+    meta: normalized.meta,
+  }, { topics: normalized.topics }));
   return next;
 };
 
@@ -184,8 +194,20 @@ export const removeSavedArticle = async (
   articleId: number,
 ) => {
   const existing = await readSavedArticles(userId);
+  const removed = existing.find((article) => article.id === articleId);
   const next = existing.filter((article) => article.id !== articleId);
   await writeSavedArticles(userId, next);
+  if (removed) {
+    void trackBookmarkChange('bookmark_remove', buildArticleAnalyticsContext({
+      id: removed.id,
+      title: removed.title,
+      source: removed.publisher?.name ?? null,
+      url: removed.url,
+      category: removed.category,
+      x: removed.x,
+      meta: removed.meta,
+    }, { topics: removed.topics }));
+  }
   return next;
 };
 

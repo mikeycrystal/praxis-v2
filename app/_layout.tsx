@@ -1,6 +1,6 @@
 import './lib/webRuntimePolyfills';
 import { useEffect, useRef } from 'react';
-import { Stack, router, useGlobalSearchParams, useSegments } from 'expo-router';
+import { Stack, router, useGlobalSearchParams, usePathname, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppState, Platform } from 'react-native';
@@ -11,6 +11,31 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
 import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { supabase } from './services/supabase';
+import { endSession, startSession, trackPageView } from './lib/analytics';
+
+function AnalyticsTracker() {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    void startSession();
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void startSession();
+      } else if (state === 'background') {
+        void endSession();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (!pathname) return;
+    void trackPageView(pathname);
+  }, [pathname]);
+
+  return null;
+}
 
 function AppLifecycleManager() {
   useEffect(() => {
@@ -49,9 +74,10 @@ function RootRedirect() {
     const inModal = segments[0] === 'modal';
     const inArticle = segments[0] === 'article';
     const inChat = segments[0] === 'chat';
+    const inStory = segments[0] === 'story';
     const tabAliasSegments = new Set(['saved', 'graph', 'profile', 'search', 'social', 'topics']);
     const inTabAlias = tabAliasSegments.has(segments[0] ?? '');
-    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat;
+    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory;
 
     if (!session && !isGuestMode) {
       if (!inAuth) router.replace('/login');
@@ -94,6 +120,7 @@ export default function RootLayout() {
         <BadgeCelebrationProvider>
         <NewsPreferencesProvider>
           <RootRedirect />
+          <AnalyticsTracker />
           <AppLifecycleManager />
           <PushNotificationHandler />
           <OfflineBanner />
@@ -102,6 +129,7 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="search" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="article/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="story/[id]" options={{ animation: 'none' }} />
             <Stack.Screen name="article/ai-analysis" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/profile" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/user-profile" options={{ presentation: 'modal' }} />

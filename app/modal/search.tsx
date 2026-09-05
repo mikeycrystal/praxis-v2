@@ -8,10 +8,10 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
   ScrollView,
   InteractionManager,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -485,7 +485,7 @@ export default function SearchModal() {
                   <View style={s.resultReadTime}><Ionicons name="time-outline" size={13} color={c.textMuted} /><Text style={[s.resultDate, { color: c.textMuted }]}>{formatPublishedLabel(item.ts_pub)}</Text></View>
                 </View>
               </View>
-              {item.image_url ? <Image source={{ uri: item.image_url }} style={s.thumb} resizeMode="cover" /> : null}
+              {item.image_url ? <Image source={{ uri: item.image_url }} style={s.thumb} contentFit="cover" cachePolicy="memory-disk" /> : null}
             </TouchableOpacity>
           )}
         />

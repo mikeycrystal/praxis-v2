@@ -59,11 +59,21 @@ import {
   upsertSavedArticle,
 } from '../lib/savedArticles';
 import {
+  claimDailyStreakUpdate,
   logArticleRead,
   readReadingActivitySummary,
   subscribeReadingActivity,
 } from '../lib/readingActivity';
 import { buildHref } from '../lib/buildHref';
+import {
+  buildArticleAnalyticsContext,
+  normalizeFeedMode,
+  trackArticleImpression,
+  trackArticleOpen,
+  trackArticleReadComplete,
+} from '../lib/analytics';
+import { consumeSharedStoryRequest, fetchSharedStoryArticle } from '../lib/sharedStory';
+import { awardDigestStreak } from '../lib/digestStreak';
 import { openPublisherArticle } from '../lib/openPublisherArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
@@ -254,7 +264,7 @@ export default function FeedScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isNarrowScreen = screenWidth < 350;
   const swipeExitDistance = screenWidth * 1.05;
-  const { isGuestMode, profile, user } = useAuth();
+  const { isGuestMode, profile, refreshProfile, user } = useAuth();
   const { announceAwardedBadgeIds, celebrateDigestCompletion } = useBadgeCelebration();
   const {
     preferences,
@@ -353,6 +363,10 @@ export default function FeedScreen() {
   const [isDigestProgressOpen, setIsDigestProgressOpen] = useState(true);
   const [digestResumeIndex, setDigestResumeIndex] = useState(0);
   const [dailyDigestFeed, setDailyDigestFeed] = useState<DailyDigestFeed | null>(null);
+  // A story opened from a shared link sits at the top of the deck as a guest
+  // card (not a Digest card) and is dropped on the first swipe, so the regular
+  // deck, Digest first if unfinished, takes over at index 0 unchanged.
+  const [sharedStory, setSharedStory] = useState<Article | null>(null);
   const [isDigestCompletionVisible, setIsDigestCompletionVisible] = useState(false);
   const [isDigestHandoffActive, setIsDigestHandoffActive] = useState(false);
   const [showGuestStreakPrompt, setShowGuestStreakPrompt] = useState(false);
@@ -416,9 +430,15 @@ export default function FeedScreen() {
       : articles,
     [articles, dailyDigestFeed, preferences.isTopNewsActive],
   );
-  const feedArticles = isDigestModeVisible && dailyDigestFeed
+  const baseFeedArticles = isDigestModeVisible && dailyDigestFeed
     ? dailyDigestFeed.displayArticles
     : topNewsArticles;
+  const feedArticles = useMemo(
+    () => sharedStory
+      ? [sharedStory, ...baseFeedArticles.filter((article) => article.id !== sharedStory.id)]
+      : baseFeedArticles,
+    [baseFeedArticles, sharedStory],
+  );
   const digestArticleIdSet = useMemo(
     () => new Set(dailyDigestFeed?.state.articleIds ?? []),
     [dailyDigestFeed?.state.articleIds],
@@ -969,6 +989,23 @@ export default function FeedScreen() {
   ]);
 
   useFocusEffect(useCallback(() => {
+    const requestedId = consumeSharedStoryRequest();
+    if (requestedId === null) return;
+
+    let cancelled = false;
+    void fetchSharedStoryArticle(requestedId).then((article) => {
+      if (cancelled || !article) return;
+      setSharedStory(article);
+      setCurrentIndex(0);
+      resetDeckPosition();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resetDeckPosition, setCurrentIndex]));
+
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
 
     void readDailyDigestOpenRequest().then((requested) => {
@@ -982,11 +1019,39 @@ export default function FeedScreen() {
     };
   }, [handleOpenTodayDigest]));
 
-  const markRead = useCallback((article: Article) => {
+  const articleAnalyticsContext = useCallback((
+    article: Article,
+    extras: { positionInFeed?: number } = {},
+  ) => buildArticleAnalyticsContext(
+    {
+      id: article.id,
+      title: article.title,
+      source: article.source ?? article.publisher?.name ?? null,
+      url: article.url,
+      category: article.category,
+      x: article.x,
+      meta: article.meta,
+    },
+    {
+      surface: 'home_feed',
+      feedMode: normalizeFeedMode(feedMode),
+      topics: article.topics,
+      ...extras,
+    },
+  ), [feedMode]);
+
+  const markRead = useCallback((article: Article, completionMethod: 'swipe' | 'open') => {
     void logArticleRead(user?.id, {
       id: article.id,
       topics: article.topics,
       title: article.title,
+    });
+
+    // Fires for guests too — the old inline analytics insert only counted
+    // signed-in users, which is why mobile engagement was invisible.
+    void trackArticleReadComplete({
+      ...articleAnalyticsContext(article),
+      completionMethod,
     });
 
     if (!user) return;
@@ -1009,20 +1074,11 @@ export default function FeedScreen() {
           throw error;
         }
 
+        const shouldUpdateStreak = await claimDailyStreakUpdate(user.id);
         await Promise.allSettled([
           supabase.rpc('increment_articles_read', { uid: user.id }),
-          supabase.rpc('update_reading_streak', { uid: user.id }),
+          ...(shouldUpdateStreak ? [supabase.rpc('update_reading_streak', { uid: user.id })] : []),
         ]);
-
-        void supabase.from('analytics_events').insert({
-          user_id: user.id,
-          event_name: 'article_view',
-          properties: { article_id: article.id },
-        }).then(({ error: analyticsError }) => {
-          if (analyticsError) {
-            console.warn('[FeedScreen] Failed to track article view', analyticsError);
-          }
-        });
 
         const { data: awardResult, error: badgeError } = await supabase.functions.invoke('award-badge', { body: { userId: user.id } });
         if (badgeError) {
@@ -1035,7 +1091,7 @@ export default function FeedScreen() {
         console.warn('[FeedScreen] Failed to mark article read', error);
       }
     })();
-  }, [announceAwardedBadgeIds, user]);
+  }, [announceAwardedBadgeIds, articleAnalyticsContext, user]);
 
   const toggleSave = useCallback(async (articleId: number) => {
     if (!user) {
@@ -1157,6 +1213,12 @@ export default function FeedScreen() {
 
     if (!isComplete) return false;
 
+    if (user) {
+      void awardDigestStreak(user.id).then((streak) => {
+        if (streak !== null) void refreshProfile();
+      });
+    }
+
     const digestArticles = dailyDigestFeed?.digestArticles ?? [];
     setDigestCompletionSummary({
       storyCount: digestArticles.length,
@@ -1193,6 +1255,8 @@ export default function FeedScreen() {
     }
     return true;
   }, [
+    refreshProfile,
+    user,
     articles,
     celebrateDigestCompletion,
     dailyDigestFeed?.digestArticles,
@@ -1204,6 +1268,18 @@ export default function FeedScreen() {
   ]);
 
   const advance = useCallback((article: Article) => {
+    if (sharedStory && article.id === sharedStory.id) {
+      setSharedStory(null);
+      resetDeckPosition();
+      if (isDailyDigestActive && digestArticleIdSet.has(article.id)) {
+        void completeDigestArticle(article.id);
+      }
+      InteractionManager.runAfterInteractions(() => {
+        markRead(article, 'swipe');
+      });
+      return;
+    }
+
     const nextIndex = index + 1;
 
     if (nextIndex >= loadedArticlesCount && feedArticles.length > loadedArticlesCount) {
@@ -1220,7 +1296,7 @@ export default function FeedScreen() {
       setCurrentIndex(nextIndex);
     }
     InteractionManager.runAfterInteractions(() => {
-      markRead(article);
+      markRead(article, 'swipe');
     });
   }, [
     digestArticleIdSet,
@@ -1234,6 +1310,7 @@ export default function FeedScreen() {
     markRead,
     setCurrentIndex,
     resetDeckPosition,
+    sharedStory,
     user,
   ]);
 
@@ -1254,6 +1331,12 @@ export default function FeedScreen() {
   }
 
   useEffect(() => {
+    if (!current) return;
+    void trackArticleImpression(
+      articleAnalyticsContext(current, { positionInFeed: safeIndex + 1 }),
+    );
+    // Deps intentionally limited: fire once per top-card change, not on
+    // context-builder identity churn.
   }, [current?.id]);
 
   const canSwipeLeft = safeIndex < maxAvailableArticles - 1;
@@ -1420,7 +1503,8 @@ export default function FeedScreen() {
   }, [retreat]);
 
   const handleReadArticle = useCallback((article: Article) => {
-    markRead(article);
+    markRead(article, 'open');
+    void trackArticleOpen(articleAnalyticsContext(article));
     void completeDigestArticle(article.id);
     void openPublisherArticle(article.url).catch(() => {
       Alert.alert(
@@ -1428,7 +1512,7 @@ export default function FeedScreen() {
         'We could not open the publisher article right now.',
       );
     });
-  }, [completeDigestArticle, markRead]);
+  }, [articleAnalyticsContext, completeDigestArticle, markRead]);
 
   const logSwipeEvent = useCallback((
     phase: 'release' | 'animation-complete',
@@ -1557,7 +1641,7 @@ export default function FeedScreen() {
                 style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}
               >
                 <Ionicons name="flame-outline" size={15} color="#8DAE73" />
-                <Text style={s.streakText}>{Math.max(profile?.reading_streak ?? 0, localStreakCount)}</Text>
+                <Text style={s.streakText}>{profile ? (profile.current_streak ?? 0) : localStreakCount}</Text>
               </TouchableOpacity>
             </>
           )}

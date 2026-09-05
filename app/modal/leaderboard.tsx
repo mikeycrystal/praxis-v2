@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { supabase } from '../services/supabase';
+import { isStreakLive } from '../lib/digestStreak';
 import { useAuth } from '../context/AuthContext';
 
 type LeaderboardTab = 'streaks' | 'readers' | 'friends';
@@ -22,9 +23,43 @@ interface LeaderboardProfile {
   username: string | null;
   avatar_url: string | null;
   articles_read: number | null;
-  reading_streak: number | null;
-  current_streak?: number | null;
+  current_streak: number | null;
+  longest_streak?: number | null;
+  streak_last_completed_date?: string | null;
 }
+
+const LEADERBOARD_LIMIT = 10;
+// Fetch more than a page so dead streaks can be zeroed before ranking.
+const LEADERBOARD_CANDIDATE_LIMIT = 50;
+const PROFILE_SELECT =
+  'id, full_name, username, avatar_url, articles_read, current_streak, longest_streak, streak_last_completed_date';
+
+// Same sanitising as the web leaderboard: a streak whose last digest
+// completion is older than yesterday (New York) is dead and shows as 0.
+const sanitizeProfiles = (profiles: LeaderboardProfile[] | null) =>
+  (profiles ?? [])
+    .filter((profile) => Boolean(profile.id))
+    .map((profile) => ({
+      ...profile,
+      current_streak: isStreakLive(profile.streak_last_completed_date)
+        ? profile.current_streak ?? 0
+        : 0,
+      articles_read: profile.articles_read ?? 0,
+    }));
+
+const sortProfiles = (
+  profiles: LeaderboardProfile[],
+  primaryKey: 'articles_read' | 'current_streak',
+) => {
+  const secondaryKey = primaryKey === 'articles_read' ? 'current_streak' : 'articles_read';
+  return [...profiles].sort((a, b) => {
+    const primaryDiff = (b[primaryKey] ?? 0) - (a[primaryKey] ?? 0);
+    if (primaryDiff !== 0) return primaryDiff;
+    const secondaryDiff = (b[secondaryKey] ?? 0) - (a[secondaryKey] ?? 0);
+    if (secondaryDiff !== 0) return secondaryDiff;
+    return (a.full_name || a.username || '').localeCompare(b.full_name || b.username || '');
+  });
+};
 
 const PAGE = {
   background: '#F7F3EA',
@@ -82,23 +117,29 @@ export default function LeaderboardModal() {
 
         const { data, error } = await supabase
           .from('profiles')
-          .select('id, full_name, username, avatar_url, articles_read, reading_streak, current_streak')
+          .select(PROFILE_SELECT)
           .in('id', friendIds)
           .order('current_streak', { ascending: false })
-          .limit(10);
+          .limit(LEADERBOARD_CANDIDATE_LIMIT);
         if (error) throw error;
-        setProfiles((data ?? []) as LeaderboardProfile[]);
+        setProfiles(
+          sortProfiles(sanitizeProfiles(data as LeaderboardProfile[]), 'current_streak')
+            .slice(0, LEADERBOARD_LIMIT),
+        );
         return;
       }
 
       const orderColumn = activeTab === 'readers' ? 'articles_read' : 'current_streak';
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, full_name, username, avatar_url, articles_read, reading_streak, current_streak')
+        .select(PROFILE_SELECT)
         .order(orderColumn, { ascending: false })
-        .limit(10);
+        .limit(activeTab === 'readers' ? LEADERBOARD_LIMIT : LEADERBOARD_CANDIDATE_LIMIT);
       if (error) throw error;
-      setProfiles((data ?? []) as LeaderboardProfile[]);
+      setProfiles(
+        sortProfiles(sanitizeProfiles(data as LeaderboardProfile[]), orderColumn)
+          .slice(0, LEADERBOARD_LIMIT),
+      );
     } catch (error) {
       console.warn('[Leaderboard] Failed to load leaderboard', error);
       setProfiles([]);
@@ -115,7 +156,7 @@ export default function LeaderboardModal() {
   const statValue = (profile: LeaderboardProfile) => (
     activeTab === 'readers'
       ? profile.articles_read ?? 0
-      : profile.current_streak ?? profile.reading_streak ?? 0
+      : profile.current_streak ?? 0
   );
 
   if (authLoading || isGuestMode || !user) return null;

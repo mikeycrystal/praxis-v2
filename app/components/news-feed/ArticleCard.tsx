@@ -2,7 +2,6 @@ import { memo, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  Image,
   StyleSheet,
   TouchableOpacity,
   Animated,
@@ -11,6 +10,7 @@ import {
   useWindowDimensions,
   type GestureResponderEvent,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import type { Article } from '../../hooks/useFeedArticles';
@@ -267,7 +267,8 @@ export const ArticleCard = memo(function ArticleCard({
             <Image
               source={{ uri: cardImageUri }}
               style={s.image}
-              resizeMode="cover"
+              contentFit="cover"
+              cachePolicy="memory-disk"
               onError={() => setHasImageLoadError(true)}
               onLoad={() => {
                 if (SWIPE_DIAGNOSTICS) {

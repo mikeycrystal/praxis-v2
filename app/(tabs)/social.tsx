@@ -15,7 +15,7 @@ interface FollowUser {
   username: string | null;
   avatar_url: string | null;
   articles_read: number;
-  reading_streak: number;
+  current_streak: number | null;
 }
 
 interface Conversation {
@@ -45,7 +45,7 @@ export default function SocialScreen() {
     setLoadingFollowing(true);
     const { data } = await supabase
       .from('follows')
-      .select('following_id, profiles!follows_following_id_fkey(id, full_name, username, avatar_url, articles_read, reading_streak)')
+      .select('following_id, profiles!follows_following_id_fkey(id, full_name, username, avatar_url, articles_read, current_streak)')
       .eq('follower_id', user.id);
     if (data) setFollowing(data.map((r: any) => r.profiles).filter(Boolean));
     setLoadingFollowing(false);
@@ -161,7 +161,7 @@ export default function SocialScreen() {
           {item.full_name ?? item.username ?? 'Anonymous'}
         </Text>
         <Text style={[s.userStats, { color: c.textMuted }]}>
-          {item.articles_read} articles · 🔥 {item.reading_streak} day streak
+          {item.articles_read} articles · 🔥 {item.current_streak ?? 0} day streak
         </Text>
       </View>
       <TouchableOpacity

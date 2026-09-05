@@ -51,7 +51,7 @@ export default function ReadingActivityModal() {
   const topTopics = summary.topTopics;
   const maxCount = Math.max(...weekData.map((day) => day.count), 1);
   const displayTotalRead = Math.max(profile?.articles_read ?? 0, summary.totalArticlesRead);
-  const displayStreak = Math.max(profile?.reading_streak ?? 0, summary.currentStreak);
+  const displayStreak = profile ? (profile.current_streak ?? 0) : summary.currentStreak;
   const dailyGoal = profile?.daily_goal ?? 5;
   const goalProgress = Math.min((summary.readsToday / Math.max(dailyGoal, 1)) * 100, 100);
   const hasActivity = displayTotalRead > 0;

@@ -93,7 +93,7 @@ export default function UserProfileModal() {
         <View style={[s.statsCard, { backgroundColor: c.card, borderColor: c.border }]}>
           {[
             { label: 'Articles Read', value: profile.articles_read ?? 0 },
-            { label: 'Day Streak', value: profile.reading_streak ?? 0 },
+            { label: 'Day Streak', value: profile.current_streak ?? 0 },
             { label: 'Followers', value: profile.followers_count ?? 0 },
           ].map((stat, i, arr) => (
             <View key={stat.label} style={[s.stat, i < arr.length - 1 && { borderRightWidth: 1, borderRightColor: c.border }]}>
