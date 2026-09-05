@@ -64,6 +64,7 @@ import {
   subscribeReadingActivity,
 } from '../lib/readingActivity';
 import { buildHref } from '../lib/buildHref';
+import { consumeSharedStoryRequest, fetchSharedStoryArticle } from '../lib/sharedStory';
 import { openPublisherArticle } from '../lib/openPublisherArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
@@ -353,6 +354,10 @@ export default function FeedScreen() {
   const [isDigestProgressOpen, setIsDigestProgressOpen] = useState(true);
   const [digestResumeIndex, setDigestResumeIndex] = useState(0);
   const [dailyDigestFeed, setDailyDigestFeed] = useState<DailyDigestFeed | null>(null);
+  // A story opened from a shared link sits at the top of the deck as a guest
+  // card (not a Digest card) and is dropped on the first swipe, so the regular
+  // deck, Digest first if unfinished, takes over at index 0 unchanged.
+  const [sharedStory, setSharedStory] = useState<Article | null>(null);
   const [isDigestCompletionVisible, setIsDigestCompletionVisible] = useState(false);
   const [isDigestHandoffActive, setIsDigestHandoffActive] = useState(false);
   const [showGuestStreakPrompt, setShowGuestStreakPrompt] = useState(false);
@@ -416,9 +421,15 @@ export default function FeedScreen() {
       : articles,
     [articles, dailyDigestFeed, preferences.isTopNewsActive],
   );
-  const feedArticles = isDigestModeVisible && dailyDigestFeed
+  const baseFeedArticles = isDigestModeVisible && dailyDigestFeed
     ? dailyDigestFeed.displayArticles
     : topNewsArticles;
+  const feedArticles = useMemo(
+    () => sharedStory
+      ? [sharedStory, ...baseFeedArticles.filter((article) => article.id !== sharedStory.id)]
+      : baseFeedArticles,
+    [baseFeedArticles, sharedStory],
+  );
   const digestArticleIdSet = useMemo(
     () => new Set(dailyDigestFeed?.state.articleIds ?? []),
     [dailyDigestFeed?.state.articleIds],
@@ -969,6 +980,23 @@ export default function FeedScreen() {
   ]);
 
   useFocusEffect(useCallback(() => {
+    const requestedId = consumeSharedStoryRequest();
+    if (requestedId === null) return;
+
+    let cancelled = false;
+    void fetchSharedStoryArticle(requestedId).then((article) => {
+      if (cancelled || !article) return;
+      setSharedStory(article);
+      setCurrentIndex(0);
+      resetDeckPosition();
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resetDeckPosition, setCurrentIndex]));
+
+  useFocusEffect(useCallback(() => {
     let cancelled = false;
 
     void readDailyDigestOpenRequest().then((requested) => {
@@ -1204,6 +1232,18 @@ export default function FeedScreen() {
   ]);
 
   const advance = useCallback((article: Article) => {
+    if (sharedStory && article.id === sharedStory.id) {
+      setSharedStory(null);
+      resetDeckPosition();
+      if (isDailyDigestActive && digestArticleIdSet.has(article.id)) {
+        void completeDigestArticle(article.id);
+      }
+      InteractionManager.runAfterInteractions(() => {
+        markRead(article);
+      });
+      return;
+    }
+
     const nextIndex = index + 1;
 
     if (nextIndex >= loadedArticlesCount && feedArticles.length > loadedArticlesCount) {
@@ -1234,6 +1274,7 @@ export default function FeedScreen() {
     markRead,
     setCurrentIndex,
     resetDeckPosition,
+    sharedStory,
     user,
   ]);
 

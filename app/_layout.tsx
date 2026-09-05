@@ -49,9 +49,10 @@ function RootRedirect() {
     const inModal = segments[0] === 'modal';
     const inArticle = segments[0] === 'article';
     const inChat = segments[0] === 'chat';
+    const inStory = segments[0] === 'story';
     const tabAliasSegments = new Set(['saved', 'graph', 'profile', 'search', 'social', 'topics']);
     const inTabAlias = tabAliasSegments.has(segments[0] ?? '');
-    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat;
+    const inAppShell = inTabs || inTabAlias || inModal || inArticle || inChat || inStory;
 
     if (!session && !isGuestMode) {
       if (!inAuth) router.replace('/login');
@@ -102,6 +103,7 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="search" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="article/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
+            <Stack.Screen name="story/[id]" options={{ animation: 'none' }} />
             <Stack.Screen name="article/ai-analysis" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/profile" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/user-profile" options={{ presentation: 'modal' }} />
