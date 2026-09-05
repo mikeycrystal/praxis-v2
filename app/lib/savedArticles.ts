@@ -27,7 +27,7 @@ export interface SavedArticleSnapshot {
   } | null;
 }
 
-type SavedArticleInput = Partial<SavedArticleSnapshot> & {
+export type SavedArticleInput = Partial<SavedArticleSnapshot> & {
   id: number;
   title?: string;
   lede?: string;
@@ -42,6 +42,64 @@ type SavedArticleInput = Partial<SavedArticleSnapshot> & {
 };
 
 type SavedArticlesListener = (articles: SavedArticleSnapshot[]) => void;
+
+// Shape of public.saved_articles, shared with the web app. The table stores
+// the article fields with the row (title is NOT NULL), so an insert with
+// only user_id + article_id is rejected and the save never reaches the
+// account. Web reads these columns back directly; so do we.
+export interface RemoteSavedArticleRow {
+  id?: string;
+  user_id: string;
+  article_id: string;
+  title: string;
+  author?: string | null;
+  source?: string | null;
+  excerpt?: string | null;
+  url?: string | null;
+  read_time?: number | null;
+  image?: string | null;
+  category?: string | null;
+  published_at?: string | null;
+  created_at?: string;
+}
+
+export const toRemoteSavedArticleRow = (
+  userId: string,
+  article: SavedArticleInput,
+): RemoteSavedArticleRow => ({
+  user_id: userId,
+  article_id: String(article.id),
+  title: article.title?.trim() || 'Untitled',
+  author: article.publisher?.name ?? null,
+  source: article.publisher?.name ?? null,
+  excerpt: article.lede ?? null,
+  url: article.url?.trim() || '#',
+  read_time: 5,
+  image: article.image_url ?? null,
+  category: article.category ?? null,
+  published_at: article.ts_pub ?? null,
+});
+
+// Web writes url "#" when it has none; treat that as missing so callers can
+// hydrate the article from the backend instead.
+export const fromRemoteSavedArticleRow = (row: RemoteSavedArticleRow): SavedArticleInput => {
+  const url = row.url && row.url !== '#' ? row.url : '';
+  const publisherName = row.source || row.author || null;
+  return {
+    id: Number(row.article_id),
+    title: row.title,
+    lede: row.excerpt ?? '',
+    image_url: row.image ?? null,
+    url,
+    ts_pub: row.published_at ?? undefined,
+    saved_at: row.created_at,
+    publisher: publisherName ? { name: publisherName, domain: '' } : null,
+    category: row.category ?? null,
+  };
+};
+
+export const hasRenderableSavedArticle = (article: SavedArticleInput) =>
+  Boolean(article.url && article.title && article.title !== 'Untitled');
 
 const listeners = new Map<string, Set<SavedArticlesListener>>();
 const memoryStorage = new Map<string, string>();
