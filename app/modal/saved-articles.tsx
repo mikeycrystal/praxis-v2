@@ -12,10 +12,13 @@ import { useAuth } from '../context/AuthContext';
 import { buildHref } from '../lib/buildHref';
 import { fetchLiveArticleById } from '../hooks/useFeedArticles';
 import {
+  fromRemoteSavedArticleRow,
+  hasRenderableSavedArticle,
   mergeSavedArticles,
   readSavedArticles,
   removeSavedArticle,
   subscribeSavedArticles,
+  type RemoteSavedArticleRow,
   type SavedArticleSnapshot,
 } from '../lib/savedArticles';
 export default function SavedArticlesModal() {
@@ -52,23 +55,27 @@ export default function SavedArticlesModal() {
     try {
       const { data, error } = await supabase
         .from('saved_articles')
-        .select('article_id, saved_at')
+        .select('*')
         .eq('user_id', user.id)
-        .order('saved_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       const localById = new Map(localSaved.map((article) => [article.id, article]));
-      const hydratedRows = await Promise.all((data ?? []).map(async (row: any) => {
-        const localArticle = localById.get(Number(row.article_id));
+      const hydratedRows = await Promise.all((data ?? []).map(async (row: RemoteSavedArticleRow) => {
+        const remote = fromRemoteSavedArticleRow(row);
+        const localArticle = localById.get(remote.id);
         if (localArticle?.url) {
-          return { ...localArticle, saved_at: row.saved_at };
+          return { ...localArticle, saved_at: remote.saved_at ?? localArticle.saved_at };
         }
+        if (hasRenderableSavedArticle(remote)) return remote;
 
-        const liveArticle = await fetchLiveArticleById(Number(row.article_id));
-        return liveArticle
-          ? { ...liveArticle, saved_at: row.saved_at }
-          : { id: row.article_id, saved_at: row.saved_at };
+        try {
+          const liveArticle = await fetchLiveArticleById(remote.id);
+          return liveArticle ? { ...liveArticle, saved_at: remote.saved_at } : remote;
+        } catch {
+          return remote;
+        }
       }));
 
       const merged = await mergeSavedArticles(
@@ -116,7 +123,7 @@ export default function SavedArticlesModal() {
       .from('saved_articles')
       .delete()
       .eq('user_id', user.id)
-      .eq('article_id', articleId);
+      .eq('article_id', String(articleId));
 
     if (error) {
       console.warn('[SavedArticlesModal] Failed to remove remote bookmark', error);

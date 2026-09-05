@@ -52,11 +52,15 @@ import {
   writeDailyDigestPanelHint,
 } from '../lib/dailyDigest';
 import {
+  fromRemoteSavedArticleRow,
+  hasRenderableSavedArticle,
   mergeSavedArticles,
   readSavedArticles,
   removeSavedArticle,
   subscribeSavedArticles,
+  toRemoteSavedArticleRow,
   upsertSavedArticle,
+  type RemoteSavedArticleRow,
 } from '../lib/savedArticles';
 import {
   claimDailyStreakUpdate,
@@ -517,25 +521,31 @@ export default function FeedScreen() {
     setSavedCount(localIds.size);
 
     try {
+      // Same table and columns the web app writes; rows carry the article
+      // fields, so most need no extra lookup.
       const { data, error } = await supabase
         .from('saved_articles')
-        .select('article_id, saved_at')
+        .select('*')
         .eq('user_id', user.id)
-        .order('saved_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       const localById = new Map(localSaved.map((article) => [article.id, article]));
-      const hydratedRows = await Promise.all((data ?? []).map(async (row: any) => {
-        const localArticle = localById.get(Number(row.article_id));
+      const hydratedRows = await Promise.all((data ?? []).map(async (row: RemoteSavedArticleRow) => {
+        const remote = fromRemoteSavedArticleRow(row);
+        const localArticle = localById.get(remote.id);
         if (localArticle?.url) {
-          return { ...localArticle, saved_at: row.saved_at };
+          return { ...localArticle, saved_at: remote.saved_at ?? localArticle.saved_at };
         }
+        if (hasRenderableSavedArticle(remote)) return remote;
 
-        const liveArticle = await fetchLiveArticleById(Number(row.article_id));
-        return liveArticle
-          ? { ...liveArticle, saved_at: row.saved_at }
-          : { id: row.article_id, saved_at: row.saved_at };
+        try {
+          const liveArticle = await fetchLiveArticleById(remote.id);
+          return liveArticle ? { ...liveArticle, saved_at: remote.saved_at } : remote;
+        } catch {
+          return remote;
+        }
       }));
 
       const merged = await mergeSavedArticles(
@@ -1126,12 +1136,24 @@ export default function FeedScreen() {
       if (isSaved) {
         const { error } = await supabase.from('saved_articles').delete()
           .eq('user_id', user.id)
-          .eq('article_id', articleId);
+          .eq('article_id', String(articleId));
         if (error) throw error;
       } else {
+        // Full row: the table requires title and the web reads the other
+        // columns back. An id-only insert was rejected, so saves never
+        // reached the account.
         const { error } = await supabase
           .from('saved_articles')
-          .insert({ user_id: user.id, article_id: articleId });
+          .insert(toRemoteSavedArticleRow(user.id, {
+            id: article.id,
+            title: article.title,
+            lede: article.lede ?? '',
+            image_url: article.image_url,
+            url: article.url,
+            ts_pub: article.ts_pub,
+            publisher: article.publisher ?? null,
+            category: article.category ?? null,
+          }));
         if (error && (error as { code?: string }).code !== '23505') {
           throw error;
         }
@@ -1660,11 +1682,6 @@ export default function FeedScreen() {
               accessibilityLabel="Saved Articles requires an account"
             >
               <Ionicons name="bookmark-outline" size={18} color={c.icon} />
-              {savedCount > 0 && (
-                <View style={[s.badge, { backgroundColor: c.tint }]}>
-                  <Text style={s.badgeText}>{savedCount}</Text>
-                </View>
-              )}
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
@@ -1672,11 +1689,6 @@ export default function FeedScreen() {
               style={s.headerBtn}
             >
               <Ionicons name="bookmark-outline" size={18} color={c.icon} />
-              {savedCount > 0 && (
-                <View style={[s.badge, { backgroundColor: c.tint }]}>
-                  <Text style={s.badgeText}>{savedCount}</Text>
-                </View>
-              )}
             </TouchableOpacity>
           )}
           <TouchableOpacity
