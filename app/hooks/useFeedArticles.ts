@@ -643,12 +643,127 @@ const streamRecommendedArticles = async (
   return streamedArticles;
 };
 
+// Port of the web Search page (card-page Search.tsx). The top-right search
+// hits GET /v1/search: a title match over the whole article corpus, newest
+// first. When the full phrase misses, the same shorter word combinations the
+// web tries are sent next. Rows from that endpoint carry no graph
+// coordinates or meta, so those are borrowed from the cached article pool
+// when the same story is in it. The cached-pool term match stays as the
+// fallback for no results, a failed request, or a disabled recommender.
+const SEARCH_STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'for', 'from', 'how', 'in', 'of', 'on', 'or', 'the', 'to', 'with',
+]);
+
+export const buildSearchCandidates = (rawQuery: string): string[] => {
+  const normalized = rawQuery.trim().replace(/\s+/g, ' ');
+  if (!normalized) return [];
+
+  const candidates = [normalized];
+  const words = normalized.split(' ');
+  const meaningfulWords = words.filter((word) => !SEARCH_STOP_WORDS.has(word.toLowerCase()));
+
+  if (meaningfulWords.length >= 2) {
+    candidates.push(meaningfulWords.slice(0, 3).join(' '));
+    candidates.push(meaningfulWords.slice(0, 2).join(' '));
+  }
+
+  if (words.length >= 2) {
+    candidates.push(words.slice(0, 3).join(' '));
+    candidates.push(words.slice(0, 2).join(' '));
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+};
+
+interface TitleSearchRow {
+  id?: number | string;
+  title?: string;
+  lede?: string | null;
+  url?: string;
+  image_url?: string | null;
+  publisher?: string | null;
+  ts_pub?: string;
+}
+
+// Returns null when the recommender API is not configured.
+const fetchTitleSearchResults = async (query: string, limit: number): Promise<Article[] | null> => {
+  const { apiBaseUrl, isEnabled } = getRecommenderConfig();
+  if (!isEnabled || !apiBaseUrl) return null;
+
+  const params = new URLSearchParams({ query, limit: String(limit) });
+  const response = await fetch(
+    `${apiBaseUrl.replace(/\/$/, '')}/v1/search?${params.toString()}`,
+    { headers: getRecommenderHeaders() },
+  );
+  if (!response.ok) {
+    throw new Error(`Title search returned ${response.status}`);
+  }
+
+  const json = await response.json();
+  if (!Array.isArray(json)) return [];
+
+  return (json as TitleSearchRow[])
+    .map((row) => mapFallbackArticle({
+      id: row.id,
+      title: row.title,
+      lede: row.lede ?? undefined,
+      url: row.url,
+      image_url: row.image_url ?? undefined,
+      publisher: row.publisher ?? undefined,
+      ts_pub: row.ts_pub,
+    }))
+    .filter((article) => Boolean(article.url));
+};
+
 export const searchLiveArticles = async (query: string, limit = 12): Promise<Article[]> => {
   const normalizedQuery = normalizeSearchTerm(query);
   if (!normalizedQuery) return [];
 
-  const articles = await fetchTopNewsArticles(null);
-  return getTermMatchedArticles(articles, [normalizedQuery]).slice(0, limit);
+  const searchCachedPool = async () => {
+    const articles = await fetchTopNewsArticles(null);
+    return getTermMatchedArticles(articles, [normalizedQuery]).slice(0, limit);
+  };
+
+  let matched: Article[] = [];
+  try {
+    for (const candidate of buildSearchCandidates(query)) {
+      const results = await fetchTitleSearchResults(candidate, Math.max(limit, 20));
+      if (results === null) return searchCachedPool();
+      if (results.length > 0) {
+        matched = results;
+        break;
+      }
+    }
+  } catch (error) {
+    console.warn('[useFeedArticles] Title search unavailable; using cached pool', error);
+    return searchCachedPool();
+  }
+
+  if (matched.length === 0) return searchCachedPool();
+
+  try {
+    const pool = await fetchTopNewsArticles(null);
+    const poolById = new Map(pool.map((article) => [article.id, article]));
+    matched = matched.map((article) => {
+      const enriched = poolById.get(article.id);
+      return enriched
+        ? {
+            ...article,
+            x: enriched.x,
+            y: enriched.y,
+            topics: enriched.topics,
+            category: enriched.category,
+            meta: enriched.meta,
+            reasons: enriched.reasons,
+            publisher: article.publisher ?? enriched.publisher,
+          }
+        : article;
+    });
+  } catch (error) {
+    console.warn('[useFeedArticles] Could not enrich title search results', error);
+  }
+
+  return matched.slice(0, limit);
 };
 
 // Graph free-text search deliberately uses the same cached article pool as
