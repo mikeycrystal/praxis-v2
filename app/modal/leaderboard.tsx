@@ -22,7 +22,7 @@ interface LeaderboardProfile {
   username: string | null;
   avatar_url: string | null;
   articles_read: number | null;
-  reading_streak: number | null;
+  current_streak: number | null;
 }
 
 const PAGE = {

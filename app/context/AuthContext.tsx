@@ -13,6 +13,7 @@ export interface Profile {
   topics: string[];
   articles_read: number;
   reading_streak: number;
+  current_streak?: number | null;
   daily_goal: number;
   followers_count: number;
   following_count: number;
