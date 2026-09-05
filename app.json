@@ -23,11 +23,7 @@
         "NSCameraUsageDescription": "Praxis uses your camera to let you set a profile photo.",
         "NSPhotoLibraryUsageDescription": "Praxis uses your photo library to let you choose a profile photo.",
         "NSUserNotificationUsageDescription": "Praxis sends you notifications for new followers, messages, and badge milestones."
-      },
-      "associatedDomains": [
-        "applinks:www.praxismedia.us",
-        "applinks:praxismedia.us"
-      ]
+      }
     },
     "android": {
       "adaptiveIcon": {
