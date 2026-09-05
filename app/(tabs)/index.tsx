@@ -1559,7 +1559,7 @@ export default function FeedScreen() {
                 style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}
               >
                 <Ionicons name="flame-outline" size={15} color="#8DAE73" />
-                <Text style={s.streakText}>{profile ? (profile.reading_streak ?? 0) : localStreakCount}</Text>
+                <Text style={s.streakText}>{profile ? (profile.current_streak ?? 0) : localStreakCount}</Text>
               </TouchableOpacity>
             </>
           )}
