@@ -1048,6 +1048,13 @@ export default function GraphScreen() {
   };
 
   const handleApplyChanges = () => {
+    // Typed terms wait as chips until the circle is set; Apply runs the
+    // deterministic full-corpus search (newest first inside the circle),
+    // never the AI stream.
+    if (promptTerms.length > 0) {
+      void runDeterministicGraphSearch(promptTerms.join(' '), selectedTopics, promptTerms);
+      return;
+    }
     // One selected preset/topic is a search intent, not a recommendation
     // prompt. Send it through the same full-corpus Graph search as typed
     // terms so choosing “Landslides and Flooding” reliably returns that story
@@ -1077,7 +1084,13 @@ export default function GraphScreen() {
       ? promptTerms
       : [...promptTerms, trimmed];
 
-    await runDeterministicGraphSearch(trimmed, nextTopics, nextPromptTerms);
+    // Stage the term as a chip, like the web preferences page. The user
+    // adjusts the circle first; "Apply Changes" runs the search.
+    setSelectedTopics(nextTopics);
+    setPromptTerms(nextPromptTerms);
+    setSearch('');
+    dismissSearch();
+    closeDropdown();
   };
 
   const handleTopNewsReset = () => {
