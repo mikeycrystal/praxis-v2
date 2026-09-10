@@ -2039,21 +2039,22 @@ export default function FeedScreen() {
 
 const s = StyleSheet.create({
   container: { flex: 1 },
+  // Same header geometry as the Graph tab (height 88 / 76 narrow, 24pt
+  // wordmark) so the top bar doesn't change size between tabs.
   header: {
+    height: 88,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 14,
+    paddingHorizontal: 18,
     borderBottomWidth: 1,
   },
-  headerNarrow: { paddingHorizontal: 10 },
+  headerNarrow: { height: 76, paddingHorizontal: 10 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 92 },
   headerSideNarrow: { minWidth: 78, gap: 2 },
   headerCenter: { alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { fontSize: 21, fontWeight: '800', letterSpacing: -0.4 },
-  headerTitleNarrow: { fontSize: 19 },
+  headerTitle: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
+  headerTitleNarrow: { fontSize: 20 },
   headerBtn: {
     width: 38,
     height: 38,
