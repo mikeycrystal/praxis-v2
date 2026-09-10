@@ -40,21 +40,15 @@ export const GraphOnboarding = ({ topicsRect, graphRect, onComplete }: GraphOnbo
     Animated.timing(opacity, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => onComplete());
   };
 
-  // Card placement mirrors the web: step 1 sits under the topics control,
-  // step 2 beside the graph when there is room, otherwise centred below its
-  // midpoint.
+  // Both cards sit under their target so the spotlighted element stays
+  // visible; if there is no room under the graph, the card goes above it.
   const cardWidth = Math.min(320, viewportWidth - 32);
-  let left: number;
-  let top: number;
-  if (step === 'substep1') {
-    left = Math.min(Math.max(16, target.x + target.width / 2 - cardWidth / 2), viewportWidth - cardWidth - 16);
-    top = Math.min(target.y + target.height + 18, viewportHeight - 230);
-  } else {
-    const centerX = target.x + target.width / 2;
-    const centerY = target.y + target.height / 2;
-    left = Math.min(Math.max(16, centerX - cardWidth / 2), viewportWidth - cardWidth - 16);
-    top = Math.min(Math.max(90, centerY - 110), viewportHeight - 240);
-  }
+  const cardHeight = 176;
+  const left = Math.min(Math.max(16, target.x + target.width / 2 - cardWidth / 2), viewportWidth - cardWidth - 16);
+  const below = target.y + target.height + 18;
+  const fitsBelow = below + cardHeight <= viewportHeight - 16;
+  const top = fitsBelow ? below : Math.max(16, target.y - 18 - cardHeight);
+  const caretUp = fitsBelow;
 
   const pad = 8;
 
@@ -80,7 +74,7 @@ export const GraphOnboarding = ({ topicsRect, graphRect, onComplete }: GraphOnbo
       <Pressable style={StyleSheet.absoluteFillObject} onPress={advance} />
 
       <View style={[s.card, { width: cardWidth, left, top }]}>
-        {step === 'substep1' ? <View style={s.caretUp} /> : null}
+        {caretUp ? <View style={s.caretUp} /> : <View style={s.caretDown} />}
         <Text style={s.title}>{step === 'substep1' ? 'Choose a topic' : 'Shape your news feed'}</Text>
         <Text style={s.body}>
           {step === 'substep1'
@@ -118,6 +112,15 @@ const s = StyleSheet.create({
     width: 0, height: 0,
     borderLeftWidth: 9, borderRightWidth: 9, borderBottomWidth: 10,
     borderLeftColor: 'transparent', borderRightColor: 'transparent', borderBottomColor: '#FFFFFF',
+  },
+  caretDown: {
+    position: 'absolute',
+    bottom: -9,
+    left: '50%',
+    marginLeft: -9,
+    width: 0, height: 0,
+    borderLeftWidth: 9, borderRightWidth: 9, borderTopWidth: 10,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent', borderTopColor: '#FFFFFF',
   },
   title: { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 8 },
   body: { fontSize: 14, color: '#4B5563', lineHeight: 20, marginBottom: 16 },

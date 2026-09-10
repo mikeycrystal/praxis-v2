@@ -318,7 +318,11 @@ export default function GraphScreen() {
   // Two-step spotlight tour (port of the web GraphOnboarding): the topics
   // control, then the graph. Targets are measured in window coordinates and
   // converted to the SafeAreaView's frame.
-  const { shouldShowGraphOnboarding, markGraphVisited } = useOnboarding(session);
+  const { shouldShowGraphOnboarding, markGraphVisited, completeStep: completeOnboardingStep } = useOnboarding(session);
+  // Reaching the Graph tab on your own makes the feed banner pointless.
+  useEffect(() => {
+    void completeOnboardingStep('onboarding_graph_banner_completed');
+  }, [completeOnboardingStep]);
   const onboardingRootRef = useRef<View>(null);
   const onboardingTopicsRef = useRef<View>(null);
   const onboardingGraphRef = useRef<View>(null);
