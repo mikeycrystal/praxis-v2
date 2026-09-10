@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 // Port of the web GraphBanner: after the first swipe, a card above the tab
@@ -13,6 +13,12 @@ export const GraphBanner = ({ onDismiss, swipeCount = 0 }: GraphBannerProps) => 
   const progress = useRef(new Animated.Value(0)).current;
   const bounce = useRef(new Animated.Value(0)).current;
   const dismissed = useRef(false);
+  // Two tabs: the Graph icon is centred at 75% of the screen width. Aim the
+  // pointer at it regardless of the card's width.
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = Math.min(300, screenWidth * 0.92);
+  const cardLeft = (screenWidth - cardWidth) / 2;
+  const pointerLeft = Math.max(12, Math.min(cardWidth - 26, screenWidth * 0.75 - cardLeft - 7));
 
   const dismiss = () => {
     if (dismissed.current) return;
@@ -43,9 +49,9 @@ export const GraphBanner = ({ onDismiss, swipeCount = 0 }: GraphBannerProps) => 
 
   return (
     <Animated.View style={[s.anchor, { opacity: progress, transform: [{ translateY }] }]} pointerEvents="none">
-      <View style={s.card}>
-        {/* Pointer toward the Graph tab (right half of the tab bar) */}
-        <Animated.View style={[s.pointer, { transform: [{ translateY: arrowY }] }]}>
+      <View style={[s.card, { width: cardWidth }]}>
+        {/* Pointer aimed at the Graph tab icon */}
+        <Animated.View style={[s.pointer, { left: pointerLeft, transform: [{ translateY: arrowY }] }]}>
           <View style={s.pointerStem} />
           <View style={s.pointerHead} />
         </Animated.View>
@@ -71,8 +77,6 @@ export const GraphBanner = ({ onDismiss, swipeCount = 0 }: GraphBannerProps) => 
 const s = StyleSheet.create({
   anchor: { position: 'absolute', left: 0, right: 0, bottom: 64, alignItems: 'center', zIndex: 90 },
   card: {
-    width: 300,
-    maxWidth: '92%',
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#BFDBFE',
@@ -84,7 +88,7 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 10 },
     elevation: 6,
   },
-  pointer: { position: 'absolute', bottom: -24, right: '22%', alignItems: 'center' },
+  pointer: { position: 'absolute', bottom: -24, alignItems: 'center' },
   pointerStem: { width: 2, height: 12, borderRadius: 1, backgroundColor: 'rgba(147,197,253,0.8)' },
   pointerHead: {
     width: 0, height: 0,

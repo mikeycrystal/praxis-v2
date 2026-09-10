@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
-// Port of the web SwipeTooltip: a small bubble over the lower card area that
-// fades in, explains the two gestures, and goes away on tap, on the first
-// swipe, or after 4.5 seconds.
+// Port of the web SwipeTooltip, adjusted for the phone: the bubble sits
+// below the card (never over the headline or the Read pill), nothing is
+// laid over the deck so the first swipe goes straight to the card, and it
+// only leaves on that swipe or on a tap. No timer.
 interface SwipeTooltipProps {
   onDismiss: () => void;
 }
@@ -20,14 +21,10 @@ export const SwipeTooltip = ({ onDismiss }: SwipeTooltipProps) => {
 
   useEffect(() => {
     Animated.timing(opacity, { toValue: 1, duration: 300, delay: 50, useNativeDriver: true }).start();
-    const timer = setTimeout(dismiss, 4500);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [opacity]);
 
   return (
     <Animated.View style={[StyleSheet.absoluteFillObject, s.root, { opacity }]} pointerEvents="box-none">
-      <Pressable style={StyleSheet.absoluteFillObject} onPress={dismiss} />
       <View style={s.anchor} pointerEvents="box-none">
         <Pressable style={s.bubble} onPress={dismiss}>
           <View style={s.body}>
@@ -45,8 +42,8 @@ export const SwipeTooltip = ({ onDismiss }: SwipeTooltipProps) => {
 };
 
 const s = StyleSheet.create({
-  root: { backgroundColor: 'rgba(0,0,0,0.03)', zIndex: 100 },
-  anchor: { position: 'absolute', left: 0, right: 0, bottom: 84, alignItems: 'center', paddingHorizontal: 16 },
+  root: { zIndex: 100 },
+  anchor: { position: 'absolute', left: 0, right: 0, bottom: 10, alignItems: 'center', paddingHorizontal: 16 },
   bubble: {
     width: 270,
     borderRadius: 14,
