@@ -138,7 +138,6 @@ export const ArticleCard = memo(function ArticleCard({
   const mapLeft = ((clampCoord(article.x) + 1) / 2) * MAP_BOX_SIZE;
   const mapTop = ((1 - clampCoord(article.y)) / 2) * MAP_BOX_SIZE;
   const cardImageUri = hasImageLoadError ? null : article.image_url;
-  const subtitle = article.meta?.summary || article.lede || '';
   const sourceName = article.source || article.publisher?.name || 'Unknown';
   const updatedLabel = `Updated ${formatTimeAgo(article.ts_pub)}`;
   const backSummary = article.meta?.summary || article.lede || null;
@@ -367,11 +366,10 @@ export const ArticleCard = memo(function ArticleCard({
               ) : null}
             </View>
 
-            <Text style={[s.title, isCompactCard ? s.titleCompact : null]} numberOfLines={isVeryCompactCard ? 2 : 3}>{article.title}</Text>
-
-            {subtitle && !isVeryCompactCard ? (
-              <Text style={[s.subtitle, isCompactCard ? s.subtitleCompact : null]} numberOfLines={isCompactCard ? 1 : 2}>{subtitle}</Text>
-            ) : null}
+            {/* Front shows the headline only; the summary lives on the back of
+                the card, so repeating a truncated tease here only stole
+                headline lines. */}
+            <Text style={[s.title, isCompactCard ? s.titleCompact : null]} numberOfLines={isVeryCompactCard ? 3 : 4}>{article.title}</Text>
 
             <View style={s.footerRow}>
               <Text style={[s.updatedText, isCompactCard ? s.updatedTextCompact : null]}>{updatedLabel}</Text>
@@ -803,21 +801,15 @@ const s = StyleSheet.create({
   },
   title: {
     color: '#FFFFFF',
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
-    lineHeight: 31,
+    lineHeight: 32,
     letterSpacing: -0.4,
     textShadowColor: 'rgba(0,0,0,0.7)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
-  titleCompact: { fontSize: 18, lineHeight: 24, letterSpacing: -0.2 },
-  subtitle: {
-    color: 'rgba(255,255,255,0.88)',
-    fontSize: 15,
-    lineHeight: 24,
-  },
-  subtitleCompact: { fontSize: 13, lineHeight: 18 },
+  titleCompact: { fontSize: 19, lineHeight: 25, letterSpacing: -0.2 },
   footerRow: {
     marginTop: 2,
     flexDirection: 'row',
