@@ -1940,49 +1940,6 @@ export default function FeedScreen() {
         </View>
       )}
 
-      {/* Progress dots */}
-      {!isDigestPreparing && maxAvailableArticles > 0 && current && (
-        <View style={s.dotsRow}>
-          {(() => {
-            try {
-              if (!Array.isArray(feedArticles) || maxAvailableArticles === 0) {
-                console.warn('[FeedScreen] Articles array invalid for dots:', { isArray: Array.isArray(feedArticles), length: feedArticles?.length });
-                return null;
-              }
-              const visibleArticles = feedArticles.slice(0, maxAvailableArticles);
-              const startIdx = Math.max(0, safeIndex - 2);
-              const endIdx = Math.min(visibleArticles.length, safeIndex + 5);
-              const dotArticles = visibleArticles.slice(startIdx, endIdx);
-
-              if (!Array.isArray(dotArticles)) {
-                console.error('[FeedScreen] Slice result is not an array');
-                return null;
-              }
-
-              return dotArticles.map((article, i) => {
-                if (!article) {
-                  console.warn('[FeedScreen] Article at index is null:', { i, startIdx });
-                  return null;
-                }
-                const isActive = startIdx + i === safeIndex;
-                return (
-                  <View
-                    key={`dot-${i}`}
-                    style={[s.dot, {
-                      backgroundColor: isActive ? c.tint : c.border,
-                      width: isActive ? 20 : 6,
-                    }]}
-                  />
-                );
-              });
-            } catch (e) {
-              console.error('[FeedScreen] Error rendering progress dots:', e, { index, articlesLength: feedArticles?.length });
-              return null;
-            }
-          })()}
-        </View>
-      )}
-
       {showLoadingMoreIndicator ? (
         <View style={[s.feedStatusPill, { backgroundColor: 'rgba(247,243,234,0.96)', borderColor: c.border }]}>
           <ActivityIndicator size="small" color={c.tint} />
@@ -2526,10 +2483,6 @@ const s = StyleSheet.create({
     left: 36,
     zIndex: 6,
   },
-  dotsRow: {
-    flexDirection: 'row', justifyContent: 'center',
-    alignItems: 'center', gap: 6, paddingTop: 8, paddingBottom: 10,
-  },
   feedStatusPill: {
     alignSelf: 'center',
     flexDirection: 'row',
@@ -2545,7 +2498,6 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  dot: { height: 6, borderRadius: 3 },
   praxisLoader: {
     flex: 1,
     alignItems: 'center',
