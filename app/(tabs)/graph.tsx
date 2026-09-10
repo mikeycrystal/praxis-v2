@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Link, router, useFocusEffect } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
+import { useOnboarding } from '../hooks/useOnboarding';
+import { GraphOnboarding, type SpotlightRect } from '../components/onboarding/GraphOnboarding';
 import { useNewsPreferences } from '../context/NewsPreferencesContext';
 import {
   ActiveQueryState,
@@ -312,7 +314,33 @@ const buildSafeModePrefetchedArticles = ({
   });
 
 export default function GraphScreen() {
-  const { isGuestMode, user, profile } = useAuth();
+  const { isGuestMode, user, profile, session } = useAuth();
+  // Two-step spotlight tour (port of the web GraphOnboarding): the topics
+  // control, then the graph. Targets are measured in window coordinates and
+  // converted to the SafeAreaView's frame.
+  const { shouldShowGraphOnboarding, markGraphVisited } = useOnboarding(session);
+  const onboardingRootRef = useRef<View>(null);
+  const onboardingTopicsRef = useRef<View>(null);
+  const onboardingGraphRef = useRef<View>(null);
+  const [onboardingTopicsRect, setOnboardingTopicsRect] = useState<SpotlightRect | null>(null);
+  const [onboardingGraphRect, setOnboardingGraphRect] = useState<SpotlightRect | null>(null);
+  const measureOnboardingTargets = useCallback(() => {
+    const root = onboardingRootRef.current;
+    if (!root) return;
+    root.measureInWindow((rootX, rootY) => {
+      onboardingTopicsRef.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) setOnboardingTopicsRect({ x: x - rootX, y: y - rootY, width, height });
+      });
+      onboardingGraphRef.current?.measureInWindow((x, y, width, height) => {
+        if (width > 0 && height > 0) setOnboardingGraphRect({ x: x - rootX, y: y - rootY, width, height });
+      });
+    });
+  }, []);
+  useEffect(() => {
+    if (!shouldShowGraphOnboarding) return;
+    const timer = setTimeout(measureOnboardingTargets, 350);
+    return () => clearTimeout(timer);
+  }, [shouldShowGraphOnboarding, measureOnboardingTargets]);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const isNarrowScreen = windowWidth < 350;
   const graphMinSize = windowHeight < 620 ? 184 : windowHeight < 740 ? 206 : 240;
@@ -1200,7 +1228,7 @@ export default function GraphScreen() {
   );
 
   return (
-    <SafeAreaView style={[s.container, { backgroundColor: PAGE.background }]}>
+    <SafeAreaView ref={onboardingRootRef} style={[s.container, { backgroundColor: PAGE.background }]}>
       {isHelpOpen || showSaveDialog || showSignInDialog ? (
         <Pressable
           style={s.modalBackdrop}
@@ -1277,7 +1305,7 @@ export default function GraphScreen() {
       </Pressable>
 
       <View style={s.controls}>
-        <View style={s.searchRow}>
+        <View ref={onboardingTopicsRef} collapsable={false} style={s.searchRow}>
           <View style={s.searchFieldWrap}>
             <View style={[s.searchShell, { borderColor: PAGE.chipBorder }]}>
               <Ionicons name="search-outline" size={18} color={PAGE.textMuted} />
@@ -1559,8 +1587,11 @@ export default function GraphScreen() {
 
       <Pressable style={s.graphSection} onPress={dismissSearch}>
         <View
+          ref={onboardingGraphRef}
+          collapsable={false}
           style={s.graphWrap}
           onLayout={(event) => {
+            if (shouldShowGraphOnboarding) measureOnboardingTargets();
             const { width, height } = event.nativeEvent.layout;
             setGraphViewport((previous) => {
               const nextWidth = Math.round(width);
@@ -1797,6 +1828,14 @@ export default function GraphScreen() {
             </View>
           </View>
         </View>
+      ) : null}
+
+      {shouldShowGraphOnboarding ? (
+        <GraphOnboarding
+          topicsRect={onboardingTopicsRect}
+          graphRect={onboardingGraphRect}
+          onComplete={() => void markGraphVisited()}
+        />
       ) : null}
 
     </SafeAreaView>

@@ -78,6 +78,9 @@ import {
 } from '../lib/analytics';
 import { consumeSharedStoryRequest, fetchSharedStoryArticle } from '../lib/sharedStory';
 import { awardDigestStreak } from '../lib/digestStreak';
+import { useOnboarding } from '../hooks/useOnboarding';
+import { SwipeTooltip } from '../components/onboarding/SwipeTooltip';
+import { GraphBanner } from '../components/onboarding/GraphBanner';
 import { openPublisherArticle } from '../lib/openPublisherArticle';
 import { supabase } from '../services/supabase';
 import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
@@ -268,7 +271,15 @@ export default function FeedScreen() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const isNarrowScreen = screenWidth < 350;
   const swipeExitDistance = screenWidth * 1.05;
-  const { isGuestMode, profile, refreshProfile, user } = useAuth();
+  const { isGuestMode, profile, refreshProfile, user, session } = useAuth();
+  // Guided tour (port of the web onboarding): swipe tooltip, then a banner
+  // pointing at the Graph tab. Flags live on the profile / device.
+  const {
+    shouldShowSwipeTooltip,
+    shouldShowGraphBanner,
+    completeStep: completeOnboardingStep,
+  } = useOnboarding(session);
+  const [onboardingSwipeCount, setOnboardingSwipeCount] = useState(0);
   const { announceAwardedBadgeIds, celebrateDigestCompletion } = useBadgeCelebration();
   const {
     preferences,
@@ -1051,6 +1062,10 @@ export default function FeedScreen() {
   ), [feedMode]);
 
   const markRead = useCallback((article: Article, completionMethod: 'swipe' | 'open') => {
+    if (completionMethod === 'swipe') {
+      setOnboardingSwipeCount((count) => count + 1);
+      void completeOnboardingStep('onboarding_swipe_completed');
+    }
     void logArticleRead(user?.id, {
       id: article.id,
       topics: article.topics,
@@ -2032,6 +2047,16 @@ export default function FeedScreen() {
         returnTo={accountPrompt?.returnTo ?? '/'}
         onClose={() => setAccountPrompt(null)}
       />
+
+      {shouldShowSwipeTooltip && !sharedStory && !isDigestPreparing && feedArticles.length > 0 ? (
+        <SwipeTooltip onDismiss={() => void completeOnboardingStep('onboarding_swipe_completed')} />
+      ) : null}
+      {shouldShowGraphBanner && !sharedStory && feedArticles.length > 0 ? (
+        <GraphBanner
+          swipeCount={onboardingSwipeCount}
+          onDismiss={() => void completeOnboardingStep('onboarding_graph_banner_completed')}
+        />
+      ) : null}
 
     </SafeAreaView>
   );
