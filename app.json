@@ -9,11 +9,6 @@
     "scheme": "praxis",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#14161B"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.praxis.newsapp",
@@ -69,7 +64,16 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-image-picker"
+      "expo-image-picker",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#F7F3EA"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

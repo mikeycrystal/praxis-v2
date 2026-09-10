@@ -2,6 +2,7 @@ import './lib/webRuntimePolyfills';
 import { useEffect, useRef } from 'react';
 import { Stack, router, useGlobalSearchParams, usePathname, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
@@ -61,6 +62,12 @@ function AppLifecycleManager() {
   return null;
 }
 
+// Keep the native launch screen up until the session is restored and the
+// first route is decided, so the user never sees a half-drawn screen or a
+// slide into Sign In while the app is still figuring out who they are.
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
+SplashScreen.setOptions({ duration: 250, fade: true });
+
 function RootRedirect() {
   const { session, profile, loading, isGuestMode } = useAuth();
   const segments = useSegments();
@@ -87,6 +94,9 @@ function RootRedirect() {
       const returnTo = typeof params.returnTo === 'string' ? params.returnTo : null;
       router.replace((returnTo || '/') as any);
     }
+
+    // The route is settled for this auth state; reveal the app.
+    void SplashScreen.hideAsync().catch(() => undefined);
   }, [session, profile, loading, segments, isGuestMode, params.returnTo]);
 
   return null;
@@ -125,7 +135,7 @@ export default function RootLayout() {
           <PushNotificationHandler />
           <OfflineBanner />
           <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(auth)" options={{ animation: 'none' }} />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="search" options={{ presentation: 'card', animation: 'slide_from_right' }} />
             <Stack.Screen name="article/[id]" options={{ presentation: 'card', animation: 'slide_from_right' }} />
