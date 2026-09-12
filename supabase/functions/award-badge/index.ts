@@ -6,6 +6,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Quiet hours (10pm-7am local, per stored device timezone) — never ping at night.
+const inQuietHours = (timezone: string | null) => {
+  try {
+    const hour = Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone ?? 'America/New_York', hour: 'numeric', hourCycle: 'h23',
+    }).format(new Date()));
+    return hour >= 22 || hour < 7;
+  } catch {
+    return false;
+  }
+};
+
 // Badge definitions: { id, name, description, icon, condition(profile) => boolean }
 const BADGES = [
   { id: 'first_read',    name: 'First Read',    icon: '📖', description: 'Read your first article',            check: (p: any) => p.articles_read >= 1 },
@@ -92,10 +104,11 @@ serve(async (req) => {
     const pushAllowed = badgeProfile?.notify_social !== false && (!recentSocial || recentSocial.length === 0);
 
     const { data: tokens } = pushAllowed
-      ? await supabase.from('push_tokens').select('token').eq('user_id', userId)
+      ? await supabase.from('push_tokens').select('token, timezone').eq('user_id', userId)
       : { data: null };
 
-    if (tokens && tokens.length > 0) {
+    const awake = (tokens ?? []).filter((t: { token: string; timezone: string | null }) => !inQuietHours(t.timezone));
+    if (awake.length > 0) {
       // One push even if several badges landed at once
       const topBadge = newBadges[0];
       const title = newBadges.length > 1
@@ -104,7 +117,7 @@ serve(async (req) => {
       const body = newBadges.length > 1
         ? newBadges.map(b => b.name).join(', ')
         : topBadge.description;
-      const messages = tokens.map(({ token }: { token: string }) => ({
+      const messages = awake.map(({ token }: { token: string }) => ({
         to: token,
         title,
         body,

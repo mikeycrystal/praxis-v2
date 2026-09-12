@@ -41,11 +41,6 @@ const SWITCHES = [
     label: 'Follows & messages',
     hint: 'When someone follows or messages you.',
   },
-  {
-    key: 'notify_quiet_hours' as const,
-    label: 'Quiet hours',
-    hint: 'No notifications 10 pm-7 am.',
-  },
 ];
 
 type PrefKey = (typeof SWITCHES)[number]['key'];
@@ -106,6 +101,7 @@ export default function NotificationSettingsModal() {
             </View>
           ))}
         </View>
+        <Text style={s.footnote}>Praxis never notifies you between 10 pm and 7 am.</Text>
       </View>
     </SafeAreaView>
   );
@@ -144,4 +140,12 @@ const s = StyleSheet.create({
   rowCopy: { flex: 1, minWidth: 0 },
   rowLabel: { color: PAGE.text, fontSize: 16, fontWeight: '600' },
   rowHint: { color: PAGE.textMuted, fontSize: 12.5, lineHeight: 17, marginTop: 2 },
+  footnote: {
+    color: PAGE.textMuted,
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 14,
+    marginHorizontal: 8,
+  },
 });

@@ -6,6 +6,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Quiet hours (10pm-7am local, per stored device timezone) — never ping at night.
+const inQuietHours = (timezone: string | null) => {
+  try {
+    const hour = Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone ?? 'America/New_York', hour: 'numeric', hourCycle: 'h23',
+    }).format(new Date()));
+    return hour >= 22 || hour < 7;
+  } catch {
+    return false;
+  }
+};
+
 // Called via Supabase Webhook when a row is inserted into the `follows` table.
 // Payload shape: { type: 'INSERT', record: { follower_id, following_id } }
 serve(async (req) => {
@@ -60,7 +72,7 @@ serve(async (req) => {
     // Get push tokens for the person being followed
     const { data: tokens } = await supabase
       .from('push_tokens')
-      .select('token')
+      .select('token, timezone')
       .eq('user_id', following_id);
 
     if (!tokens || tokens.length === 0) {
@@ -69,8 +81,15 @@ serve(async (req) => {
       });
     }
 
+    const awake = tokens.filter((t: { token: string; timezone: string | null }) => !inQuietHours(t.timezone));
+    if (awake.length === 0) {
+      return new Response(JSON.stringify({ sent: 0, quiet: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Send Expo push notifications
-    const messages = tokens.map(({ token }: { token: string }) => ({
+    const messages = awake.map(({ token }: { token: string }) => ({
       to: token,
       title: 'New Follower',
       body: `${followerName} started following you`,
@@ -86,7 +105,7 @@ serve(async (req) => {
 
     const result = await expoRes.json();
     await supabase.from('push_log').insert({ user_id: following_id, push_type: 'social', meta: { kind: 'follow' } });
-    return new Response(JSON.stringify({ sent: tokens.length, result }), {
+    return new Response(JSON.stringify({ sent: awake.length, result }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err) {

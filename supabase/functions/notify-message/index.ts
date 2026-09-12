@@ -6,6 +6,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Quiet hours (10pm-7am local, per stored device timezone) — never ping at night.
+const inQuietHours = (timezone: string | null) => {
+  try {
+    const hour = Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone ?? 'America/New_York', hour: 'numeric', hourCycle: 'h23',
+    }).format(new Date()));
+    return hour >= 22 || hour < 7;
+  } catch {
+    return false;
+  }
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -68,7 +80,7 @@ serve(async (req) => {
     // Get recipient's push tokens
     const { data: tokens } = await supabase
       .from('push_tokens')
-      .select('token')
+      .select('token, timezone')
       .eq('user_id', recipientId);
 
     if (!tokens || tokens.length === 0) {
@@ -77,7 +89,14 @@ serve(async (req) => {
       });
     }
 
-    const messages = tokens.map(({ token }: { token: string }) => ({
+    const awake = tokens.filter((t: { token: string; timezone: string | null }) => !inQuietHours(t.timezone));
+    if (awake.length === 0) {
+      return new Response(JSON.stringify({ sent: 0, quiet: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const messages = awake.map(({ token }: { token: string }) => ({
       to: token,
       title: senderName,
       body: message.length > 80 ? message.slice(0, 77) + '...' : message,
@@ -93,7 +112,7 @@ serve(async (req) => {
 
     const result = await expoRes.json();
     await supabase.from('push_log').insert({ user_id: recipientId, push_type: 'social', meta: { kind: 'message' } });
-    return new Response(JSON.stringify({ sent: tokens.length, result }), {
+    return new Response(JSON.stringify({ sent: awake.length, result }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err) {
