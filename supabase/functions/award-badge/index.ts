@@ -74,26 +74,49 @@ serve(async (req) => {
     await supabase.from('user_badges').insert(rows);
 
     // Optionally send push notifications for newly earned badges
-    const { data: tokens } = await supabase
-      .from('push_tokens')
-      .select('token')
-      .eq('user_id', userId);
+    // (respect the social switch; collapse to one social push per hour —
+    // badges still celebrate in-app either way)
+    const { data: badgeProfile } = await supabase
+      .from('profiles')
+      .select('notify_social')
+      .eq('id', userId)
+      .single();
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    const { data: recentSocial } = await supabase
+      .from('push_log')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('push_type', 'social')
+      .gte('sent_at', hourAgo)
+      .limit(1);
+    const pushAllowed = badgeProfile?.notify_social !== false && (!recentSocial || recentSocial.length === 0);
+
+    const { data: tokens } = pushAllowed
+      ? await supabase.from('push_tokens').select('token').eq('user_id', userId)
+      : { data: null };
 
     if (tokens && tokens.length > 0) {
-      const messages = newBadges.flatMap(badge =>
-        tokens.map(({ token }: { token: string }) => ({
-          to: token,
-          title: `Badge Earned: ${badge.name} ${badge.icon}`,
-          body: badge.description,
-          data: { type: 'badge', badgeId: badge.id },
-          sound: 'default',
-        }))
-      );
+      // One push even if several badges landed at once
+      const topBadge = newBadges[0];
+      const title = newBadges.length > 1
+        ? `${newBadges.length} badges earned`
+        : `Badge Earned: ${topBadge.name} ${topBadge.icon}`;
+      const body = newBadges.length > 1
+        ? newBadges.map(b => b.name).join(', ')
+        : topBadge.description;
+      const messages = tokens.map(({ token }: { token: string }) => ({
+        to: token,
+        title,
+        body,
+        data: { type: 'badge', badgeId: topBadge.id },
+        sound: 'default',
+      }));
       await fetch('https://exp.host/--/api/v2/push/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(messages),
       }).catch(() => {});
+      await supabase.from('push_log').insert({ user_id: userId, push_type: 'social', meta: { kind: 'badge' } });
     }
 
     return new Response(JSON.stringify({ awarded: newBadges.map(b => b.id) }), {

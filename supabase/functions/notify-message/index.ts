@@ -24,6 +24,38 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
+    // No pushes between blocked pairs, and respect the recipient's social switch
+    const { data: blocked } = await supabase.rpc('is_blocked_pair', { a: senderId, b: recipientId });
+    if (blocked) {
+      return new Response(JSON.stringify({ sent: 0, blocked: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const { data: recipientProfile } = await supabase
+      .from('profiles')
+      .select('notify_social')
+      .eq('id', recipientId)
+      .single();
+    if (recipientProfile?.notify_social === false) {
+      return new Response(JSON.stringify({ sent: 0, muted: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    // Collapse: at most one social push per recipient per hour
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    const { data: recentSocial } = await supabase
+      .from('push_log')
+      .select('id')
+      .eq('user_id', recipientId)
+      .eq('push_type', 'social')
+      .gte('sent_at', hourAgo)
+      .limit(1);
+    if (recentSocial && recentSocial.length > 0) {
+      return new Response(JSON.stringify({ sent: 0, collapsed: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Get sender's display name
     const { data: sender } = await supabase
       .from('profiles')
@@ -60,6 +92,7 @@ serve(async (req) => {
     });
 
     const result = await expoRes.json();
+    await supabase.from('push_log').insert({ user_id: recipientId, push_type: 'social', meta: { kind: 'message' } });
     return new Response(JSON.stringify({ sent: tokens.length, result }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

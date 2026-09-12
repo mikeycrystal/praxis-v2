@@ -22,6 +22,32 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     );
 
+    // Respect the followed user's social switch, and collapse to one social push/hour.
+    // (Blocked pairs can't create follows rows at all — DB trigger — so no block check here.)
+    const { data: followedProfile } = await supabase
+      .from('profiles')
+      .select('notify_social')
+      .eq('id', following_id)
+      .single();
+    if (followedProfile?.notify_social === false) {
+      return new Response(JSON.stringify({ sent: 0, muted: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    const { data: recentSocial } = await supabase
+      .from('push_log')
+      .select('id')
+      .eq('user_id', following_id)
+      .eq('push_type', 'social')
+      .gte('sent_at', hourAgo)
+      .limit(1);
+    if (recentSocial && recentSocial.length > 0) {
+      return new Response(JSON.stringify({ sent: 0, collapsed: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Get follower's display name
     const { data: follower } = await supabase
       .from('profiles')
@@ -59,6 +85,7 @@ serve(async (req) => {
     });
 
     const result = await expoRes.json();
+    await supabase.from('push_log').insert({ user_id: following_id, push_type: 'social', meta: { kind: 'follow' } });
     return new Response(JSON.stringify({ sent: tokens.length, result }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
