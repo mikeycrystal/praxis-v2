@@ -86,6 +86,13 @@ import { supabase } from '../services/supabase';
 import { ArticleCard, getArticleCardDimensions } from '../components/news-feed/ArticleCard';
 import { StoryShareSheet } from '../components/StoryShareSheet';
 import { SaveAccountPrompt } from '../components/SaveAccountPrompt';
+import { NotificationPermissionPrompt } from '../components/NotificationPermissionPrompt';
+import {
+  recordDigestCompletionForPrompt,
+  recordPromptDeclined,
+  recordPromptGranted,
+} from '../lib/notificationPrompt';
+import { askPushPermission } from '../utils/notifications';
 import { useBadgeCelebration } from '../components/BadgeCelebration';
 
 const ARTICLES_PER_PAGE = 20;
@@ -385,6 +392,7 @@ export default function FeedScreen() {
   const [isDigestCompletionVisible, setIsDigestCompletionVisible] = useState(false);
   const [isDigestHandoffActive, setIsDigestHandoffActive] = useState(false);
   const [showGuestStreakPrompt, setShowGuestStreakPrompt] = useState(false);
+  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
   const [accountPrompt, setAccountPrompt] = useState<{
     feature: 'saved' | 'search';
     returnTo: string;
@@ -404,6 +412,7 @@ export default function FeedScreen() {
   const queuedReadIdsRef = useRef<Set<number>>(new Set());
   const pendingDigestResumeIndexRef = useRef<number | null>(null);
   const guestStreakPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastHandledRequestNonceRef = useRef<number | null>(null);
   const activeQuery = preferences.activeQuery;
   const hasCustomQuery = Boolean(
@@ -1289,6 +1298,20 @@ export default function FeedScreen() {
         setShowGuestStreakPrompt(true);
         guestStreakPromptTimeoutRef.current = null;
       }, 4400);
+    } else {
+      // Ask for notification permission after a delivered win, never at sign-in.
+      // Timing rules (1st completion, then 3rd, then never) live in the lib.
+      void recordDigestCompletionForPrompt().then((shouldShow) => {
+        if (!shouldShow) return;
+        if (notifPromptTimeoutRef.current) {
+          clearTimeout(notifPromptTimeoutRef.current);
+        }
+        // The completion recap dismisses itself at ~2.9s; show the card after.
+        notifPromptTimeoutRef.current = setTimeout(() => {
+          setShowNotifPrompt(true);
+          notifPromptTimeoutRef.current = null;
+        }, 3300);
+      });
     }
     return true;
   }, [
@@ -2046,6 +2069,21 @@ export default function FeedScreen() {
         feature={accountPrompt?.feature ?? 'saved'}
         returnTo={accountPrompt?.returnTo ?? '/'}
         onClose={() => setAccountPrompt(null)}
+      />
+      <NotificationPermissionPrompt
+        visible={showNotifPrompt}
+        onYes={() => {
+          setShowNotifPrompt(false);
+          if (!user) return;
+          void askPushPermission(user.id).then(() => {
+            // Either way the system dialog has now been spent — don't re-ask.
+            void recordPromptGranted();
+          });
+        }}
+        onNotNow={() => {
+          setShowNotifPrompt(false);
+          void recordPromptDeclined();
+        }}
       />
 
       {shouldShowSwipeTooltip && !sharedStory && !isDigestPreparing && feedArticles.length > 0 ? (

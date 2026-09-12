@@ -1,13 +1,21 @@
 import { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, ActivityIndicator, Image,
+  TouchableOpacity, ActivityIndicator, Image, Alert,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import { buildHref } from '../lib/buildHref';
+import {
+  REPORT_REASONS,
+  blockUser,
+  fetchIsBlocked,
+  reportSubject,
+  unblockUser,
+} from '../lib/moderation';
 
 export default function UserProfileModal() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
@@ -15,6 +23,7 @@ export default function UserProfileModal() {
   const { c } = useTheme();
   const [profile, setProfile] = useState<any>(null);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,12 +35,86 @@ export default function UserProfileModal() {
     Promise.all([
       supabase.from('profiles').select('*').eq('id', userId).single(),
       user ? supabase.from('follows').select('id').eq('follower_id', user.id).eq('following_id', userId).maybeSingle() : Promise.resolve({ data: null }),
-    ]).then(([{ data: p }, { data: f }]) => {
+      user && userId ? fetchIsBlocked(user.id, userId) : Promise.resolve(false),
+    ]).then(([{ data: p }, { data: f }, blocked]) => {
       setProfile(p);
       setIsFollowing(!!f);
+      setIsBlocked(Boolean(blocked));
       setLoading(false);
     });
   }, [isGuestMode, userId, user]);
+
+  const displayName = profile?.full_name ?? profile?.username ?? 'this user';
+
+  const confirmBlock = () => {
+    Alert.alert(
+      `Block ${displayName}?`,
+      'They will no longer be able to message you or follow you, and you will not see each other in social.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            if (!user || !userId) return;
+            try {
+              await blockUser(user.id, userId);
+              setIsBlocked(true);
+              setIsFollowing(false);
+            } catch {
+              Alert.alert('Could not block', 'Something went wrong. Try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const doUnblock = async () => {
+    if (!user || !userId) return;
+    try {
+      await unblockUser(user.id, userId);
+      setIsBlocked(false);
+    } catch {
+      Alert.alert('Could not unblock', 'Something went wrong. Try again.');
+    }
+  };
+
+  const startReport = () => {
+    Alert.alert(
+      `Report ${displayName}`,
+      'Why are you reporting this account?',
+      [
+        ...REPORT_REASONS.map((reason) => ({
+          text: reason,
+          onPress: async () => {
+            if (!user || !userId) return;
+            try {
+              await reportSubject(user.id, 'user', userId, reason);
+              Alert.alert('Report sent', 'Thanks — we review every report.');
+            } catch {
+              Alert.alert('Could not send report', 'Something went wrong. Try again.');
+            }
+          },
+        })),
+        { text: 'Cancel', style: 'cancel' as const },
+      ],
+    );
+  };
+
+  const openModerationMenu = () => {
+    Alert.alert(
+      displayName,
+      undefined,
+      [
+        { text: 'Report', onPress: startReport },
+        isBlocked
+          ? { text: 'Unblock', onPress: () => void doUnblock() }
+          : { text: 'Block', style: 'destructive' as const, onPress: confirmBlock },
+        { text: 'Cancel', style: 'cancel' as const },
+      ],
+    );
+  };
 
   const toggleFollow = async () => {
     if (!user) return;
@@ -59,6 +142,15 @@ export default function UserProfileModal() {
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={[s.backText, { color: c.tint }]}>‹ Back</Text>
         </TouchableOpacity>
+        {user?.id !== userId ? (
+          <TouchableOpacity
+            onPress={openModerationMenu}
+            accessibilityLabel="More options"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={22} color={c.textSecondary} />
+          </TouchableOpacity>
+        ) : null}
       </View>
       <ScrollView contentContainerStyle={s.content}>
         <View style={[s.avatar, { backgroundColor: c.secondary }]}>
@@ -76,7 +168,15 @@ export default function UserProfileModal() {
           <Text style={[s.bio, { color: c.textSecondary }]}>{profile.bio}</Text>
         )}
 
-        {user?.id !== userId && (
+        {user?.id !== userId && isBlocked && (
+          <TouchableOpacity
+            style={[s.followBtn, { backgroundColor: c.secondary, borderColor: c.border }]}
+            onPress={() => void doUnblock()}
+          >
+            <Text style={[s.followBtnText, { color: c.textSecondary }]}>Blocked — tap to unblock</Text>
+          </TouchableOpacity>
+        )}
+        {user?.id !== userId && !isBlocked && (
           <TouchableOpacity
             style={[s.followBtn, {
               backgroundColor: isFollowing ? c.secondary : c.tint,
@@ -109,7 +209,13 @@ export default function UserProfileModal() {
 
 const s = StyleSheet.create({
   container: { flex: 1 },
-  topBar: { paddingHorizontal: 16, paddingVertical: 14 },
+  topBar: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   backText: { fontSize: 17 },
   content: { alignItems: 'center', paddingHorizontal: 24, paddingTop: 12, gap: 12 },
   avatar: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },

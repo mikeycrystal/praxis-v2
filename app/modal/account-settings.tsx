@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   SafeAreaView,
   StyleSheet,
@@ -14,6 +15,9 @@ import { router } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
 
+const TERMS_URL = 'https://praxisnews.co/terms.html';
+const PRIVACY_URL = 'https://praxisnews.co/privacy.html';
+
 const PAGE = {
   background: '#F7F3EA',
   card: '#FBF7F0',
@@ -25,8 +29,18 @@ const PAGE = {
   destructive: '#B8513A',
 };
 
+type SettingsRow = {
+  id: string;
+  label: string;
+  hint?: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  onPress: () => void;
+  destructive?: boolean;
+  external?: boolean;
+};
+
 export default function AccountSettingsModal() {
-  const { isGuestMode, loading, signOut, user } = useAuth();
+  const { isGuestMode, loading, profile, signOut, user } = useAuth();
   const [busyAction, setBusyAction] = useState<'signout' | 'delete' | null>(null);
 
   useEffect(() => {
@@ -98,31 +112,82 @@ export default function AccountSettingsModal() {
     );
   };
 
-  const items = [
+  const notifSummary = [
+    profile?.notify_digest !== false && 'digest',
+    profile?.notify_streak !== false && 'streak',
+    profile?.notify_social !== false && 'social',
+  ].filter(Boolean);
+
+  const sections: { title: string | null; rows: SettingsRow[] }[] = [
     {
-      id: 'edit',
-      label: 'Edit Profile',
-      icon: 'pencil-outline' as const,
-      onPress: () => router.push('/modal/edit-profile'),
+      title: 'ACCOUNT',
+      rows: [
+        {
+          id: 'edit',
+          label: 'Edit Profile',
+          icon: 'pencil-outline',
+          onPress: () => router.push('/modal/edit-profile'),
+        },
+        {
+          id: 'password',
+          label: 'Change Password',
+          icon: 'key-outline',
+          onPress: () => router.push('/modal/change-password'),
+        },
+        {
+          id: 'signout',
+          label: 'Sign Out',
+          icon: 'log-out-outline',
+          onPress: confirmSignOut,
+        },
+      ],
     },
     {
-      id: 'password',
-      label: 'Change Password',
-      icon: 'key-outline' as const,
-      onPress: () => router.push('/modal/change-password'),
+      title: 'PREFERENCES',
+      rows: [
+        {
+          id: 'notifications',
+          label: 'Notifications',
+          hint: notifSummary.length === 3
+            ? 'Digest, streak, social — all on.'
+            : notifSummary.length === 0
+              ? 'All off.'
+              : `On: ${notifSummary.join(', ')}.`,
+          icon: 'notifications-outline',
+          onPress: () => router.push('/modal/notification-settings'),
+        },
+      ],
     },
     {
-      id: 'signout',
-      label: 'Sign Out',
-      icon: 'log-out-outline' as const,
-      onPress: confirmSignOut,
+      title: 'ABOUT',
+      rows: [
+        {
+          id: 'terms',
+          label: 'Terms of Service',
+          icon: 'document-text-outline',
+          external: true,
+          onPress: () => void Linking.openURL(TERMS_URL),
+        },
+        {
+          id: 'privacy',
+          label: 'Privacy Policy',
+          icon: 'shield-checkmark-outline',
+          external: true,
+          onPress: () => void Linking.openURL(PRIVACY_URL),
+        },
+      ],
     },
     {
-      id: 'delete',
-      label: 'Delete Account',
-      icon: 'trash-outline' as const,
-      destructive: true,
-      onPress: confirmDelete,
+      title: null,
+      rows: [
+        {
+          id: 'delete',
+          label: 'Delete Account',
+          icon: 'trash-outline',
+          destructive: true,
+          onPress: confirmDelete,
+        },
+      ],
     },
   ];
 
@@ -132,42 +197,59 @@ export default function AccountSettingsModal() {
         <View style={s.handle} />
         <View style={s.header}>
           <View style={s.headerCopy}>
-            <Text style={s.title}>Account</Text>
+            <Text style={s.title}>Settings</Text>
             <Text style={s.subtitle}>
-              Manage your profile, password, and account settings.
-              {user?.email ? ` Signed in as ${user.email}.` : ''}
+              {user?.email ? `Signed in as ${user.email}.` : 'Manage your account.'}
             </Text>
           </View>
-          <TouchableOpacity style={s.closeButton} onPress={() => router.back()} accessibilityLabel="Close account settings">
+          <TouchableOpacity style={s.closeButton} onPress={() => router.back()} accessibilityLabel="Close settings">
             <Ionicons name="close" size={22} color={PAGE.text} />
           </TouchableOpacity>
         </View>
 
-        <View style={s.list}>
-          {items.map((item, index) => {
-            const destructive = Boolean(item.destructive);
-            const busy = busyAction === item.id;
-            return (
-              <TouchableOpacity
-                key={item.id}
-                style={[s.row, index > 0 && s.rowBorder]}
-                onPress={item.onPress}
-                disabled={Boolean(busyAction)}
-                activeOpacity={0.78}
-              >
-                <View style={[s.iconWrap, destructive && s.destructiveIconWrap]}>
-                  {busy ? (
-                    <ActivityIndicator color={destructive ? PAGE.destructive : PAGE.text} size="small" />
-                  ) : (
-                    <Ionicons name={item.icon} size={18} color={destructive ? PAGE.destructive : PAGE.text} />
-                  )}
-                </View>
-                <Text style={[s.rowLabel, destructive && s.destructiveText]}>{item.label}</Text>
-                {!destructive ? <Ionicons name="chevron-forward" size={20} color={PAGE.textMuted} /> : null}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {sections.map((section, sectionIndex) => (
+          <View key={section.title ?? `section-${sectionIndex}`}>
+            {section.title ? (
+              <Text style={s.sectionLabel}>{section.title}</Text>
+            ) : (
+              <View style={s.sectionSpacer} />
+            )}
+            <View style={s.list}>
+              {section.rows.map((item, index) => {
+                const destructive = Boolean(item.destructive);
+                const busy = busyAction === item.id;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[s.row, index > 0 && s.rowBorder]}
+                    onPress={item.onPress}
+                    disabled={Boolean(busyAction)}
+                    activeOpacity={0.78}
+                  >
+                    <View style={[s.iconWrap, destructive && s.destructiveIconWrap]}>
+                      {busy ? (
+                        <ActivityIndicator color={destructive ? PAGE.destructive : PAGE.text} size="small" />
+                      ) : (
+                        <Ionicons name={item.icon} size={18} color={destructive ? PAGE.destructive : PAGE.text} />
+                      )}
+                    </View>
+                    <View style={s.rowCopy}>
+                      <Text style={[s.rowLabel, destructive && s.destructiveText]}>{item.label}</Text>
+                      {item.hint ? <Text style={s.rowHint}>{item.hint}</Text> : null}
+                    </View>
+                    {destructive ? null : (
+                      <Ionicons
+                        name={item.external ? 'open-outline' : 'chevron-forward'}
+                        size={item.external ? 17 : 20}
+                        color={PAGE.textMuted}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ))}
       </View>
     </SafeAreaView>
   );
@@ -186,7 +268,7 @@ const s = StyleSheet.create({
     borderColor: PAGE.border,
   },
   handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: '#D6CDBE', alignSelf: 'center', marginBottom: 22 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 22 },
+  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 6 },
   headerCopy: { flex: 1 },
   title: { color: PAGE.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.4 },
   subtitle: { color: PAGE.textMuted, fontSize: 13, lineHeight: 20, marginTop: 7 },
@@ -200,13 +282,23 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  list: { borderRadius: 24, borderWidth: 1, borderColor: PAGE.border, backgroundColor: PAGE.card, overflow: 'hidden' },
-  row: { minHeight: 72, paddingHorizontal: 18, flexDirection: 'row', alignItems: 'center', gap: 14 },
+  sectionLabel: {
+    color: PAGE.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1.1,
+    marginTop: 16,
+    marginBottom: 8,
+    marginHorizontal: 4,
+  },
+  sectionSpacer: { height: 20 },
+  list: { borderRadius: 20, borderWidth: 1, borderColor: PAGE.border, backgroundColor: PAGE.card, overflow: 'hidden' },
+  row: { minHeight: 60, paddingHorizontal: 16, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 13 },
   rowBorder: { borderTopWidth: 1, borderTopColor: PAGE.border },
   iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: PAGE.border,
     backgroundColor: PAGE.surface,
@@ -214,6 +306,8 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   destructiveIconWrap: { backgroundColor: '#F7E5E0', borderColor: '#E3B9AE' },
-  rowLabel: { flex: 1, color: PAGE.text, fontSize: 17, fontWeight: '600' },
+  rowCopy: { flex: 1, minWidth: 0 },
+  rowLabel: { color: PAGE.text, fontSize: 16, fontWeight: '600' },
+  rowHint: { color: PAGE.textMuted, fontSize: 12.5, lineHeight: 17, marginTop: 2 },
   destructiveText: { color: PAGE.destructive },
 });

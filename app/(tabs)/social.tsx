@@ -8,6 +8,7 @@ import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import { buildHref } from '../lib/buildHref';
+import { fetchBlockedIds } from '../lib/moderation';
 
 interface FollowUser {
   id: string;
@@ -69,6 +70,8 @@ export default function SocialScreen() {
 
     if (!data) { setLoadingConvs(false); return; }
 
+    const blockedIds = await fetchBlockedIds(user.id);
+
     // De-duplicate by conversation_id (keep latest)
     const seen = new Map<string, any>();
     for (const msg of data) {
@@ -80,6 +83,7 @@ export default function SocialScreen() {
     let unread = 0;
     for (const msg of seen.values()) {
       const otherId = msg.sender_id === user.id ? msg.recipient_id : msg.sender_id;
+      if (blockedIds.has(otherId)) continue;
       const { data: profile } = await supabase
         .from('profiles')
         .select('id, full_name, username, avatar_url')

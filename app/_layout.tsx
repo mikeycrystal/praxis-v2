@@ -13,6 +13,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { supabase } from './services/supabase';
 import { endSession, startSession, trackPageView } from './lib/analytics';
+import { writeDailyDigestOpenRequest } from './lib/dailyDigest';
 
 function AnalyticsTracker() {
   const pathname = usePathname();
@@ -106,16 +107,32 @@ function PushNotificationHandler() {
   const notifResponseRef = useRef<Notifications.Subscription | null>(null);
 
   useEffect(() => {
-    notifResponseRef.current = Notifications.addNotificationResponseReceivedListener(response => {
-      const data = response.notification.request.content.data as Record<string, any>;
+    const handle = (data: Record<string, any> | undefined) => {
       if (data?.type === 'follow' && data?.followerId) {
         router.push({ pathname: '/modal/user-profile', params: { userId: data.followerId } });
       } else if (data?.type === 'message' && data?.senderId) {
         router.push({ pathname: '/chat/[id]', params: { id: data.senderId } });
       } else if (data?.type === 'badge') {
         router.push('/profile');
+      } else if (data?.type === 'digest' || data?.type === 'streak') {
+        // Both pushes promise today's digest; the feed consumes the open request.
+        void writeDailyDigestOpenRequest(true);
+        router.push('/');
       }
+    };
+
+    notifResponseRef.current = Notifications.addNotificationResponseReceivedListener(response => {
+      handle(response.notification.request.content.data as Record<string, any>);
     });
+
+    // A tap that cold-started the app from a killed state is not delivered to
+    // the listener above — fetch it explicitly.
+    Notifications.getLastNotificationResponseAsync().then(response => {
+      if (response) {
+        handle(response.notification.request.content.data as Record<string, any>);
+      }
+    }).catch(() => {});
+
     return () => notifResponseRef.current?.remove();
   }, []);
 
@@ -148,6 +165,7 @@ export default function RootLayout() {
             <Stack.Screen name="modal/leaderboard" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/edit-profile" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/account-settings" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }} />
+            <Stack.Screen name="modal/notification-settings" options={{ presentation: 'transparentModal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="modal/follow-list" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/change-password" options={{ presentation: 'modal' }} />
             <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />

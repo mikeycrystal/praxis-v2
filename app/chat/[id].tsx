@@ -1,14 +1,22 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, FlatList, StyleSheet, SafeAreaView,
-  TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image,
+  TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Alert,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { buildHref } from '../lib/buildHref';
+import {
+  REPORT_REASONS,
+  blockUser,
+  fetchIsBlocked,
+  reportSubject,
+  unblockUser,
+} from '../lib/moderation';
 
 interface Message {
   id: number;
@@ -39,9 +47,82 @@ export default function ChatScreen() {
   const [body, setBody] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const convId = user ? conversationId(user.id, userId) : '';
+
+  useEffect(() => {
+    if (!user || !userId) return;
+    void fetchIsBlocked(user.id, userId).then(setIsBlocked);
+  }, [user, userId]);
+
+  const otherName = otherUser?.full_name ?? otherUser?.username ?? 'this user';
+
+  const openModerationMenu = () => {
+    Alert.alert(otherName, undefined, [
+      {
+        text: 'Report conversation',
+        onPress: () => {
+          Alert.alert('Report conversation', 'Why are you reporting it?', [
+            ...REPORT_REASONS.map((reason) => ({
+              text: reason,
+              onPress: async () => {
+                if (!user) return;
+                try {
+                  await reportSubject(user.id, 'conversation', convId, reason);
+                  Alert.alert('Report sent', 'Thanks — we review every report.');
+                } catch {
+                  Alert.alert('Could not send report', 'Something went wrong. Try again.');
+                }
+              },
+            })),
+            { text: 'Cancel', style: 'cancel' as const },
+          ]);
+        },
+      },
+      isBlocked
+        ? {
+            text: 'Unblock',
+            onPress: async () => {
+              if (!user) return;
+              try {
+                await unblockUser(user.id, userId);
+                setIsBlocked(false);
+              } catch {
+                Alert.alert('Could not unblock', 'Something went wrong. Try again.');
+              }
+            },
+          }
+        : {
+            text: 'Block user',
+            style: 'destructive' as const,
+            onPress: () => {
+              Alert.alert(
+                `Block ${otherName}?`,
+                'They will no longer be able to message you or follow you.',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Block',
+                    style: 'destructive',
+                    onPress: async () => {
+                      if (!user) return;
+                      try {
+                        await blockUser(user.id, userId);
+                        setIsBlocked(true);
+                      } catch {
+                        Alert.alert('Could not block', 'Something went wrong. Try again.');
+                      }
+                    },
+                  },
+                ],
+              );
+            },
+          },
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
 
   useEffect(() => {
     if (isGuestMode || !user) {
@@ -218,6 +299,14 @@ export default function ChatScreen() {
             {otherUser?.full_name ?? otherUser?.username ?? 'User'}
           </Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={openModerationMenu}
+          accessibilityLabel="Conversation options"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={s.menuBtn}
+        >
+          <Ionicons name="ellipsis-horizontal" size={20} color={c.textSecondary} />
+        </TouchableOpacity>
       </View>
 
       {/* Messages */}
@@ -246,6 +335,13 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
+        {isBlocked ? (
+          <View style={[s.inputRow, { borderTopColor: c.border, backgroundColor: c.background }]}>
+            <Text style={[s.blockedNote, { color: c.textMuted }]}>
+              You blocked {otherName}. Unblock them from the ••• menu to message again.
+            </Text>
+          </View>
+        ) : (
         <View style={[s.inputRow, { borderTopColor: c.border, backgroundColor: c.background }]}>
           <TextInput
             style={[s.input, { backgroundColor: c.card, borderColor: c.border, color: c.text }]}
@@ -265,6 +361,7 @@ export default function ChatScreen() {
             <Text style={{ color: body.trim() ? c.tintForeground : c.textMuted, fontSize: 18 }}>↑</Text>
           </TouchableOpacity>
         </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -280,6 +377,8 @@ const s = StyleSheet.create({
   backBtn: { padding: 4 },
   backText: { fontSize: 28, lineHeight: 32 },
   headerUser: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  menuBtn: { padding: 6 },
+  blockedNote: { flex: 1, fontSize: 13, lineHeight: 19, textAlign: 'center', paddingVertical: 6 },
   headerName: { fontSize: 16, fontWeight: '600' },
   avatarSm: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarSmImg: { width: 34, height: 34 },

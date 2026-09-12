@@ -23,6 +23,10 @@ export interface Profile {
   followers?: number | null;
   following?: number | null;
   longest_streak?: number | null;
+  notify_digest?: boolean | null;
+  notify_streak?: boolean | null;
+  notify_social?: boolean | null;
+  notify_quiet_hours?: boolean | null;
 }
 
 interface AuthContextType {
