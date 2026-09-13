@@ -128,14 +128,21 @@ serve(async (req) => {
     }
 
     // Users with at least one device currently at the target local hour.
+    // Guest devices (no account yet) get the same morning push, sent blind —
+    // their reading lives on-device, so there is no completion state to check.
     const byUser = new Map<string, string[]>();
+    const guestTokens: string[] = [];
     for (const t of tokens) {
       if (localHour(t.timezone ?? FALLBACK_TIMEZONE) !== TARGET_LOCAL_HOUR) continue;
+      if (!t.user_id) {
+        guestTokens.push(t.token);
+        continue;
+      }
       const list = byUser.get(t.user_id) ?? [];
       list.push(t.token);
       byUser.set(t.user_id, list);
     }
-    if (byUser.size === 0) {
+    if (byUser.size === 0 && guestTokens.length === 0) {
       return new Response(JSON.stringify({ sent: 0 }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -143,18 +150,22 @@ serve(async (req) => {
 
     const userIds = [...byUser.keys()];
 
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, notify_digest, streak_last_completed_date')
-      .in('id', userIds);
+    const { data: profiles } = userIds.length > 0
+      ? await supabase
+          .from('profiles')
+          .select('id, notify_digest, streak_last_completed_date')
+          .in('id', userIds)
+      : { data: [] };
 
     // Recent push history for lapse rules + dedupe (14 days is enough for every rule).
     const since = new Date(Date.now() - 14 * 86400000).toISOString();
-    const { data: recentPushes } = await supabase
-      .from('push_log')
-      .select('user_id, push_type, sent_at')
-      .in('user_id', userIds)
-      .gte('sent_at', since);
+    const { data: recentPushes } = userIds.length > 0
+      ? await supabase
+          .from('push_log')
+          .select('user_id, push_type, sent_at')
+          .in('user_id', userIds)
+          .gte('sent_at', since)
+      : { data: [] };
 
     const pushesFor = (uid: string, type: string) =>
       (recentPushes ?? []).filter((p) => p.user_id === uid && p.push_type === type);
@@ -215,12 +226,26 @@ serve(async (req) => {
       logRows.push({ user_id: p.id, push_type: 'digest', meta: { line } });
     }
 
-    if (messages.length > 0) {
-      await chunkedExpoSend(messages);
-      await supabase.from('push_log').insert(logRows);
+    // Guest devices: one generic line, once a day at their local 8am.
+    // No per-user log row (no user), and the hourly window is the dedupe.
+    for (const token of guestTokens) {
+      messages.push({
+        to: token,
+        title: 'Your Daily Digest is ready',
+        body: line,
+        data: { type: 'digest' },
+        sound: 'default',
+      });
     }
 
-    return new Response(JSON.stringify({ sent: messages.length, users: logRows.length }), {
+    if (messages.length > 0) {
+      await chunkedExpoSend(messages);
+      if (logRows.length > 0) {
+        await supabase.from('push_log').insert(logRows);
+      }
+    }
+
+    return new Response(JSON.stringify({ sent: messages.length, users: logRows.length, guests: guestTokens.length }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (err) {

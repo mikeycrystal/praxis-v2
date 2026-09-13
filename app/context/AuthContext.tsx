@@ -51,6 +51,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isGuestMode, setIsGuestMode] = useState(() => readGuestMode());
   const [loading, setLoading] = useState(true);
 
+  // Guests who granted permission (via the card, or iOS Settings) keep their
+  // device token registered; it carries no user until a sign-in claims it.
+  useEffect(() => {
+    if (isGuestMode) void registerPushToken(null);
+  }, [isGuestMode]);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);

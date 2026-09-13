@@ -82,8 +82,9 @@ CREATE TRIGGER trg_block_cleanup
   FOR EACH ROW EXECUTE FUNCTION public.on_block_cleanup();
 
 -- No new messages between blocked pairs (replaces the plain INSERT policy).
+DROP POLICY IF EXISTS "Users send messages" ON public.messages;
 DROP POLICY IF EXISTS "Users can send messages" ON public.messages;
-CREATE POLICY "Users can send messages" ON public.messages
+CREATE POLICY "Users send messages" ON public.messages
   FOR INSERT WITH CHECK (
     auth.uid() = sender_id
     AND NOT public.is_blocked_pair(sender_id, recipient_id)

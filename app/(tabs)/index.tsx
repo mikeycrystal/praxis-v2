@@ -78,6 +78,7 @@ import {
 } from '../lib/analytics';
 import { consumeSharedStoryRequest, fetchSharedStoryArticle } from '../lib/sharedStory';
 import { awardDigestStreak } from '../lib/digestStreak';
+import { readCachedStreak, writeCachedStreak } from '../lib/streakCache';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { SwipeTooltip } from '../components/onboarding/SwipeTooltip';
 import { GraphBanner } from '../components/onboarding/GraphBanner';
@@ -393,6 +394,16 @@ export default function FeedScreen() {
   const [isDigestHandoffActive, setIsDigestHandoffActive] = useState(false);
   const [showGuestStreakPrompt, setShowGuestStreakPrompt] = useState(false);
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
+  const [cachedStreak, setCachedStreak] = useState<number | null>(null);
+  useEffect(() => {
+    void readCachedStreak().then(setCachedStreak);
+  }, []);
+  useEffect(() => {
+    if (profile?.current_streak != null) {
+      setCachedStreak(profile.current_streak);
+      void writeCachedStreak(profile.current_streak);
+    }
+  }, [profile?.current_streak]);
   const [accountPrompt, setAccountPrompt] = useState<{
     feature: 'saved' | 'search';
     returnTo: string;
@@ -413,6 +424,14 @@ export default function FeedScreen() {
   const pendingDigestResumeIndexRef = useRef<number | null>(null);
   const guestStreakPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notifPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingGuestNotifPromptRef = useRef(false);
+  const dismissGuestStreakPrompt = useCallback(() => {
+    setShowGuestStreakPrompt(false);
+    if (pendingGuestNotifPromptRef.current) {
+      pendingGuestNotifPromptRef.current = false;
+      setTimeout(() => setShowNotifPrompt(true), 450);
+    }
+  }, []);
   const lastHandledRequestNonceRef = useRef<number | null>(null);
   const activeQuery = preferences.activeQuery;
   const hasCustomQuery = Boolean(
@@ -1298,6 +1317,11 @@ export default function FeedScreen() {
         setShowGuestStreakPrompt(true);
         guestStreakPromptTimeoutRef.current = null;
       }, 4400);
+      // Guests get the notification ask too — chained after the streak
+      // prompt closes, so the two cards never stack.
+      void recordDigestCompletionForPrompt().then((shouldShow) => {
+        pendingGuestNotifPromptRef.current = shouldShow;
+      });
     } else {
       // Ask for notification permission after a delivered win, never at sign-in.
       // Timing rules (1st completion, then 3rd, then never) live in the lib.
@@ -1705,7 +1729,7 @@ export default function FeedScreen() {
                   {/* Signed in: only the account streak, a dash while it loads.
                       The device-only count (consecutive read days) is for
                       guests; showing it first flashed a different number. */}
-                  {user ? (profile ? (profile.current_streak ?? 0) : '–') : localStreakCount}
+                  {user ? (profile ? (profile.current_streak ?? 0) : (cachedStreak ?? '–')) : localStreakCount}
                 </Text>
               </TouchableOpacity>
             </>
@@ -2017,13 +2041,13 @@ export default function FeedScreen() {
         transparent
         visible={showGuestStreakPrompt}
         animationType="fade"
-        onRequestClose={() => setShowGuestStreakPrompt(false)}
+        onRequestClose={dismissGuestStreakPrompt}
       >
         <View style={s.guestPromptBackdrop}>
           <View style={s.guestPromptCard}>
             <TouchableOpacity
               style={s.guestPromptClose}
-              onPress={() => setShowGuestStreakPrompt(false)}
+              onPress={dismissGuestStreakPrompt}
               accessibilityRole="button"
               accessibilityLabel="Keep reading"
             >
@@ -2036,7 +2060,7 @@ export default function FeedScreen() {
             <View style={s.guestPromptActions}>
               <TouchableOpacity
                 style={s.guestPromptSecondary}
-                onPress={() => setShowGuestStreakPrompt(false)}
+                onPress={dismissGuestStreakPrompt}
                 accessibilityRole="button"
               >
                 <Text style={s.guestPromptSecondaryText}>Keep reading</Text>
@@ -2074,8 +2098,8 @@ export default function FeedScreen() {
         visible={showNotifPrompt}
         onYes={() => {
           setShowNotifPrompt(false);
-          if (!user) return;
-          void askPushPermission(user.id).then(() => {
+          // Guests register a device-owned token; sign-in claims it later.
+          void askPushPermission(user?.id ?? null).then(() => {
             // Either way the system dialog has now been spent — don't re-ask.
             void recordPromptGranted();
           });

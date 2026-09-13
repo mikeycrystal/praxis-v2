@@ -15,6 +15,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { GraphOnboarding, type SpotlightRect } from '../components/onboarding/GraphOnboarding';
+import { readCachedStreak, writeCachedStreak } from '../lib/streakCache';
 import { useNewsPreferences } from '../context/NewsPreferencesContext';
 import {
   ActiveQueryState,
@@ -419,6 +420,16 @@ export default function GraphScreen() {
   const [digestName, setDigestName] = useState('');
   const [isApplying, setIsApplying] = useState(false);
   const [localStreakCount, setLocalStreakCount] = useState(0);
+  const [cachedStreak, setCachedStreak] = useState<number | null>(null);
+  useEffect(() => {
+    void readCachedStreak().then(setCachedStreak);
+  }, []);
+  useEffect(() => {
+    if (profile?.current_streak != null) {
+      setCachedStreak(profile.current_streak);
+      void writeCachedStreak(profile.current_streak);
+    }
+  }, [profile?.current_streak]);
   const [seedTopics, setSeedTopics] = useState<string[]>(FALLBACK_TOPICS);
   const [allTopics, setAllTopics] = useState<string[]>(FALLBACK_TOPICS);
   const [trendingTopics, setTrendingTopics] = useState<string[]>(FALLBACK_TRENDING_TOPICS);
@@ -1269,7 +1280,7 @@ export default function GraphScreen() {
               </TouchableOpacity>
               <View style={[s.streakPill, { backgroundColor: '#E9EDD8', borderColor: '#D9DEC5' }]}>
                 <Ionicons name="flame-outline" size={15} color="#8DAE73" />
-                <Text style={s.streakText}>{profile ? (profile.current_streak ?? 0) : localStreakCount}</Text>
+                <Text style={s.streakText}>{user ? (profile ? (profile.current_streak ?? 0) : (cachedStreak ?? '–')) : localStreakCount}</Text>
               </View>
             </>
           )}

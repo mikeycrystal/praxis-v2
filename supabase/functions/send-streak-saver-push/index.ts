@@ -78,6 +78,7 @@ serve(async (req) => {
 
     const byUser = new Map<string, string[]>();
     for (const t of tokens) {
+      if (!t.user_id) continue; // guests have no streak to save
       if (localHour(t.timezone ?? FALLBACK_TIMEZONE) !== TARGET_LOCAL_HOUR) continue;
       const list = byUser.get(t.user_id) ?? [];
       list.push(t.token);
