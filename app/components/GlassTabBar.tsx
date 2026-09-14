@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,9 +46,11 @@ const VISIBLE_TABS = ['index', 'graph'] as const;
 export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  // Floor guards the first web/hydration frame, where the window can read 0
-  // and a computed negative width collapsed the whole bar.
-  const barWidth = Math.max(windowWidth - BAR_MARGIN * 2, 260);
+  // The strip measures itself: on web-static hydration useWindowDimensions
+  // can be frozen at 0 (which once collapsed the bar to negative width), and
+  // onLayout is the ground truth on every platform. The floor is the last net.
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+  const barWidth = Math.max((measuredWidth || windowWidth) - BAR_MARGIN * 2, 260);
   const segmentWidth = (barWidth - LENS_INSET * 2) / 2;
 
   const visibleRoutes = VISIBLE_TABS
@@ -88,6 +90,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
         },
       ]}
       pointerEvents="box-none"
+      onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width)}
     >
       <GlassSurface
         style={[s.bar, { width: barWidth }]}
