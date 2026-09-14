@@ -43,7 +43,7 @@ export const SwipeTooltip = ({ onDismiss }: SwipeTooltipProps) => {
 
 const s = StyleSheet.create({
   root: { zIndex: 100 },
-  anchor: { position: 'absolute', left: 0, right: 0, bottom: 10, alignItems: 'center', paddingHorizontal: 16 },
+  anchor: { position: 'absolute', left: 0, right: 0, bottom: 100, alignItems: 'center', paddingHorizontal: 16 },
   bubble: {
     width: 270,
     borderRadius: 14,

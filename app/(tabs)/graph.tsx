@@ -1752,21 +1752,12 @@ export default function GraphScreen() {
           </View>
         </View>
 
-        {isDefaultGraphSelection(currentGraphPosition, radiusPercent) && !hasSearchCriteria ? (
-          // Steady state stays quiet: just the Top News marker. The readout
-          // appears once the dot or the range moves (Ayuka, 2026-09-14).
-          <View style={s.feedNowCard}>
-            <View style={s.feedNowTopNews}>
-              <Ionicons name="flame-outline" size={12} color="#E48439" />
-              <Text style={s.feedNowTopNewsText}>Top News</Text>
-            </View>
-          </View>
-        ) : (
-          <View style={s.feedNowCard} accessibilityLiveRegion="polite">
-            <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
-            <Text style={s.feedNowText}>{feedNowLine.sources}</Text>
-          </View>
-        )}
+        <View style={s.feedNowCard} accessibilityLiveRegion="polite">
+          <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
+          <Text style={s.feedNowText} numberOfLines={1} ellipsizeMode="tail">
+            {feedNowLine.sources}
+          </Text>
+        </View>
 
         <View style={s.sliderSection}>
           <View style={s.sliderInner}>
@@ -2554,22 +2545,8 @@ const s = StyleSheet.create({
     marginHorizontal: 24,
     marginTop: 12,
     alignItems: 'center',
-  },
-  feedNowTopNews: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: '#F9E6D6',
-    borderWidth: 1,
-    borderColor: '#EDC9AE',
-  },
-  feedNowTopNewsText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#5D554C',
+    height: 40,
+    justifyContent: 'center',
   },
   feedNowTitle: {
     fontSize: 11,
@@ -2605,7 +2582,7 @@ const s = StyleSheet.create({
     zIndex: 12,
     elevation: 12,
     paddingHorizontal: 18,
-    paddingBottom: 10,
+    paddingBottom: 96,
     paddingTop: 2,
     width: '100%',
     maxWidth: 560,

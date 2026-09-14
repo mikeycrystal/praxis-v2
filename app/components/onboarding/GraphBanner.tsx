@@ -75,7 +75,7 @@ export const GraphBanner = ({ onDismiss, swipeCount = 0 }: GraphBannerProps) => 
 };
 
 const s = StyleSheet.create({
-  anchor: { position: 'absolute', left: 0, right: 0, bottom: 64, alignItems: 'center', zIndex: 90 },
+  anchor: { position: 'absolute', left: 0, right: 0, bottom: 112, alignItems: 'center', zIndex: 90 },
   card: {
     borderRadius: 14,
     borderWidth: 1,

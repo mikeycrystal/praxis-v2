@@ -19,8 +19,11 @@ import { GlassSurface } from './GlassSurface';
 // - Non-iOS-26 devices fall back to a cream pill in today's palette.
 
 const TINT = '#8DAE73';
-const INACTIVE = '#73706A';
+const INACTIVE = '#4B463E';
 const BAR_MARGIN = 16;
+
+// Clearance for content that must not sit under the floating bar.
+export const TAB_BAR_CLEARANCE = 96;
 const BAR_HEIGHT = 64;
 const LENS_INSET = 6;
 const TAB_LABELS: Record<string, string> = { index: 'News', graph: 'Graph' };
@@ -145,6 +148,12 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
 
 const s = StyleSheet.create({
   strip: {
+    // Floating overlay: content scrolls (and swipes) underneath the glass —
+    // the bar reserves no layout space (Ayuka's Substack reference, 2026-09-14).
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'flex-end',
