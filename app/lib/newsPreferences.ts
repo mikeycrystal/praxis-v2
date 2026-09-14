@@ -47,7 +47,10 @@ export const DEFAULT_GRAPH_POSITION: GraphPoint = {
   y: 0,
 };
 
-export const DEFAULT_GRAPH_RADIUS = 25;
+// 55 covers the centre cluster (NYT, CNN, Politico, WSJ) so the resting
+// state shows highlighted sources instead of an empty range (Ayuka,
+// 2026-09-14). 25 covered nothing and the whole map sat faded at rest.
+export const DEFAULT_GRAPH_RADIUS = 55;
 export const TOP_NEWS_GRAPH_FILTER_STORAGE_KEY = 'praxis.topNewsGraphFilter.v1';
 export const ACTIVE_QUERY_STORAGE_KEY = 'activeQuery';
 export const RECOMMENDATION_REQUEST_STORAGE_KEY = 'recommendationRequest';
