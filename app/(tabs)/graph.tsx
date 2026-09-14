@@ -358,12 +358,14 @@ export default function GraphScreen() {
   const isFocused = useIsFocused();
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
   const graphWidth = useMemo(() => {
+    // Tighter margins since the readout became a two-line whisper — the
+    // map is the page's hero, give it the room (Ayuka, 2026-09-14).
     const fallbackWidth = Math.min(
-      Math.max(windowWidth - 34, graphMinSize),
+      Math.max(windowWidth - 24, graphMinSize),
       GRAPH_MAX_SIZE,
     );
     const viewportHeightLimit = Math.min(
-      Math.max(windowHeight - 388, graphMinSize),
+      Math.max(windowHeight - 360, graphMinSize),
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 12, 0);
