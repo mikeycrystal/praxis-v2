@@ -60,11 +60,9 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: c.tabIconDefault,
         tabBarShowLabel: false,
         // Smooth switching: cross-fade between tabs instead of a hard swap,
-        // mount both screens up front (2 tabs — the first Graph visit was
-        // paying the whole mount cost), and freeze the hidden tab so the
-        // feed's timers/subscriptions can't jank the Graph while it's up.
+        // and freeze hidden tabs so their timers/subscriptions can't jank
+        // the visible one.
         animation: 'fade',
-        lazy: false,
         freezeOnBlur: true,
       }}
     >
@@ -78,6 +76,9 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="graph"
         options={{
+          // Mount Graph at startup — the first visit was paying the whole
+          // page's build cost right at tap time. Hidden utility tabs stay lazy.
+          lazy: false,
           tabBarAccessibilityLabel: 'Preferences',
           title: 'Preferences',
           tabBarIcon: ({ color }) => <GraphTabIcon color={color} />,

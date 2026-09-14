@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, Image, Alert, ActivityIndicator,
-} from 'react-native';
+  TouchableOpacity, Image, Alert, ActivityIndicator, InteractionManager} from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
@@ -104,6 +103,9 @@ export default function ProfileScreen() {
     let isActive = true;
     setBadgesLoading(true);
 
+    // Let the tab transition finish before the badge/rank queries fire —
+    // running them during the animation is what made opening Profile stutter.
+    const task = InteractionManager.runAfterInteractions(() => {
     void Promise.all([
       supabase
         .from('badges')
@@ -130,8 +132,10 @@ export default function ProfileScreen() {
       console.warn('[ProfileScreen] Failed to load profile achievements', error);
       if (isActive) setBadgesLoading(false);
     });
+    });
 
     return () => {
+      task.cancel();
       isActive = false;
     };
   }, [profile?.id]);

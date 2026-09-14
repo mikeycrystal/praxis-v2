@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -116,6 +116,16 @@ export default function SearchModal() {
   const [loading, setLoading] = useState(false);
   const [browseExpanded, setBrowseExpanded] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+
+  // Focus after the modal animation settles — autoFocus opened the keyboard
+  // mid-transition, which is what made opening Search feel glitchy.
+  const searchInputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      setTimeout(() => searchInputRef.current?.focus(), 60);
+    });
+    return () => task.cancel();
+  }, []);
 
   const [trendingTopics, setTrendingTopics] = useState<TrendingTopic[]>(
     () => readCachedTrendingTopics() ?? [],
@@ -330,7 +340,7 @@ export default function SearchModal() {
             placeholderTextColor={c.textMuted}
             value={query}
             onChangeText={setQuery}
-            autoFocus
+            ref={searchInputRef}
             returnKeyType="search"
           />
           {query.length > 0 ? (

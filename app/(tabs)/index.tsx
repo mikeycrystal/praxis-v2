@@ -873,6 +873,9 @@ export default function FeedScreen() {
   }));
 
   const handleToggleTopNews = useCallback(() => {
+    // Already on Top News: do nothing. Toggling it "off" greyed the pill into
+    // an ambiguous no-mode state that read as a bug (Ayuka, 2026-09-14).
+    if (preferences.isTopNewsActive) return;
     transitionDeckMode();
     if (!preferences.isTopNewsActive) {
       setIsDigestDismissed(false);
@@ -1847,7 +1850,7 @@ export default function FeedScreen() {
             </Text>
             <Ionicons name="pencil-outline" size={12} color={c.textMuted} />
           </TouchableOpacity>
-        ) : !preferences.isTopNewsActive ? (
+        ) : (
           <TouchableOpacity
             onPress={handleEditQuery}
             accessibilityRole="button"
@@ -1860,7 +1863,7 @@ export default function FeedScreen() {
               Customize
             </Text>
           </TouchableOpacity>
-        ) : null}
+        )}
         </View>
       ) : null}
 
