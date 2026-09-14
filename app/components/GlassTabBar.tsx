@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Line } from 'react-native-svg';
@@ -20,9 +20,10 @@ import { GlassSurface } from './GlassSurface';
 
 const TINT = '#8DAE73';
 const INACTIVE = '#73706A';
-const PILL_WIDTH = 224;
-const PILL_HEIGHT = 60;
-const LENS_WIDTH = PILL_WIDTH / 2 - 10;
+const BAR_MARGIN = 16;
+const BAR_HEIGHT = 64;
+const LENS_INSET = 6;
+const TAB_LABELS: Record<string, string> = { index: 'News', graph: 'Graph' };
 
 // The Graph tab's crosshair icon (moved from (tabs)/_layout.tsx).
 export function GraphTabIcon({ color }: { color: string }) {
@@ -44,6 +45,9 @@ const VISIBLE_TABS = ['index', 'graph'] as const;
 
 export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const barWidth = windowWidth - BAR_MARGIN * 2;
+  const segmentWidth = (barWidth - LENS_INSET * 2) / 2;
 
   const visibleRoutes = VISIBLE_TABS
     .map((name) => state.routes.find((route) => route.name === name))
@@ -65,7 +69,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
 
   const lensStyle = useAnimatedStyle(() => ({
     transform: [
-      { translateX: 6 + lensPosition.value * (PILL_WIDTH / 2 - 1) },
+      { translateX: LENS_INSET + lensPosition.value * segmentWidth },
     ],
   }));
 
@@ -77,19 +81,19 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
       style={[
         s.strip,
         {
-          height: PILL_HEIGHT + 10 + Math.max(insets.bottom, Platform.OS === 'web' ? 8 : 14),
+          height: BAR_HEIGHT + 10 + Math.max(insets.bottom, Platform.OS === 'web' ? 8 : 14),
           paddingBottom: Math.max(insets.bottom - 4, Platform.OS === 'web' ? 8 : 10),
         },
       ]}
       pointerEvents="box-none"
     >
       <GlassSurface
-        style={s.pill}
-        glassEffectStyle="clear"
-        tintColor="rgba(252,250,244,0.14)"
-        fallbackStyle={s.pillFallback}
+        style={[s.bar, { width: barWidth }]}
+        glassEffectStyle="regular"
+        tintColor="rgba(250,247,240,0.42)"
+        fallbackStyle={s.barFallback}
       >
-        <Animated.View style={[s.lens, lensStyle]} />
+        <Animated.View style={[s.lens, { width: segmentWidth }, lensStyle]} />
         {visibleRoutes.map((route) => {
           const focused = isFocusedVisible(route.key);
           const color = focused ? TINT : INACTIVE;
@@ -117,11 +121,11 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
             >
               <View style={s.iconFrame}>
                 {route.name === 'index' ? (
-                  <Ionicons name="newspaper-outline" size={22} color={color} />
+                  <Ionicons name="newspaper-outline" size={21} color={color} />
                 ) : (
                   <GraphTabIcon color={color} />
                 )}
-                {focused ? <View style={[s.dot, { backgroundColor: TINT }]} /> : null}
+                <Text style={[s.tabLabel, { color }]}>{TAB_LABELS[route.name] ?? route.name}</Text>
               </View>
             </Pressable>
           );
@@ -137,16 +141,15 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  pill: {
-    width: PILL_WIDTH,
-    height: PILL_HEIGHT,
-    borderRadius: PILL_HEIGHT / 2,
+  bar: {
+    height: BAR_HEIGHT,
+    borderRadius: BAR_HEIGHT / 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
     overflow: 'hidden',
   },
-  pillFallback: {
+  barFallback: {
     backgroundColor: '#FBF7F0',
     borderWidth: 1,
     borderColor: '#E7DEC9',
@@ -159,13 +162,16 @@ const s = StyleSheet.create({
   lens: {
     position: 'absolute',
     left: 0,
-    top: 6,
-    width: LENS_WIDTH,
-    height: PILL_HEIGHT - 12,
-    borderRadius: (PILL_HEIGHT - 12) / 2,
-    backgroundColor: 'rgba(255,255,255,0.42)',
+    top: LENS_INSET,
+    height: BAR_HEIGHT - LENS_INSET * 2,
+    borderRadius: (BAR_HEIGHT - LENS_INSET * 2) / 2,
+    backgroundColor: 'rgba(255,255,255,0.55)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.55)',
+    borderColor: 'rgba(255,255,255,0.7)',
+    shadowColor: '#28241C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
   },
   tab: {
     flex: 1,
@@ -174,16 +180,12 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   iconFrame: {
-    width: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 2,
+    gap: 2,
   },
-  dot: {
-    position: 'absolute',
-    bottom: -9,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+  tabLabel: {
+    fontSize: 10.5,
+    fontWeight: '600',
   },
 });
