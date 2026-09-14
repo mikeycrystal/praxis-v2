@@ -1242,6 +1242,37 @@ export default function GraphScreen() {
     [graphHeight, graphScale, graphWidth],
   );
 
+  // Which sources fall inside the selection circle (canvas-space distance,
+  // padded by half the logo size so "touching" counts as in).
+  const selectionRadiusPx = radius * graphWidth * 0.32;
+  const outletsWithSelection = useMemo(
+    () =>
+      positionedOutlets.map((outlet) => ({
+        ...outlet,
+        inside:
+          Math.hypot(outlet.x - pinX, outlet.y - pinY) <=
+          selectionRadiusPx + Math.max(outlet.width, outlet.height) / 2,
+      })),
+    [positionedOutlets, pinX, pinY, selectionRadiusPx],
+  );
+  const insideOutlets = useMemo(
+    () => outletsWithSelection.filter((outlet) => outlet.inside),
+    [outletsWithSelection],
+  );
+  const feedNowLine = useMemo(() => {
+    const lean = getPoliticalLeanLabel(currentGraphPosition.x / 100);
+    const style = getReportingTypeLabel(currentGraphPosition.y / 100);
+    if (insideOutlets.length === 0) {
+      return { mode: `${lean} · ${style}`, sources: 'No sources in range — move the dot or widen the radius.' };
+    }
+    const names = insideOutlets.slice(0, 3).map((outlet) => outlet.label);
+    const extra = insideOutlets.length - names.length;
+    return {
+      mode: `${lean} · ${style}`,
+      sources: `Drawing from ${names.join(', ')}${extra > 0 ? ` + ${extra} more` : ''}`,
+    };
+  }, [currentGraphPosition.x, currentGraphPosition.y, insideOutlets]);
+
   return (
     <SafeAreaView ref={onboardingRootRef} style={[s.container, { backgroundColor: PAGE.background }]}>
       {isHelpOpen || showSaveDialog || showSignInDialog ? (
@@ -1657,8 +1688,19 @@ export default function GraphScreen() {
               strokeDasharray="6,5"
             />
             <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 16)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 5)} />
-            {positionedOutlets.map((outlet) => (
+            {outletsWithSelection.map((outlet) => (
               <React.Fragment key={outlet.key}>
+                {outlet.inside ? (
+                  <Circle
+                    cx={outlet.x}
+                    cy={outlet.y}
+                    r={Math.max(outlet.width, outlet.height) / 2 + 7}
+                    fill="rgba(141,174,115,0.14)"
+                    stroke={PAGE.green}
+                    strokeOpacity={0.45}
+                    strokeWidth={1.5}
+                  />
+                ) : null}
                 <SvgImage
                   x={outlet.imageX}
                   y={outlet.imageY}
@@ -1666,16 +1708,16 @@ export default function GraphScreen() {
                   height={outlet.height}
                   href={Platform.OS === 'web' ? outlet.logoWeb : outlet.logo}
                   preserveAspectRatio="xMidYMid meet"
-                  opacity={0.98}
+                  opacity={outlet.inside ? 1 : 0.4}
                 />
                 <SvgText
                   x={outlet.labelX}
                   y={outlet.labelY}
                   textAnchor={(outlet.labelAlign ?? 'middle') as 'start' | 'middle' | 'end'}
-                  fill={PAGE.textMuted}
-                  opacity={0.86}
+                  fill={outlet.inside ? PAGE.text : PAGE.textMuted}
+                  opacity={outlet.inside ? 0.95 : 0.55}
                   fontSize={clamp(9.5 * graphScale, 7.5, 10.5)}
-                  fontWeight="500"
+                  fontWeight={outlet.inside ? '700' : '500'}
                 >
                   {outlet.label}
                 </SvgText>
@@ -1697,6 +1739,15 @@ export default function GraphScreen() {
               <Text style={s.axisPillText}>Right</Text>
             </View>
           </View>
+        </View>
+
+        <View style={s.feedNowCard} accessibilityLiveRegion="polite">
+          <Text style={s.feedNowTitle}>YOUR FEED RIGHT NOW</Text>
+          <Text style={s.feedNowText}>
+            <Text style={s.feedNowMode}>{feedNowLine.mode}</Text>
+            {'  ·  '}
+            {feedNowLine.sources}
+          </Text>
         </View>
 
         <View style={s.sliderSection}>
@@ -2454,10 +2505,12 @@ const s = StyleSheet.create({
     borderColor: 'rgba(221,212,197,0.8)',
   },
   axisPillText: {
-    fontSize: 11,
-    lineHeight: 13,
-    fontWeight: '600',
-    color: PAGE.textMuted,
+    fontSize: 11.5,
+    lineHeight: 14,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    color: PAGE.text,
+    textTransform: 'uppercase',
   },
   axisTopPill: {
     top: 2,
@@ -2478,6 +2531,33 @@ const s = StyleSheet.create({
     right: 0,
     top: '50%',
     transform: [{ translateY: -10 }],
+  },
+  feedNowCard: {
+    marginHorizontal: 16,
+    marginTop: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DDE5CC',
+    backgroundColor: '#F0F4E4',
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+  },
+  feedNowTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: '#6B7B55',
+    marginBottom: 2,
+  },
+  feedNowText: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: '#3E4634',
+    fontWeight: '500',
+  },
+  feedNowMode: {
+    fontWeight: '800',
+    color: '#22201C',
   },
   sliderSection: {
     paddingHorizontal: 24,
