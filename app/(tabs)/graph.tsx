@@ -894,9 +894,29 @@ export default function GraphScreen() {
     ],
   );
 
+  // Pinch anywhere on the graph to grow/shrink the selection circle —
+  // the radius control lives on the map itself, not only on the slider.
+  const pinchBaseRadius = useSharedValue(0);
+  const graphPinchGesture = useMemo(
+    () => Gesture.Pinch()
+      .onBegin(() => {
+        activeSliderGestureRevision.value = graphResetRevision.value;
+        pinchBaseRadius.value = animatedRadius.value;
+      })
+      .onUpdate((event) => {
+        animatedRadius.value = Math.max(0.05, Math.min(1, pinchBaseRadius.value * event.scale));
+      })
+      .onFinalize(() => {
+        const stepped = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 20) / 20));
+        animatedRadius.value = withTiming(stepped, { duration: 120 });
+        runOnJS(commitRadius)(stepped, activeSliderGestureRevision.value);
+      }),
+    [activeSliderGestureRevision, animatedRadius, commitRadius, graphResetRevision, pinchBaseRadius],
+  );
+
   const graphGesture = useMemo(
-    () => Gesture.Race(graphPanGesture, graphTapGesture),
-    [graphPanGesture, graphTapGesture],
+    () => Gesture.Simultaneous(Gesture.Race(graphPanGesture, graphTapGesture), graphPinchGesture),
+    [graphPanGesture, graphTapGesture, graphPinchGesture],
   );
 
   const sliderGesture = useMemo(
@@ -1715,28 +1735,24 @@ export default function GraphScreen() {
                 </Svg>
               </Animated.View>
             </GestureDetector>
-            <View style={[s.axisPill, s.axisTopPill]}>
-              <Text style={s.axisPillText}>Hard</Text>
+            <View style={[s.axisWord, s.axisTopPill]} pointerEvents="none">
+              <Text style={s.axisPillText}>Hard News</Text>
             </View>
-            <View style={[s.axisPill, s.axisBottomPill]}>
+            <View style={[s.axisWord, s.axisBottomPill]} pointerEvents="none">
               <Text style={s.axisPillText}>Opinion</Text>
             </View>
-            <View style={[s.axisPill, s.axisLeftPill]}>
+            <View style={[s.axisWord, s.axisLeftPill]} pointerEvents="none">
               <Text style={s.axisPillText}>Left</Text>
             </View>
-            <View style={[s.axisPill, s.axisRightPill]}>
+            <View style={[s.axisWord, s.axisRightPill]} pointerEvents="none">
               <Text style={s.axisPillText}>Right</Text>
             </View>
           </View>
         </View>
 
         <View style={s.feedNowCard} accessibilityLiveRegion="polite">
-          <Text style={s.feedNowTitle}>YOUR FEED RIGHT NOW</Text>
-          <Text style={s.feedNowText}>
-            <Text style={s.feedNowMode}>{feedNowLine.mode}</Text>
-            {'  ·  '}
-            {feedNowLine.sources}
-          </Text>
+          <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
+          <Text style={s.feedNowText}>{feedNowLine.sources}</Text>
         </View>
 
         <View style={s.sliderSection}>
@@ -2484,21 +2500,18 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  axisPill: {
+  axisWord: {
     position: 'absolute',
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    backgroundColor: 'rgba(255,253,247,0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(221,212,197,0.8)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(247,243,234,0.85)',
   },
   axisPillText: {
-    fontSize: 11.5,
+    fontSize: 11,
     lineHeight: 14,
     fontWeight: '800',
-    letterSpacing: 0.8,
-    color: PAGE.text,
+    letterSpacing: 2,
+    color: '#8A8272',
     textTransform: 'uppercase',
   },
   axisTopPill: {
@@ -2522,31 +2535,23 @@ const s = StyleSheet.create({
     transform: [{ translateY: -10 }],
   },
   feedNowCard: {
-    marginHorizontal: 16,
-    marginTop: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#DDE5CC',
-    backgroundColor: '#F0F4E4',
-    paddingHorizontal: 13,
-    paddingVertical: 9,
+    marginHorizontal: 24,
+    marginTop: 12,
+    alignItems: 'center',
   },
   feedNowTitle: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 1,
-    color: '#6B7B55',
-    marginBottom: 2,
+    letterSpacing: 1.6,
+    color: '#7B9A62',
   },
   feedNowText: {
-    fontSize: 12.5,
-    lineHeight: 17,
-    color: '#3E4634',
+    marginTop: 3,
+    fontSize: 13,
+    lineHeight: 18,
+    color: PAGE.textMuted,
     fontWeight: '500',
-  },
-  feedNowMode: {
-    fontWeight: '800',
-    color: '#22201C',
+    textAlign: 'center',
   },
   sliderSection: {
     paddingHorizontal: 24,
