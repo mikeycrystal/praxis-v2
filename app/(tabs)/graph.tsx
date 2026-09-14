@@ -2502,9 +2502,6 @@ const s = StyleSheet.create({
   },
   axisWord: {
     position: 'absolute',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: 'rgba(247,243,234,0.85)',
   },
   axisPillText: {
     fontSize: 11,
@@ -2513,16 +2510,22 @@ const s = StyleSheet.create({
     letterSpacing: 2,
     color: '#8A8272',
     textTransform: 'uppercase',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(247,243,234,0.85)',
+    overflow: 'hidden',
   },
   axisTopPill: {
     top: 2,
-    left: '50%',
-    transform: [{ translateX: -20 }],
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   axisBottomPill: {
     bottom: 2,
-    left: '50%',
-    transform: [{ translateX: -26 }],
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   axisLeftPill: {
     left: 0,
