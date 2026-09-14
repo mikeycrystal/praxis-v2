@@ -438,11 +438,16 @@ export const ArticleCard = memo(function ArticleCard({
                       ]}
                     >
                       {row.id === 'lean' ? (
-                        <Ionicons name="swap-horizontal-outline" size={12} color="#D9E7FF" />
+                        <Ionicons name="swap-horizontal-outline" size={12} color="#F2F7FF" />
                       ) : row.id === 'style' ? (
-                        <Ionicons name="swap-vertical-outline" size={12} color="#D9E7FF" />
+                        <Ionicons name="swap-vertical-outline" size={12} color="#F2F7FF" />
                       ) : null}
                       <Text style={s.backChipText}>{row.label}</Text>
+                      <Ionicons
+                        name={selectedInsightRow?.id === row.id ? 'chevron-up' : 'chevron-down'}
+                        size={11}
+                        color="rgba(242,247,255,0.75)"
+                      />
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -606,12 +611,12 @@ const s = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
     overflow: 'hidden',
   },
   backChipText: {
-    color: '#D9E7FF',
-    fontSize: 11,
+    color: '#F2F7FF',
+    fontSize: 12,
     fontWeight: '700',
     letterSpacing: 0.3,
   },
@@ -620,7 +625,7 @@ const s = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.24)',
   },
   backChipInactive: {
-    opacity: 0.72,
+    opacity: 0.92,
   },
   backChipLeft: {
     backgroundColor: 'rgba(81, 154, 255, 0.18)',
