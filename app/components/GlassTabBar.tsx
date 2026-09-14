@@ -46,7 +46,9 @@ const VISIBLE_TABS = ['index', 'graph'] as const;
 export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const barWidth = windowWidth - BAR_MARGIN * 2;
+  // Floor guards the first web/hydration frame, where the window can read 0
+  // and a computed negative width collapsed the whole bar.
+  const barWidth = Math.max(windowWidth - BAR_MARGIN * 2, 260);
   const segmentWidth = (barWidth - LENS_INSET * 2) / 2;
 
   const visibleRoutes = VISIBLE_TABS
