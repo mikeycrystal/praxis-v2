@@ -102,14 +102,14 @@ const FALLBACK_TRENDING_TOPICS = SAFE_MODE_TRENDING_TOPIC_NAMES;
 const OUTLETS = [
   { key: 'reuters', gx: 0, gy: 76, dx: -12, dy: -2, label: 'Reuters', labelDx: -25, labelAlign: 'end', logo: logoReuters, logoWeb: logoUri(logoReuters), width: 34, height: 12, labelDy: 10, blend: true },
   { key: 'ap', gx: 6, gy: 72, dx: 10, dy: -2, label: 'AP', labelDx: 24, labelAlign: 'start', logo: logoAp, logoWeb: logoUri(logoAp), width: 30, height: 18, labelDy: 9, blend: true },
-  { key: 'bbc', gx: -2, gy: 64, dx: -4, dy: 10, label: 'BBC', labelDx: -23, labelAlign: 'end', logo: logoBbc, logoWeb: logoUri(logoBbc), width: 30, height: 12, labelDy: 10, blend: true },
-  { key: 'nyt', gx: -14, gy: 50, dx: -10, dy: -6, label: 'New York Times', labelDx: -26, labelAlign: 'end', logo: logoNyt, logoWeb: logoUri(logoNyt), width: 42, height: 42, labelDy: 13 },
+  { key: 'bbc', gx: -2, gy: 64, dx: 14, dy: 6, label: 'BBC', labelDx: -23, labelAlign: 'end', logo: logoBbc, logoWeb: logoUri(logoBbc), width: 30, height: 12, labelDy: 10, blend: true },
+  { key: 'nyt', gx: -14, gy: 50, dx: -24, dy: -12, label: 'New York Times', labelDx: -26, labelAlign: 'end', logo: logoNyt, logoWeb: logoUri(logoNyt), width: 42, height: 42, labelDy: 13 },
   { key: 'politico', gx: -2, gy: 44, dx: 10, dy: 10, label: 'Politico', labelDx: 23, labelAlign: 'start', logo: logoPolitico, logoWeb: logoUri(logoPolitico), width: 38, height: 10, labelDy: 10, blend: true },
   { key: 'wsj', gx: 22, gy: 42, dx: 10, dy: -6, label: 'WSJ', labelDx: 23, labelAlign: 'start', logo: logoWsj, logoWeb: logoUri(logoWsj), width: 34, height: 34, labelDy: 11, blend: true },
-  { key: 'cnn', gx: -18, gy: 34, dx: -10, dy: 2, label: 'CNN', labelDx: -21, labelAlign: 'end', logo: logoCnn, logoWeb: logoUri(logoCnn), width: 34, height: 18, labelDy: 10, blend: true },
+  { key: 'cnn', gx: -18, gy: 34, dx: -6, dy: 14, label: 'CNN', labelDx: -21, labelAlign: 'end', logo: logoCnn, logoWeb: logoUri(logoCnn), width: 34, height: 18, labelDy: 10, blend: true },
   { key: 'fox', gx: 50, gy: 28, dx: 14, dy: -4, label: 'Fox News', labelDx: 23, labelAlign: 'start', logo: logoFox, logoWeb: logoUri(logoFox), width: 34, height: 34, labelDy: 10, blend: true },
-  { key: 'msnbc', gx: -50, gy: 38, dx: -18, dy: -8, label: 'MSNBC', logo: logoMsnbc, logoWeb: logoUri(logoMsnbc), width: 28, height: 16, labelDy: 10, blend: true },
-  { key: 'vox', gx: -50, gy: 24, dx: -14, dy: 10, label: 'Vox', logo: logoVox, logoWeb: logoUri(logoVox), width: 34, height: 22, labelDy: 11, blend: true },
+  { key: 'msnbc', gx: -50, gy: 38, dx: -18, dy: -16, label: 'MSNBC', logo: logoMsnbc, logoWeb: logoUri(logoMsnbc), width: 28, height: 16, labelDy: 10, blend: true },
+  { key: 'vox', gx: -50, gy: 24, dx: -14, dy: 18, label: 'Vox', logo: logoVox, logoWeb: logoUri(logoVox), width: 34, height: 22, labelDy: 11, blend: true },
   { key: 'breitbart', gx: 60, gy: -2, dx: 18, dy: -6, label: 'Breitbart', logo: logoBreitbart, logoWeb: logoUri(logoBreitbart), width: 32, height: 22, labelDy: 10, blend: true },
   { key: 'atlantic', gx: -20, gy: -36, dx: -8, dy: -4, label: 'The Atlantic', logo: logoAtlantic, logoWeb: logoUri(logoAtlantic), width: 28, height: 34, labelDy: 12, blend: true },
   { key: 'nr', gx: 46, gy: -38, dx: 10, dy: 6, label: 'National Review', logo: logoNr, logoWeb: logoUri(logoNr), width: 34, height: 16, labelDy: 10, blend: true },
@@ -1287,13 +1287,16 @@ export default function GraphScreen() {
     if (insideOutlets.length === 0) {
       return { mode: `${lean} · ${style}`, sources: 'No sources in range — move the dot or widen the radius.' };
     }
-    const names = insideOutlets.slice(0, 3).map((outlet) => outlet.label);
+    const byDistance = [...insideOutlets].sort(
+      (a, b) => Math.hypot(a.x - pinX, a.y - pinY) - Math.hypot(b.x - pinX, b.y - pinY),
+    );
+    const names = byDistance.slice(0, 3).map((outlet) => outlet.label);
     const extra = insideOutlets.length - names.length;
     return {
       mode: `${lean} · ${style}`,
       sources: `Drawing from ${names.join(', ')}${extra > 0 ? ` + ${extra} more` : ''}`,
     };
-  }, [currentGraphPosition.x, currentGraphPosition.y, insideOutlets]);
+  }, [currentGraphPosition.x, currentGraphPosition.y, insideOutlets, pinX, pinY]);
 
   return (
     <SafeAreaView ref={onboardingRootRef} style={[s.container, { backgroundColor: PAGE.background }]}>
@@ -1699,15 +1702,17 @@ export default function GraphScreen() {
             <GestureDetector gesture={graphGesture}>
               <Animated.View style={{ width: graphWidth, height: graphHeight }}>
                 <Svg width={graphWidth} height={graphHeight}>
-            <Line x1={centerX} y1={graphAxisInset} x2={centerX} y2={graphHeight - graphAxisInset} stroke="#D3CCC1" strokeWidth={2} />
-            <Line x1={graphAxisInset} y1={centerY} x2={graphWidth - graphAxisInset} y2={centerY} stroke="#D3CCC1" strokeWidth={2} />
+            <Line x1={centerX} y1={graphAxisInset} x2={centerX} y2={graphHeight - graphAxisInset} stroke="#DED6C8" strokeWidth={1.25} />
+            <Line x1={graphAxisInset} y1={centerY} x2={graphWidth - graphAxisInset} y2={centerY} stroke="#DED6C8" strokeWidth={1.25} />
 
             <AnimatedCircle
               animatedProps={radiusCircleAnimatedProps}
-              fill="rgba(141,174,115,0.08)"
+              fill="rgba(141,174,115,0.06)"
               stroke={PAGE.green}
-              strokeWidth={3}
-              strokeDasharray="6,5"
+              strokeOpacity={0.75}
+              strokeWidth={1.75}
+              strokeDasharray="1,7"
+              strokeLinecap="round"
             />
             <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 16)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 5)} />
             {outletsWithSelection.map((outlet) => (
