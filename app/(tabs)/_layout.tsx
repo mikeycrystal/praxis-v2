@@ -59,6 +59,13 @@ export default function TabsLayout() {
         tabBarActiveTintColor: c.tint,
         tabBarInactiveTintColor: c.tabIconDefault,
         tabBarShowLabel: false,
+        // Smooth switching: cross-fade between tabs instead of a hard swap,
+        // mount both screens up front (2 tabs — the first Graph visit was
+        // paying the whole mount cost), and freeze the hidden tab so the
+        // feed's timers/subscriptions can't jank the Graph while it's up.
+        animation: 'fade',
+        lazy: false,
+        freezeOnBlur: true,
       }}
     >
       <Tabs.Screen
