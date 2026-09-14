@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
+import { GlassSurface } from '../components/GlassSurface';
 import { supabase } from '../services/supabase';
 
 const TERMS_URL = 'https://praxisnews.co/terms.html';
@@ -193,7 +194,7 @@ export default function AccountSettingsModal() {
 
   return (
     <SafeAreaView style={s.overlay}>
-      <View style={s.sheet}>
+      <GlassSurface style={s.sheet} tintColor="rgba(247,243,234,0.55)" fallbackStyle={s.sheetFallback}>
         <View style={s.handle} />
         <View style={s.header}>
           <View style={s.headerCopy}>
@@ -250,7 +251,7 @@ export default function AccountSettingsModal() {
             </View>
           </View>
         ))}
-      </View>
+      </GlassSurface>
     </SafeAreaView>
   );
 }
@@ -258,7 +259,7 @@ export default function AccountSettingsModal() {
 const s = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(46,42,37,0.22)', justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: PAGE.background,
+    overflow: 'hidden',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
@@ -267,6 +268,7 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: PAGE.border,
   },
+  sheetFallback: { backgroundColor: PAGE.background },
   handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: '#D6CDBE', alignSelf: 'center', marginBottom: 22 },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 6 },
   headerCopy: { flex: 1 },

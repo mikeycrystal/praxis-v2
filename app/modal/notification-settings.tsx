@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
+import { GlassSurface } from '../components/GlassSurface';
 
 const PAGE = {
   background: '#F7F3EA',
@@ -71,7 +72,7 @@ export default function NotificationSettingsModal() {
 
   return (
     <SafeAreaView style={s.overlay}>
-      <View style={s.sheet}>
+      <GlassSurface style={s.sheet} tintColor="rgba(247,243,234,0.55)" fallbackStyle={s.sheetFallback}>
         <View style={s.handle} />
         <View style={s.header}>
           <TouchableOpacity style={s.backButton} onPress={() => router.back()} accessibilityLabel="Back to settings">
@@ -102,7 +103,7 @@ export default function NotificationSettingsModal() {
           ))}
         </View>
         <Text style={s.footnote}>Praxis never notifies you between 10 pm and 7 am.</Text>
-      </View>
+      </GlassSurface>
     </SafeAreaView>
   );
 }
@@ -110,7 +111,7 @@ export default function NotificationSettingsModal() {
 const s = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(46,42,37,0.22)', justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: PAGE.background,
+    overflow: 'hidden',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
@@ -119,6 +120,7 @@ const s = StyleSheet.create({
     borderWidth: 1,
     borderColor: PAGE.border,
   },
+  sheetFallback: { backgroundColor: PAGE.background },
   handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: '#D6CDBE', alignSelf: 'center', marginBottom: 22 },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 18 },
   backButton: {
