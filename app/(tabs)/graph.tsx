@@ -1690,17 +1690,6 @@ export default function GraphScreen() {
             <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 16)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 5)} />
             {outletsWithSelection.map((outlet) => (
               <React.Fragment key={outlet.key}>
-                {outlet.inside ? (
-                  <Circle
-                    cx={outlet.x}
-                    cy={outlet.y}
-                    r={Math.max(outlet.width, outlet.height) / 2 + 7}
-                    fill="rgba(141,174,115,0.14)"
-                    stroke={PAGE.green}
-                    strokeOpacity={0.45}
-                    strokeWidth={1.5}
-                  />
-                ) : null}
                 <SvgImage
                   x={outlet.imageX}
                   y={outlet.imageY}
