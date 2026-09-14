@@ -50,7 +50,10 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
   // can be frozen at 0 (which once collapsed the bar to negative width), and
   // onLayout is the ground truth on every platform. The floor is the last net.
   const [measuredWidth, setMeasuredWidth] = useState(0);
-  const barWidth = Math.max((measuredWidth || windowWidth) - BAR_MARGIN * 2, 260);
+  const barWidth = Math.min(
+    Math.max((measuredWidth || windowWidth) - BAR_MARGIN * 2, 260),
+    430, // tablet/wide screens: the bar stays hand-sized, centered
+  );
   const segmentWidth = (barWidth - LENS_INSET * 2) / 2;
 
   const visibleRoutes = VISIBLE_TABS

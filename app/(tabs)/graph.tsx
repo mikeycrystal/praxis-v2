@@ -2607,6 +2607,9 @@ const s = StyleSheet.create({
     paddingHorizontal: 18,
     paddingBottom: 10,
     paddingTop: 2,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
   },
   // Reserve this space even before a change is made. Otherwise the map moves
   // whenever filter chips or the Apply button enter/leave the layout.

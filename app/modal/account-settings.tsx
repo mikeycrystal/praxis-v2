@@ -260,6 +260,9 @@ const s = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(46,42,37,0.22)', justifyContent: 'flex-end' },
   sheet: {
     overflow: 'hidden',
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
