@@ -4,7 +4,9 @@ import { Radius, Typography, Spacing, Shadows } from '@/constants/Theme';
 
 export function useTheme() {
   const scheme = useColorScheme();
-  // Default to dark — matches the web app's primary theme
-  const c = Colors[scheme === 'light' ? 'light' : 'dark'];
+  // Praxis is a single-theme app: the feed, graph and settings are always
+  // the cream paper look, so themed screens follow the same palette
+  // regardless of the device scheme (Ayuka, 2026-09-14).
+  const c = Colors.light;
   return { c, scheme, Radius, Typography, Spacing, Shadows };
 }
