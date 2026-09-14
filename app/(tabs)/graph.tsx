@@ -103,7 +103,7 @@ const OUTLETS = [
   { key: 'reuters', gx: 0, gy: 76, dx: -12, dy: -2, label: 'Reuters', labelDx: -25, labelAlign: 'end', logo: logoReuters, logoWeb: logoUri(logoReuters), width: 34, height: 12, labelDy: 10, blend: true },
   { key: 'ap', gx: 6, gy: 72, dx: 10, dy: -2, label: 'AP', labelDx: 24, labelAlign: 'start', logo: logoAp, logoWeb: logoUri(logoAp), width: 30, height: 18, labelDy: 9, blend: true },
   { key: 'bbc', gx: -2, gy: 64, dx: 14, dy: 6, label: 'BBC', labelDx: -23, labelAlign: 'end', logo: logoBbc, logoWeb: logoUri(logoBbc), width: 30, height: 12, labelDy: 10, blend: true },
-  { key: 'nyt', gx: -14, gy: 50, dx: -24, dy: -12, label: 'NY Times', labelDx: -26, labelAlign: 'end', logo: logoNyt, logoWeb: logoUri(logoNyt), width: 42, height: 42, labelDy: 13 },
+  { key: 'nyt', gx: -14, gy: 50, dx: -24, dy: -12, label: '', labelDx: -26, labelAlign: 'end', logo: logoNyt, logoWeb: logoUri(logoNyt), width: 42, height: 42, labelDy: 13 },
   { key: 'politico', gx: -2, gy: 44, dx: 10, dy: 10, label: 'Politico', labelDx: 23, labelAlign: 'start', logo: logoPolitico, logoWeb: logoUri(logoPolitico), width: 38, height: 10, labelDy: 10, blend: true },
   { key: 'wsj', gx: 22, gy: 42, dx: 10, dy: -6, label: 'WSJ', labelDx: 23, labelAlign: 'start', logo: logoWsj, logoWeb: logoUri(logoWsj), width: 34, height: 34, labelDy: 11, blend: true },
   { key: 'cnn', gx: -18, gy: 34, dx: -6, dy: 14, label: 'CNN', labelDx: -21, labelAlign: 'end', logo: logoCnn, logoWeb: logoUri(logoCnn), width: 34, height: 18, labelDy: 10, blend: true },
@@ -1726,6 +1726,7 @@ export default function GraphScreen() {
                   preserveAspectRatio="xMidYMid meet"
                   opacity={outlet.inside ? 1 : 0.4}
                 />
+                {outlet.label ? (
                 <SvgText
                   x={outlet.labelX}
                   y={outlet.labelY}
@@ -1737,6 +1738,7 @@ export default function GraphScreen() {
                 >
                   {outlet.label}
                 </SvgText>
+                ) : null}
               </React.Fragment>
             ))}
                 </Svg>
