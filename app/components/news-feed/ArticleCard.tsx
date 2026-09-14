@@ -13,7 +13,6 @@ import {
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { GlassSurface } from '../GlassSurface';
 import type { Article } from '../../hooks/useFeedArticles';
 
 export const getArticleCardDimensions = (
@@ -317,42 +316,28 @@ export const ArticleCard = memo(function ArticleCard({
             ) : <View />}
 
             <View style={s.actionBtns}>
-              <GlassSurface
-                style={[s.actionBtn, isCompactCard ? s.actionBtnCompact : null]}
-                tintColor="rgba(40,40,44,0.18)"
-                isInteractive
-                fallbackStyle={s.actionBtnFallback}
+              <TouchableOpacity
+                style={[s.actionBtn, s.actionBtnFallback, isCompactCard ? s.actionBtnCompact : null]}
+                onPress={(event) => {
+                  stopFlipPropagation(event);
+                  onShare();
+                }}
+                accessibilityLabel="Share story"
+                accessibilityRole="button"
               >
-                <TouchableOpacity
-                  style={s.actionBtnHit}
-                  onPress={(event) => {
-                    stopFlipPropagation(event);
-                    onShare();
-                  }}
-                  accessibilityLabel="Share story"
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="share-social-outline" size={isCompactCard ? 16 : 18} color="#F5F9FC" />
-                </TouchableOpacity>
-              </GlassSurface>
-              <GlassSurface
-                style={[s.actionBtn, isCompactCard ? s.actionBtnCompact : null]}
-                tintColor="rgba(40,40,44,0.18)"
-                isInteractive
-                fallbackStyle={s.actionBtnFallback}
+                <Ionicons name="share-social-outline" size={isCompactCard ? 16 : 18} color="#F5F9FC" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.actionBtn, s.actionBtnFallback, isCompactCard ? s.actionBtnCompact : null]}
+                onPress={(event) => {
+                  stopFlipPropagation(event);
+                  onSave();
+                }}
+                accessibilityLabel={isSaved ? 'Remove bookmark' : 'Save article'}
+                accessibilityRole="button"
               >
-                <TouchableOpacity
-                  style={s.actionBtnHit}
-                  onPress={(event) => {
-                    stopFlipPropagation(event);
-                    onSave();
-                  }}
-                  accessibilityLabel={isSaved ? 'Remove bookmark' : 'Save article'}
-                  accessibilityRole="button"
-                >
-                  <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={isCompactCard ? 17 : 19} color="#F5F9FC" />
-                </TouchableOpacity>
-              </GlassSurface>
+                <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={isCompactCard ? 17 : 19} color="#F5F9FC" />
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -737,6 +722,8 @@ const s = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionBtnFallback: {
     borderWidth: 1,
@@ -747,12 +734,6 @@ const s = StyleSheet.create({
     shadowOpacity: 0.28,
     shadowRadius: 10,
     elevation: 7,
-  },
-  actionBtnHit: {
-    flex: 1,
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   actionBtnCompact: { width: 38, height: 38, borderRadius: 19 },
   content: {

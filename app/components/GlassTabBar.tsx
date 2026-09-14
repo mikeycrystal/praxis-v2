@@ -4,9 +4,10 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle, Line } from 'react-native-svg';
 import Animated, {
+  Easing,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassSurface } from './GlassSurface';
@@ -55,7 +56,11 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
 
   const lensPosition = useSharedValue(activeVisibleIndex);
   useEffect(() => {
-    lensPosition.value = withSpring(activeVisibleIndex, { damping: 16, stiffness: 180 });
+    // Crisp glide, no overshoot — the spring version wobbled before settling.
+    lensPosition.value = withTiming(activeVisibleIndex, {
+      duration: 200,
+      easing: Easing.out(Easing.cubic),
+    });
   }, [activeVisibleIndex, lensPosition]);
 
   const lensStyle = useAnimatedStyle(() => ({
@@ -80,8 +85,8 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
     >
       <GlassSurface
         style={s.pill}
-        tintColor="rgba(247,243,234,0.45)"
-        isInteractive
+        glassEffectStyle="clear"
+        tintColor="rgba(252,250,244,0.14)"
         fallbackStyle={s.pillFallback}
       >
         <Animated.View style={[s.lens, lensStyle]} />

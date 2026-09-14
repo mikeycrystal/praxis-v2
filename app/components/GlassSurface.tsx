@@ -11,6 +11,10 @@ type GlassSurfaceProps = ViewProps & {
   fallbackStyle?: StyleProp<ViewStyle>;
   tintColor?: string;
   isInteractive?: boolean;
+  glassEffectStyle?: 'clear' | 'regular' | 'none';
+  // When false, always render the fallback — used to keep glass off
+  // offscreen/stacked copies of a component (glass on moving layers is slow).
+  enabled?: boolean;
 };
 
 export function GlassSurface({
@@ -18,13 +22,16 @@ export function GlassSurface({
   style,
   tintColor,
   isInteractive,
+  glassEffectStyle,
+  enabled = true,
   children,
   ...rest
 }: GlassSurfaceProps) {
-  if (hasLiquidGlass) {
+  if (hasLiquidGlass && enabled) {
     return (
       <GlassView
         style={style}
+        glassEffectStyle={glassEffectStyle}
         tintColor={tintColor}
         isInteractive={isInteractive}
         colorScheme="light"
