@@ -2423,11 +2423,11 @@ const s = StyleSheet.create({
   cardStack: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 0,
-    // The tab bar floats OVER content since 124, so the stack must reserve
-    // its footprint — otherwise the centered card drifts down under the bar
-    // (Ayuka: "the card is too low now, it was right before").
+    // Card rides high under the digest pill; spare space falls below it,
+    // not above (Ayuka, 2026-09-15: "higher up, no awkward space"). The
+    // bottom padding still reserves the floating bar's footprint.
+    justifyContent: 'flex-start',
+    paddingTop: 10,
     paddingBottom: TAB_BAR_CLEARANCE,
     position: 'relative',
     zIndex: 0,

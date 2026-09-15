@@ -15,6 +15,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { GraphOnboarding, type SpotlightRect } from '../components/onboarding/GraphOnboarding';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { readCachedStreak, writeCachedStreak } from '../lib/streakCache';
 import { useNewsPreferences } from '../context/NewsPreferencesContext';
 import {
@@ -369,8 +370,10 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 12, 0);
+    // The readout card (40 + 12 margin) now lives inside the same wrap as
+    // the canvas, so the square must leave room for it.
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 24, viewportHeightLimit),
+      Math.min(graphViewport.height - 76, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -417,6 +420,24 @@ export default function GraphScreen() {
   );
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  // One-time discoverability whisper for pinch-to-resize (the slider is
+  // gone and nobody would guess the gesture). Shows once, ever.
+  const [showPinchHint, setShowPinchHint] = useState(false);
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    AsyncStorage.getItem('praxis.pinchHint.v1')
+      .then((seen) => {
+        if (seen) return;
+        setShowPinchHint(true);
+        void AsyncStorage.setItem('praxis.pinchHint.v1', 'shown');
+        hideTimer = setTimeout(() => setShowPinchHint(false), 8000);
+      })
+      .catch(() => {});
+    return () => {
+      if (hideTimer) clearTimeout(hideTimer);
+    };
+  }, []);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
   const [digestName, setDigestName] = useState('');
@@ -836,8 +857,13 @@ export default function GraphScreen() {
     if (revision !== graphResetRevisionRef.current) return;
     isDefaultResetLockedRef.current = false;
     setRadius(nextRadius);
+    setShowPinchHint(false); // they found the gesture
   }, []);
 
+  // Sources light up live while the dot drags too (throttled to ~14px of
+  // travel so the SVG re-render can't flood the JS thread).
+  const lastLivePanX = useSharedValue(-1);
+  const lastLivePanY = useSharedValue(-1);
   const graphPanGesture = useMemo(
     () => Gesture.Pan()
       .minDistance(4)
@@ -845,10 +871,26 @@ export default function GraphScreen() {
         activeGraphGestureRevision.value = graphResetRevision.value;
         animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
         animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
+        lastLivePanX.value = animatedPinX.value;
+        lastLivePanY.value = animatedPinY.value;
       })
       .onUpdate((event) => {
         animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
         animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
+        if (
+          Math.hypot(
+            animatedPinX.value - lastLivePanX.value,
+            animatedPinY.value - lastLivePanY.value,
+          ) > 14
+        ) {
+          lastLivePanX.value = animatedPinX.value;
+          lastLivePanY.value = animatedPinY.value;
+          runOnJS(commitGraphPosition)(
+            animatedPinX.value,
+            animatedPinY.value,
+            activeGraphGestureRevision.value,
+          );
+        }
       })
       .onFinalize(() => {
         runOnJS(commitGraphPosition)(
@@ -865,6 +907,8 @@ export default function GraphScreen() {
       graphHeight,
       graphResetRevision,
       graphWidth,
+      lastLivePanX,
+      lastLivePanY,
     ],
   );
 
@@ -896,23 +940,32 @@ export default function GraphScreen() {
   );
 
   // Pinch anywhere on the graph to grow/shrink the selection circle —
-  // the radius control lives on the map itself, not only on the slider.
+  // the radius control lives on the map itself. Sources light up LIVE as
+  // the circle crosses them (per 5% step) — updating only on release made
+  // the gesture feel glitchy (Ayuka, 2026-09-15).
   const pinchBaseRadius = useSharedValue(0);
+  const lastPinchStep = useSharedValue(-1);
   const graphPinchGesture = useMemo(
     () => Gesture.Pinch()
       .onBegin(() => {
         activeSliderGestureRevision.value = graphResetRevision.value;
         pinchBaseRadius.value = animatedRadius.value;
+        lastPinchStep.value = -1;
       })
       .onUpdate((event) => {
         animatedRadius.value = Math.max(0.05, Math.min(1, pinchBaseRadius.value * event.scale));
+        const stepped = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 20) / 20));
+        if (stepped !== lastPinchStep.value) {
+          lastPinchStep.value = stepped;
+          runOnJS(commitRadius)(stepped, activeSliderGestureRevision.value);
+        }
       })
       .onFinalize(() => {
         const stepped = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 20) / 20));
         animatedRadius.value = withTiming(stepped, { duration: 120 });
         runOnJS(commitRadius)(stepped, activeSliderGestureRevision.value);
       }),
-    [activeSliderGestureRevision, animatedRadius, commitRadius, graphResetRevision, pinchBaseRadius],
+    [activeSliderGestureRevision, animatedRadius, commitRadius, graphResetRevision, lastPinchStep, pinchBaseRadius],
   );
 
   const graphGesture = useMemo(
@@ -1741,16 +1794,20 @@ export default function GraphScreen() {
             <View style={[s.axisWord, s.axisRightPill]} pointerEvents="none">
               <Text style={s.axisPillText}>Right</Text>
             </View>
+            {showPinchHint ? (
+              <View style={s.pinchHint} pointerEvents="none">
+                <Text style={s.pinchHintText}>Pinch to resize your range</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={s.feedNowCard} accessibilityLiveRegion="polite">
+            <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
+            <Text style={s.feedNowText} numberOfLines={1} ellipsizeMode="tail">
+              {feedNowLine.sources}
+            </Text>
           </View>
         </View>
-
-        <View style={s.feedNowCard} accessibilityLiveRegion="polite">
-          <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
-          <Text style={s.feedNowText} numberOfLines={1} ellipsizeMode="tail">
-            {feedNowLine.sources}
-          </Text>
-        </View>
-
       </Pressable>
 
       <View
@@ -1808,7 +1865,7 @@ export default function GraphScreen() {
               <View style={s.helpSection}>
                 <Text style={s.helpSectionTitle}>How to Use</Text>
                 <Text style={s.helpBody}>
-                  Tap on the map to select your preferred position, then adjust the radius to control how similar sources should be. A larger radius includes more diverse sources.
+                  Tap or drag on the map to set your position, and pinch with two fingers to grow or shrink your range — a larger circle draws from more diverse sources.
                 </Text>
               </View>
             </ScrollView>
@@ -2467,9 +2524,10 @@ const s = StyleSheet.create({
     flexShrink: 1,
     alignSelf: 'stretch',
     alignItems: 'center',
-    // Keep the larger map centered in the space between topic controls and
-    // the Radius control rather than pinning it toward the top edge.
-    justifyContent: 'center',
+    // Map + readout sit UP under the topic controls; spare space falls to
+    // the bottom instead of becoming an awkward gap above the map
+    // (Ayuka, 2026-09-15).
+    justifyContent: 'flex-start',
     maxWidth: 620,
     paddingHorizontal: 4,
     paddingTop: 4,
@@ -2516,6 +2574,20 @@ const s = StyleSheet.create({
     right: 0,
     top: '50%',
     transform: [{ translateY: -10 }],
+  },
+  pinchHint: {
+    position: 'absolute',
+    bottom: 6,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(46,42,37,0.82)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  pinchHintText: {
+    color: '#F7F3EA',
+    fontSize: 11.5,
+    fontWeight: '600',
   },
   feedNowCard: {
     marginHorizontal: 24,
