@@ -4,6 +4,7 @@ import { supabase } from '../services/supabase';
 import { registerPushToken, unregisterPushToken } from '../utils/notifications';
 import { readGuestMode, writeGuestMode } from '../lib/guestMode';
 import { trackAuth } from '../lib/analytics';
+import { transferGuestStreakToProfile } from '../lib/digestStreak';
 
 export interface Profile {
   id: string;
@@ -119,6 +120,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (signInError) throw signInError;
     }
     void trackAuth('signup', 'password');
+
+    // "Save my streak" promise: carry the guest device streak into the fresh
+    // profile, then refetch so the pill never paints a reset number.
+    const newUserId = data.session?.user?.id
+      ?? (await supabase.auth.getUser()).data.user?.id;
+    if (newUserId) {
+      await transferGuestStreakToProfile(newUserId);
+      await fetchProfile(newUserId);
+    }
   };
 
   const signOut = async () => {

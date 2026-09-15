@@ -1,4 +1,5 @@
 import { supabase } from '../services/supabase';
+import { readReadingActivitySummary } from './readingActivity';
 
 // Port of the web app's digest-streak award (card-page Index.tsx): the
 // streak is profiles.current_streak, advanced once per America/New_York day
@@ -53,6 +54,57 @@ export const isStreakLive = (lastCompletedDate: string | null | undefined) => {
     return lastCompletedDate.slice(0, 10) >= yesterday;
   } catch {
     return true;
+  }
+};
+
+// "Save my streak" must be real: without this, a guest who creates an
+// account watches the pill fall back to 0/1 because the fresh profile has no
+// streak history. Copies the device streak into the new profile right after
+// signup. Never lowers a streak the profile already has; the profiles row is
+// created by a DB trigger, so a few short retries cover any creation race.
+export const transferGuestStreakToProfile = async (userId: string): Promise<number | null> => {
+  try {
+    const summary = await readReadingActivitySummary(null);
+    const guestStreak = summary.currentStreak;
+    if (!Number.isFinite(guestStreak) || guestStreak <= 0) return null;
+
+    const todayEST = getNewYorkDate();
+    // Device streak counts local read-days; if none today, it was alive
+    // through yesterday, which keeps awardDigestStreak incrementing (not
+    // resetting) on their next completed digest.
+    const lastCompleted = summary.readsToday > 0 ? todayEST : getPreviousDate(todayEST);
+    if (!lastCompleted) return null;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const { data: profile, error: readError } = await supabase
+        .from('profiles')
+        .select('current_streak, longest_streak')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (!readError && profile) {
+        if ((profile.current_streak ?? 0) >= guestStreak) return profile.current_streak ?? 0;
+
+        const { error: writeError } = await supabase
+          .from('profiles')
+          .update({
+            current_streak: guestStreak,
+            longest_streak: Math.max(profile.longest_streak ?? 0, guestStreak),
+            streak_last_completed_date: lastCompleted,
+          })
+          .eq('id', userId);
+        if (writeError) throw writeError;
+
+        await supabase.rpc('check_and_award_badges', { p_user_id: userId });
+        return guestStreak;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+    return null;
+  } catch (error) {
+    console.warn('[digestStreak] Failed to transfer guest streak', error);
+    return null;
   }
 };
 
