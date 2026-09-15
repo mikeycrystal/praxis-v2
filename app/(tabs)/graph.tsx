@@ -369,7 +369,7 @@ export default function GraphScreen() {
       Math.max(windowHeight - 310, graphMinSize),
       GRAPH_MAX_SIZE,
     );
-    const availableWidth = Math.max(graphViewport.width - 12, 0);
+    const availableWidth = Math.max(graphViewport.width - 4, 0);
     // The readout card (40 + 12 margin) now lives inside the same wrap as
     // the canvas, so the square must leave room for it.
     const availableHeight = Math.max(
@@ -2362,7 +2362,9 @@ const s = StyleSheet.create({
     flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 18,
+    // Slim margins: the canvas is width-bound on phones, so every trimmed
+    // horizontal pixel is a bigger map (axis words live inside the canvas).
+    paddingHorizontal: 8,
     paddingTop: 2,
     paddingBottom: 8,
     position: 'relative',
@@ -2529,7 +2531,7 @@ const s = StyleSheet.create({
     // (Ayuka, 2026-09-15).
     justifyContent: 'flex-start',
     maxWidth: 620,
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
     paddingTop: 4,
     paddingBottom: 6,
   },
