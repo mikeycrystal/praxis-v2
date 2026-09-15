@@ -2,19 +2,30 @@ import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 // Shown after a completed digest (timing rules in app/lib/notificationPrompt.ts).
-// Copy is from the notifications spec §4 — change it there first.
+// Two angles (Ayuka, 2026-09-15): the first ask sells the news, the second —
+// shown only after a decline, once a streak exists — sells the streak.
 
 type NotificationPermissionPromptProps = {
   visible: boolean;
+  variant?: 'value' | 'streak';
+  streakCount?: number;
   onYes: () => void;
   onNotNow: () => void;
 };
 
 export function NotificationPermissionPrompt({
   visible,
+  variant = 'value',
+  streakCount = 0,
   onYes,
   onNotNow,
 }: NotificationPermissionPromptProps) {
+  const title = variant === 'streak' && streakCount >= 2
+    ? `Keep your ${streakCount}-day streak alive?`
+    : "Get the day's biggest stories each morning?";
+  const body = variant === 'streak' && streakCount >= 2
+    ? 'One nudge tomorrow at your reading time. Turn it off any time.'
+    : 'One notification naming the 3 stories that matter. Turn it off any time.';
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onNotNow}>
       <View style={s.backdrop}>
@@ -28,10 +39,8 @@ export function NotificationPermissionPrompt({
           <View style={s.iconWrap}>
             <Ionicons name="notifications-outline" size={24} color="#6B9456" />
           </View>
-          <Text style={s.title}>Want tomorrow's 5 stories at this time?</Text>
-          <Text style={s.body}>
-            One notification a day, when you usually read. Turn it off any time.
-          </Text>
+          <Text style={s.title}>{title}</Text>
+          <Text style={s.body}>{body}</Text>
           <TouchableOpacity style={s.primaryButton} onPress={onYes} accessibilityRole="button">
             <Text style={s.primaryText}>Yes, remind me</Text>
           </TouchableOpacity>

@@ -2,9 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-// Ask-for-permission timing (notifications spec §4): show the in-app card
-// after the 1st completed digest; if declined, once more after the 3rd;
-// then never again. The system dialog fires only from a "Yes" on the card.
+// Ask-for-permission timing (notifications spec §4 + Ayuka 2026-09-15):
+// signed-in users see the card after their 1st completed digest, again after
+// the 3rd if declined, then never. GUESTS are staggered one win later (2nd,
+// then 4th) because their first completion already carries the account
+// prompt — never two cards on one celebration. The system dialog fires only
+// from a "Yes" on the card.
 
 const STORAGE_KEY = 'praxis.notificationPrompt.v1';
 
@@ -39,29 +42,36 @@ async function writeState(state: PromptState): Promise<void> {
   }
 }
 
-// Call on every digest completion. Resolves true when the card should show.
-export async function recordDigestCompletionForPrompt(): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+// Call on every digest completion. Resolves which ask to show (or null).
+// 'value' = the news-angle first ask; 'streak' = the streak-angle second ask.
+export type NotificationAsk = 'value' | 'streak';
+
+export async function recordDigestCompletionForPrompt(
+  isGuest = false,
+): Promise<NotificationAsk | null> {
+  if (Platform.OS === 'web') return null;
 
   const state = await readState();
   state.completions += 1;
   await writeState(state);
 
-  if (state.done) return false;
+  if (state.done) return null;
 
   try {
     const { status } = await Notifications.getPermissionsAsync();
     if (status === 'granted') {
       await writeState({ ...state, done: true });
-      return false;
+      return null;
     }
   } catch {
-    return false;
+    return null;
   }
 
-  if (state.declines === 0) return state.completions >= 1;
-  if (state.declines === 1) return state.completions >= 3;
-  return false;
+  const firstAt = isGuest ? 2 : 1;
+  const secondAt = isGuest ? 4 : 3;
+  if (state.declines === 0) return state.completions >= firstAt ? 'value' : null;
+  if (state.declines === 1) return state.completions >= secondAt ? 'streak' : null;
+  return null;
 }
 
 export async function recordPromptDeclined(): Promise<void> {

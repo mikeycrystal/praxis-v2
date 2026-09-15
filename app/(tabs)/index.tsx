@@ -89,6 +89,7 @@ import { StoryShareSheet } from '../components/StoryShareSheet';
 import { SaveAccountPrompt } from '../components/SaveAccountPrompt';
 import { NotificationPermissionPrompt } from '../components/NotificationPermissionPrompt';
 import {
+  type NotificationAsk,
   recordDigestCompletionForPrompt,
   recordPromptDeclined,
   recordPromptGranted,
@@ -393,7 +394,7 @@ export default function FeedScreen() {
   const [isDigestCompletionVisible, setIsDigestCompletionVisible] = useState(false);
   const [isDigestHandoffActive, setIsDigestHandoffActive] = useState(false);
   const [showGuestStreakPrompt, setShowGuestStreakPrompt] = useState(false);
-  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
+  const [notifPromptAsk, setNotifPromptAsk] = useState<NotificationAsk | null>(null);
   const [cachedStreak, setCachedStreak] = useState<number | null>(null);
   useEffect(() => {
     void readCachedStreak().then(setCachedStreak);
@@ -424,12 +425,13 @@ export default function FeedScreen() {
   const pendingDigestResumeIndexRef = useRef<number | null>(null);
   const guestStreakPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notifPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingGuestNotifPromptRef = useRef(false);
+  const pendingGuestNotifPromptRef = useRef<NotificationAsk | null>(null);
   const dismissGuestStreakPrompt = useCallback(() => {
     setShowGuestStreakPrompt(false);
-    if (pendingGuestNotifPromptRef.current) {
-      pendingGuestNotifPromptRef.current = false;
-      setTimeout(() => setShowNotifPrompt(true), 450);
+    const pendingAsk = pendingGuestNotifPromptRef.current;
+    if (pendingAsk) {
+      pendingGuestNotifPromptRef.current = null;
+      setTimeout(() => setNotifPromptAsk(pendingAsk), 450);
     }
   }, []);
   const lastHandledRequestNonceRef = useRef<number | null>(null);
@@ -1325,14 +1327,14 @@ export default function FeedScreen() {
     } else {
       // Ask for notification permission after a delivered win, never at sign-in.
       // Timing rules (1st completion, then 3rd, then never) live in the lib.
-      void recordDigestCompletionForPrompt().then((shouldShow) => {
-        if (!shouldShow) return;
+      void recordDigestCompletionForPrompt(false).then((ask) => {
+        if (!ask) return;
         if (notifPromptTimeoutRef.current) {
           clearTimeout(notifPromptTimeoutRef.current);
         }
         // The completion recap dismisses itself at ~2.9s; show the card after.
         notifPromptTimeoutRef.current = setTimeout(() => {
-          setShowNotifPrompt(true);
+          setNotifPromptAsk(ask);
           notifPromptTimeoutRef.current = null;
         }, 3300);
       });
@@ -2095,9 +2097,11 @@ export default function FeedScreen() {
         onClose={() => setAccountPrompt(null)}
       />
       <NotificationPermissionPrompt
-        visible={showNotifPrompt}
+        visible={notifPromptAsk !== null}
+        variant={notifPromptAsk ?? 'value'}
+        streakCount={profile?.current_streak ?? localStreakCount}
         onYes={() => {
-          setShowNotifPrompt(false);
+          setNotifPromptAsk(null);
           // Guests register a device-owned token; sign-in claims it later.
           void askPushPermission(user?.id ?? null).then(() => {
             // Either way the system dialog has now been spent — don't re-ask.
@@ -2105,7 +2109,7 @@ export default function FeedScreen() {
           });
         }}
         onNotNow={() => {
-          setShowNotifPrompt(false);
+          setNotifPromptAsk(null);
           void recordPromptDeclined();
         }}
       />
