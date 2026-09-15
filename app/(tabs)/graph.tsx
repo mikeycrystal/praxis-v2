@@ -365,7 +365,7 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const viewportHeightLimit = Math.min(
-      Math.max(windowHeight - 360, graphMinSize),
+      Math.max(windowHeight - 310, graphMinSize),
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 12, 0);
@@ -440,7 +440,6 @@ export default function GraphScreen() {
   const [hasAppliedTopNewsFilter, setHasAppliedTopNewsFilter] = useState(
     () => initialGraphState.hasAppliedTopNewsFilter,
   );
-  const sliderTrackWidth = Math.min(Math.max(windowWidth - 176, 150), 320);
   const [pinX, setPinX] = useState(initialPin.x);
   const [pinY, setPinY] = useState(initialPin.y);
   const animatedPinX = useSharedValue(initialPin.x);
@@ -921,30 +920,6 @@ export default function GraphScreen() {
     [graphPanGesture, graphTapGesture, graphPinchGesture],
   );
 
-  const sliderGesture = useMemo(
-    () => Gesture.Pan()
-      .minDistance(0)
-      .onBegin((event) => {
-        activeSliderGestureRevision.value = graphResetRevision.value;
-        animatedRadius.value = Math.max(0.05, Math.min(1, event.x / sliderTrackWidth));
-      })
-      .onUpdate((event) => {
-        animatedRadius.value = Math.max(0.05, Math.min(1, event.x / sliderTrackWidth));
-      })
-      .onFinalize(() => {
-        const stepped = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 20) / 20));
-        animatedRadius.value = withTiming(stepped, { duration: 120 });
-        runOnJS(commitRadius)(stepped, activeSliderGestureRevision.value);
-      }),
-    [
-      activeSliderGestureRevision,
-      animatedRadius,
-      commitRadius,
-      graphResetRevision,
-      sliderTrackWidth,
-    ],
-  );
-
   const radiusCircleAnimatedProps = useAnimatedProps(() => ({
     cx: animatedPinX.value,
     cy: animatedPinY.value,
@@ -953,12 +928,6 @@ export default function GraphScreen() {
   const markerCircleAnimatedProps = useAnimatedProps(() => ({
     cx: animatedPinX.value,
     cy: animatedPinY.value,
-  }));
-  const sliderFillAnimatedStyle = useAnimatedStyle<ViewStyle>(() => ({
-    width: animatedRadius.value * sliderTrackWidth,
-  }));
-  const sliderThumbAnimatedStyle = useAnimatedStyle<ViewStyle>(() => ({
-    transform: [{ translateX: animatedRadius.value * sliderTrackWidth }],
   }));
 
   const handleTopicSelect = (topic: string) => {
@@ -1281,15 +1250,28 @@ export default function GraphScreen() {
     () => outletsWithSelection.filter((outlet) => outlet.inside),
     [outletsWithSelection],
   );
+  // Only the 3 sources closest to the dot carry a name — the same 3 the
+  // readout line cites. Everything else is logo-only, so labels can never
+  // pile up or clip at the canvas edge (Ayuka, 2026-09-15: "too crowded").
+  const labeledOutletKeys = useMemo(() => {
+    const byDistance = insideOutlets
+      .filter((outlet) => outlet.label)
+      .sort(
+        (a, b) => Math.hypot(a.x - pinX, a.y - pinY) - Math.hypot(b.x - pinX, b.y - pinY),
+      );
+    return new Set(byDistance.slice(0, 3).map((outlet) => outlet.key));
+  }, [insideOutlets, pinX, pinY]);
   const feedNowLine = useMemo(() => {
     const lean = getPoliticalLeanLabel(currentGraphPosition.x / 100);
     const style = getReportingTypeLabel(currentGraphPosition.y / 100);
     if (insideOutlets.length === 0) {
       return { mode: `${lean} · ${style}`, sources: 'No sources in range — move the dot or widen the radius.' };
     }
-    const byDistance = [...insideOutlets].sort(
-      (a, b) => Math.hypot(a.x - pinX, a.y - pinY) - Math.hypot(b.x - pinX, b.y - pinY),
-    );
+    const byDistance = insideOutlets
+      .filter((outlet) => outlet.label) // NYT carries no caption — never name a blank
+      .sort(
+        (a, b) => Math.hypot(a.x - pinX, a.y - pinY) - Math.hypot(b.x - pinX, b.y - pinY),
+      );
     const names = byDistance.slice(0, 3).map((outlet) => outlet.label);
     const extra = insideOutlets.length - names.length;
     return {
@@ -1726,15 +1708,18 @@ export default function GraphScreen() {
                   preserveAspectRatio="xMidYMid meet"
                   opacity={outlet.inside ? 1 : 0.4}
                 />
-                {outlet.label ? (
+                {outlet.label && labeledOutletKeys.has(outlet.key) ? (
                 <SvgText
-                  x={outlet.labelX}
-                  y={outlet.labelY}
-                  textAnchor={(outlet.labelAlign ?? 'middle') as 'start' | 'middle' | 'end'}
-                  fill={outlet.inside ? PAGE.text : PAGE.textMuted}
-                  opacity={outlet.inside ? 0.95 : 0.55}
+                  // Centered under its own logo (the per-outlet offsets were
+                  // tuned for the old everyone-labeled layout and let names
+                  // drift onto neighboring logos), clamped into the canvas.
+                  x={clamp(outlet.x, 34, graphWidth - 34)}
+                  y={outlet.y + outlet.height / 2 + 11 * graphScale}
+                  textAnchor="middle"
+                  fill={PAGE.text}
+                  opacity={0.95}
                   fontSize={clamp(9.5 * graphScale, 7.5, 10.5)}
-                  fontWeight={outlet.inside ? '700' : '500'}
+                  fontWeight="700"
                 >
                   {outlet.label}
                 </SvgText>
@@ -1766,22 +1751,6 @@ export default function GraphScreen() {
           </Text>
         </View>
 
-        <View style={s.sliderSection}>
-          <View style={s.sliderInner}>
-            <Text style={s.sliderLabel}>Radius</Text>
-            <View style={s.sliderTrackWrap}>
-              <GestureDetector gesture={sliderGesture}>
-                <Animated.View style={[s.sliderTrack, { backgroundColor: PAGE.sliderTrack, width: sliderTrackWidth }]}>
-                  <Animated.View style={[s.sliderFill, { backgroundColor: PAGE.green }, sliderFillAnimatedStyle]} />
-                  <Animated.View style={[s.sliderThumb, { borderColor: PAGE.green }, sliderThumbAnimatedStyle]} />
-                </Animated.View>
-              </GestureDetector>
-            </View>
-            <View style={[s.percentPill, { borderColor: PAGE.chipBorder }]}>
-              <Text style={s.percentText}>{Math.round(radius * 100)}%</Text>
-            </View>
-          </View>
-        </View>
       </Pressable>
 
       <View

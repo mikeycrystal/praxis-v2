@@ -59,11 +59,14 @@ export default function TabsLayout() {
         tabBarActiveTintColor: c.tint,
         tabBarInactiveTintColor: c.tabIconDefault,
         tabBarShowLabel: false,
-        // Smooth switching: cross-fade between tabs instead of a hard swap,
-        // and freeze hidden tabs so their timers/subscriptions can't jank
-        // the visible one.
+        // Smooth switching: a FAST cross-fade. freezeOnBlur was removed —
+        // unfreezing the heavy Graph tree happened right at tap time and
+        // read as switch lag (Ayuka, 2026-09-15).
         animation: 'fade',
-        freezeOnBlur: true,
+        transitionSpec: {
+          animation: 'timing',
+          config: { duration: 130 },
+        },
       }}
     >
       <Tabs.Screen

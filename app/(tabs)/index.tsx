@@ -78,6 +78,7 @@ import {
 } from '../lib/analytics';
 import { consumeSharedStoryRequest, fetchSharedStoryArticle } from '../lib/sharedStory';
 import { awardDigestStreak } from '../lib/digestStreak';
+import { TAB_BAR_CLEARANCE } from '../components/GlassTabBar';
 import { readCachedStreak, writeCachedStreak } from '../lib/streakCache';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { SwipeTooltip } from '../components/onboarding/SwipeTooltip';
@@ -2424,7 +2425,10 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: 0,
-    paddingBottom: 24,
+    // The tab bar floats OVER content since 124, so the stack must reserve
+    // its footprint — otherwise the centered card drifts down under the bar
+    // (Ayuka: "the card is too low now, it was right before").
+    paddingBottom: TAB_BAR_CLEARANCE,
     position: 'relative',
     zIndex: 0,
   },

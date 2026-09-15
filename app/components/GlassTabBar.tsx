@@ -101,10 +101,21 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
       <GlassSurface
         style={[s.bar, { width: barWidth }]}
         glassEffectStyle="regular"
-        tintColor="rgba(250,247,240,0.42)"
+        // Barely-there tint: the heavy cream wash read as a milky pill, not
+        // glass (Ayuka's Phone-app reference, 2026-09-15). Let the material
+        // pick its color up from the content underneath.
+        tintColor="rgba(250,247,240,0.18)"
         fallbackStyle={s.barFallback}
       >
-        <Animated.View style={[s.lens, { width: segmentWidth }, lensStyle]} />
+        <Animated.View style={[s.lensWrap, { width: segmentWidth }, lensStyle]} pointerEvents="none">
+          <GlassSurface
+            style={s.lensGlass}
+            glassEffectStyle="regular"
+            isInteractive
+            tintColor="rgba(255,255,255,0.2)"
+            fallbackStyle={s.lensFallback}
+          />
+        </Animated.View>
         {visibleRoutes.map((route) => {
           const focused = isFocusedVisible(route.key);
           const color = focused ? TINT : INACTIVE;
@@ -176,12 +187,21 @@ const s = StyleSheet.create({
     shadowRadius: 18,
     elevation: 10,
   },
-  lens: {
+  lensWrap: {
     position: 'absolute',
     left: 0,
     top: LENS_INSET,
     height: BAR_HEIGHT - LENS_INSET * 2,
+  },
+  // The lens is its own liquid-glass capsule (the Phone-app active tab):
+  // real refraction on the rim, and isInteractive gives Apple's press
+  // shimmer while it glides, before it settles.
+  lensGlass: {
+    flex: 1,
     borderRadius: (BAR_HEIGHT - LENS_INSET * 2) / 2,
+    overflow: 'hidden',
+  },
+  lensFallback: {
     backgroundColor: 'rgba(255,255,255,0.55)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.7)',
