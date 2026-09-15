@@ -3,11 +3,11 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 // Ask-for-permission timing (notifications spec §4 + Ayuka 2026-09-15):
-// signed-in users see the card after their 1st completed digest, again after
-// the 3rd if declined, then never. GUESTS are staggered one win later (2nd,
-// then 4th) because their first completion already carries the account
-// prompt — never two cards on one celebration. The system dialog fires only
-// from a "Yes" on the card.
+// EVERYONE sees the card after their 1st completed digest — for guests the
+// notification is the only thing that brings them back, so it outranks the
+// account prompt (which moves to the next completion; never two cards on one
+// celebration). Declined once -> the streak-angle ask after the 3rd; then
+// never. The system dialog fires only from a "Yes" on the card.
 
 const STORAGE_KEY = 'praxis.notificationPrompt.v1';
 
@@ -46,9 +46,7 @@ async function writeState(state: PromptState): Promise<void> {
 // 'value' = the news-angle first ask; 'streak' = the streak-angle second ask.
 export type NotificationAsk = 'value' | 'streak';
 
-export async function recordDigestCompletionForPrompt(
-  isGuest = false,
-): Promise<NotificationAsk | null> {
+export async function recordDigestCompletionForPrompt(): Promise<NotificationAsk | null> {
   if (Platform.OS === 'web') return null;
 
   const state = await readState();
@@ -67,10 +65,8 @@ export async function recordDigestCompletionForPrompt(
     return null;
   }
 
-  const firstAt = isGuest ? 2 : 1;
-  const secondAt = isGuest ? 4 : 3;
-  if (state.declines === 0) return state.completions >= firstAt ? 'value' : null;
-  if (state.declines === 1) return state.completions >= secondAt ? 'streak' : null;
+  if (state.declines === 0) return state.completions >= 1 ? 'value' : null;
+  if (state.declines === 1) return state.completions >= 3 ? 'streak' : null;
   return null;
 }
 

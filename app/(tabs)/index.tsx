@@ -425,14 +425,8 @@ export default function FeedScreen() {
   const pendingDigestResumeIndexRef = useRef<number | null>(null);
   const guestStreakPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notifPromptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingGuestNotifPromptRef = useRef<NotificationAsk | null>(null);
   const dismissGuestStreakPrompt = useCallback(() => {
     setShowGuestStreakPrompt(false);
-    const pendingAsk = pendingGuestNotifPromptRef.current;
-    if (pendingAsk) {
-      pendingGuestNotifPromptRef.current = null;
-      setTimeout(() => setNotifPromptAsk(pendingAsk), 450);
-    }
   }, []);
   const lastHandledRequestNonceRef = useRef<number | null>(null);
   const activeQuery = preferences.activeQuery;
@@ -1315,19 +1309,23 @@ export default function FeedScreen() {
       if (guestStreakPromptTimeoutRef.current) {
         clearTimeout(guestStreakPromptTimeoutRef.current);
       }
-      guestStreakPromptTimeoutRef.current = setTimeout(() => {
-        setShowGuestStreakPrompt(true);
-        guestStreakPromptTimeoutRef.current = null;
-      }, 4400);
-      // Guests get the notification ask too — chained after the streak
-      // prompt closes, so the two cards never stack.
-      void recordDigestCompletionForPrompt().then((shouldShow) => {
-        pendingGuestNotifPromptRef.current = shouldShow;
+      // Notification ask OUTRANKS the account prompt for guests — without a
+      // notification most guests never come back for a second digest (Ayuka,
+      // 2026-09-15). One card per celebration: whichever is due, the other waits.
+      void recordDigestCompletionForPrompt().then((ask) => {
+        guestStreakPromptTimeoutRef.current = setTimeout(() => {
+          if (ask) {
+            setNotifPromptAsk(ask);
+          } else {
+            setShowGuestStreakPrompt(true);
+          }
+          guestStreakPromptTimeoutRef.current = null;
+        }, 4400);
       });
     } else {
       // Ask for notification permission after a delivered win, never at sign-in.
       // Timing rules (1st completion, then 3rd, then never) live in the lib.
-      void recordDigestCompletionForPrompt(false).then((ask) => {
+      void recordDigestCompletionForPrompt().then((ask) => {
         if (!ask) return;
         if (notifPromptTimeoutRef.current) {
           clearTimeout(notifPromptTimeoutRef.current);
