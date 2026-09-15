@@ -6,6 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NewsPreferencesProvider } from './context/NewsPreferencesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -103,6 +104,8 @@ function RootRedirect() {
   return null;
 }
 
+const HANDLED_PUSH_RESPONSE_KEY = 'praxis.lastHandledPushResponse.v1';
+
 function PushNotificationHandler() {
   const notifResponseRef = useRef<Notifications.Subscription | null>(null);
 
@@ -121,16 +124,28 @@ function PushNotificationHandler() {
       }
     };
 
+    // getLastNotificationResponseAsync replays the most recent tap on EVERY
+    // launch, including taps from previous sessions that were already acted
+    // on — which reopened old digests out of nowhere. Remember the last
+    // handled response id (persisted) and never handle the same tap twice.
+    const markHandled = (id: string) => {
+      AsyncStorage.setItem(HANDLED_PUSH_RESPONSE_KEY, id).catch(() => {});
+    };
+
     notifResponseRef.current = Notifications.addNotificationResponseReceivedListener(response => {
+      markHandled(response.notification.request.identifier);
       handle(response.notification.request.content.data as Record<string, any>);
     });
 
     // A tap that cold-started the app from a killed state is not delivered to
-    // the listener above — fetch it explicitly.
-    Notifications.getLastNotificationResponseAsync().then(response => {
-      if (response) {
-        handle(response.notification.request.content.data as Record<string, any>);
-      }
+    // the listener above — fetch it explicitly, but only if it is new.
+    Notifications.getLastNotificationResponseAsync().then(async response => {
+      if (!response) return;
+      const id = response.notification.request.identifier;
+      const lastHandled = await AsyncStorage.getItem(HANDLED_PUSH_RESPONSE_KEY).catch(() => null);
+      if (lastHandled === id) return;
+      markHandled(id);
+      handle(response.notification.request.content.data as Record<string, any>);
     }).catch(() => {});
 
     return () => notifResponseRef.current?.remove();

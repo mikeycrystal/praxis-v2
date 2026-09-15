@@ -46,6 +46,7 @@ import {
   readDailyDigestDismissal,
   readDailyDigestOpenRequest,
   readDailyDigestPanelHint,
+  subscribeDailyDigestOpenRequest,
   type DailyDigestFeed,
   writeDailyDigestDismissal,
   writeDailyDigestOpenRequest,
@@ -1051,7 +1052,9 @@ export default function FeedScreen() {
     };
   }, [resetDeckPosition, setCurrentIndex]));
 
+  const isFeedScreenFocusedRef = useRef(false);
   useFocusEffect(useCallback(() => {
+    isFeedScreenFocusedRef.current = true;
     let cancelled = false;
 
     void readDailyDigestOpenRequest().then((requested) => {
@@ -1061,9 +1064,22 @@ export default function FeedScreen() {
     });
 
     return () => {
+      isFeedScreenFocusedRef.current = false;
       cancelled = true;
     };
   }, [handleOpenTodayDigest]));
+
+  // A push tapped while this screen is ALREADY focused never re-runs the
+  // focus effect — without this live subscription the request sat unconsumed
+  // and fired on a later, unrelated tab switch.
+  useEffect(() => subscribeDailyDigestOpenRequest(() => {
+    if (!isFeedScreenFocusedRef.current) return; // the focus effect will consume it
+    void readDailyDigestOpenRequest().then((requested) => {
+      if (!requested) return;
+      void writeDailyDigestOpenRequest(false);
+      void handleOpenTodayDigest();
+    });
+  }), [handleOpenTodayDigest]);
 
   const articleAnalyticsContext = useCallback((
     article: Article,

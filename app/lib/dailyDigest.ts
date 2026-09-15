@@ -211,6 +211,19 @@ export const writeDailyDigestDismissal = async (dismissed: boolean) => {
 
 // A lightweight, session-only handoff lets Graph reopen today's Digest
 // without adding another persistent Feed control.
+// Writers can also notify live subscribers: a push tapped while the feed is
+// ALREADY focused never re-runs its focus effect, so without this the
+// request sat unconsumed and fired on a later, unrelated tab switch
+// ("randomly brings me to my old daily digest" — Ayuka, 2026-09-15).
+const openRequestListeners = new Set<() => void>();
+
+export const subscribeDailyDigestOpenRequest = (listener: () => void) => {
+  openRequestListeners.add(listener);
+  return () => {
+    openRequestListeners.delete(listener);
+  };
+};
+
 export const readDailyDigestOpenRequest = async (): Promise<boolean> => {
   try {
     const raw = Platform.OS === 'web'
@@ -243,6 +256,8 @@ export const writeDailyDigestOpenRequest = async (requested: boolean) => {
     }
   } catch (error) {
     console.warn('[dailyDigest] Failed to write open request', error);
+  } finally {
+    if (requested) openRequestListeners.forEach((listener) => listener());
   }
 };
 
