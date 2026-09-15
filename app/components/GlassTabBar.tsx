@@ -103,10 +103,10 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
       <GlassSurface
         style={[s.bar, { width: barWidth }]}
         glassEffectStyle="regular"
-        // Barely-there tint: the heavy cream wash read as a milky pill, not
-        // glass (Ayuka's Phone-app reference, 2026-09-15). Let the material
-        // pick its color up from the content underneath.
-        tintColor="rgba(250,247,240,0.18)"
+        // Warm smoke, not cream: the Phone-app lens reads as glass because
+        // the bar behind it is darker — a clear lens over a clear bar shows
+        // nothing (Ayuka, 2026-09-15: "make our bar a bit darker").
+        tintColor="rgba(58,52,42,0.22)"
         fallbackStyle={s.barFallback}
       >
         <Animated.View style={[s.lensWrap, { width: segmentWidth }, lensStyle]} pointerEvents="none">

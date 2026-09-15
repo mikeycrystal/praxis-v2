@@ -2600,21 +2600,23 @@ const s = StyleSheet.create({
   },
   feedNowCard: {
     marginHorizontal: 24,
-    marginTop: 12,
+    // Bigger presence: the readout absorbs part of the band under the map
+    // instead of whispering above it (Ayuka, 2026-09-15).
+    marginTop: 18,
     alignItems: 'center',
-    height: 40,
+    height: 56,
     justifyContent: 'center',
   },
   feedNowTitle: {
-    fontSize: 11,
+    fontSize: 14,
     fontWeight: '800',
-    letterSpacing: 1.6,
+    letterSpacing: 2,
     color: '#7B9A62',
   },
   feedNowText: {
-    marginTop: 3,
-    fontSize: 13,
-    lineHeight: 18,
+    marginTop: 5,
+    fontSize: 16,
+    lineHeight: 22,
     color: PAGE.textMuted,
     fontWeight: '500',
     textAlign: 'center',
