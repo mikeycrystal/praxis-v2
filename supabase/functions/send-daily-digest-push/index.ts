@@ -55,44 +55,54 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
   if (cached && cached.length > 0) return (cached[0].meta as { line: string }).line;
 
   try {
-    const digestRes = await fetch(
-      `${Deno.env.get('SUPABASE_URL')}/functions/v1/get-or-create-daily-digest`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
-        },
-        body: JSON.stringify({}),
-      }
-    );
+    // Top stories come from the same place the app's Top News feed does —
+    // the recommender API. (The original get-or-create-daily-digest edge
+    // function was never deployed, so this path silently fell back to the
+    // generic line every morning. Found 2026-09-15.)
+    const apiBase = (Deno.env.get('RECOMMENDER_API_URL') ?? '').replace(/\/$/, '');
+    const apiKey = Deno.env.get('RECOMMENDER_API_KEY');
+    if (!apiBase || !apiKey) return fallback;
+    const digestRes = await fetch(`${apiBase}/v1/fallback-articles`, {
+      headers: { 'X-API-Key': apiKey },
+    });
     const digest = await digestRes.json();
-    const titles: string[] = (digest?.articles ?? digest?.data?.articles ?? [])
+    const titles: string[] = (digest?.articles ?? [])
       .map((a: { title?: string; headline?: string }) => a?.title ?? a?.headline)
       .filter(Boolean)
       .slice(0, 5);
     if (titles.length < 3) return fallback;
 
+    // Real headlines beat the generic line even without AI: if OpenAI is
+    // unavailable (no key, no credits, outage), send the top 3 titles as a
+    // wire brief instead of "5 stories, 6 minutes."
+    const trimTitle = (t: string) => {
+      const clean = t.replace(/\s+/g, ' ').trim();
+      return clean.length <= 48 ? clean : `${clean.slice(0, 45).replace(/[ ,;:–-]+\S*$/, '')}…`;
+    };
+    const headlineLine = titles.slice(0, 3).map(trimTitle).join('; ');
+
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openaiKey) return fallback;
+    if (!openaiKey) return headlineLine;
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        max_tokens: 60,
+        max_tokens: 80,
         messages: [
           {
             role: 'user',
             content:
-              `Turn these headlines into ONE line naming the three biggest stories as short noun phrases, comma-separated. No verbs, no adjectives, no quotes, max 110 characters total.\n\n${titles.join('\n')}`,
+              // A real news alert, not a table of contents (Ayuka, 2026-09-15:
+              // "like a regular news update where it says what's going on").
+              `You write Praxis's morning news alert. From these headlines, write ONE wire-brief style line that tells the reader what is actually happening today. Present tense, concrete, specific. Separate distinct stories with semicolons. No intro phrases like "Top stories", no quotes, no hashtags, max 140 characters total.\n\n${titles.join('\n')}`,
           },
         ],
       }),
     });
     const ai = await aiRes.json();
     const line = ai?.choices?.[0]?.message?.content?.trim();
-    return line && line.length <= 120 ? line : fallback;
+    return line && line.length <= 150 ? line : headlineLine;
   } catch {
     return fallback;
   }
@@ -110,6 +120,21 @@ serve(async (req) => {
     });
   }
 
+  // Secret-gated test hooks: {"dry_line":true} returns today's alert line
+  // without sending anything; {"force_hour":N} targets local hour N instead
+  // of 8 so the full pipeline can be exercised outside the morning window.
+  let targetHour = TARGET_LOCAL_HOUR;
+  let dryLine = false;
+  try {
+    const body = await req.json();
+    if (secret && req.headers.get('x-praxis-cron-secret') === secret) {
+      if (typeof body?.force_hour === 'number') targetHour = body.force_hour;
+      if (body?.dry_line === true) dryLine = true;
+    }
+  } catch {
+    // no/invalid body — the normal cron case
+  }
+
   try {
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -117,6 +142,28 @@ serve(async (req) => {
     );
 
     const today = nyDateKey();
+
+    if (dryLine) {
+      const diag: Record<string, unknown> = {};
+      const apiBase = (Deno.env.get('RECOMMENDER_API_URL') ?? '').replace(/\/$/, '');
+      diag.hasBase = Boolean(apiBase);
+      diag.hasKey = Boolean(Deno.env.get('RECOMMENDER_API_KEY'));
+      diag.hasOpenai = Boolean(Deno.env.get('OPENAI_API_KEY'));
+      try {
+        const r = await fetch(`${apiBase}/v1/fallback-articles`, {
+          headers: { 'X-API-Key': Deno.env.get('RECOMMENDER_API_KEY') ?? '' },
+        });
+        diag.fetchStatus = r.status;
+        const j = await r.json();
+        diag.titleCount = (j?.articles ?? []).length;
+      } catch (e) {
+        diag.fetchError = String(e);
+      }
+      const line = await getOrCreateDigestLine(supabase, today);
+      return new Response(JSON.stringify({ line, diag }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const { data: tokens } = await supabase
       .from('push_tokens')
@@ -133,7 +180,7 @@ serve(async (req) => {
     const byUser = new Map<string, string[]>();
     const guestTokens: string[] = [];
     for (const t of tokens) {
-      if (localHour(t.timezone ?? FALLBACK_TIMEZONE) !== TARGET_LOCAL_HOUR) continue;
+      if (localHour(t.timezone ?? FALLBACK_TIMEZONE) !== targetHour) continue;
       if (!t.user_id) {
         guestTokens.push(t.token);
         continue;
