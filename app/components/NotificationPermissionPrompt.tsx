@@ -24,7 +24,7 @@ export function NotificationPermissionPrompt({
     ? `Keep your ${streakCount}-day streak alive?`
     : "Get the day's biggest stories each morning?";
   const body = variant === 'streak' && streakCount >= 2
-    ? 'One nudge tomorrow at your reading time. Turn it off any time.'
+    ? 'One evening nudge if your streak is on the line. Turn it off any time.'
     : 'One notification naming the 3 stories that matter. Turn it off any time.';
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onNotNow}>
