@@ -111,13 +111,18 @@ const OUTLETS = [
   { key: 'fox', gx: 50, gy: 28, dx: 14, dy: -4, label: 'Fox News', labelDx: 23, labelAlign: 'start', logo: logoFox, logoWeb: logoUri(logoFox), width: 34, height: 34, labelDy: 10, blend: true },
   { key: 'msnbc', gx: -50, gy: 38, dx: -18, dy: -16, label: 'MSNBC', logo: logoMsnbc, logoWeb: logoUri(logoMsnbc), width: 28, height: 16, labelDy: 10, blend: true },
   { key: 'vox', gx: -50, gy: 24, dx: -14, dy: 18, label: 'Vox', logo: logoVox, logoWeb: logoUri(logoVox), width: 34, height: 22, labelDy: 11, blend: true },
-  { key: 'breitbart', gx: 60, gy: -2, dx: 18, dy: -6, label: 'Breitbart', logo: logoBreitbart, logoWeb: logoUri(logoBreitbart), width: 32, height: 22, labelDy: 10, blend: true },
+  { key: 'breitbart', gx: 60, gy: -16, dx: 2, dy: -4, label: 'Breitbart', logo: logoBreitbart, logoWeb: logoUri(logoBreitbart), width: 32, height: 22, labelDy: 10, blend: true },
   { key: 'atlantic', gx: -20, gy: -36, dx: -8, dy: -4, label: 'The Atlantic', logo: logoAtlantic, logoWeb: logoUri(logoAtlantic), width: 28, height: 34, labelDy: 12, blend: true },
   { key: 'nr', gx: 46, gy: -38, dx: 10, dy: 6, label: 'National Review', logo: logoNr, logoWeb: logoUri(logoNr), width: 34, height: 16, labelDy: 10, blend: true },
 ];
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const graphToSvg = (graphValue: number, size: number) => ((graphValue + 100) / 200) * size;
+// Display-only spread: outlet coordinates cluster within ±76, which left the
+// canvas rim empty and made the map read small. Positions and the selection
+// radius scale together, so in/out membership is unchanged.
+const OUTLET_SPREAD = 1.1;
+const SELECTION_RADIUS_FACTOR = 0.352; // 0.32 * OUTLET_SPREAD
 const normalizeTopicId = (value: string) => value.trim().toLowerCase();
 const topicToTestId = (topic: string) =>
   topic
@@ -387,7 +392,9 @@ export default function GraphScreen() {
     );
   }, [graphMinSize, graphViewport.height, graphViewport.width, windowHeight, windowWidth]);
   const graphHeight = graphWidth;
-  const graphScale = clamp(graphWidth / FALLBACK_GRAPH_SIZE, 0.58, 1.12);
+  // Denominator under the fallback size + a higher cap: logos, dot, and
+  // labels render meaningfully larger on real phones, not just tablets.
+  const graphScale = clamp(graphWidth / 300, 0.58, 1.35);
   const graphAxisInset = clamp(graphWidth * 0.1, 20, 34);
   const graphSizeRef = useRef({ width: graphWidth, height: graphHeight });
   const centerX = graphWidth / 2;
@@ -976,7 +983,7 @@ export default function GraphScreen() {
   const radiusCircleAnimatedProps = useAnimatedProps(() => ({
     cx: animatedPinX.value,
     cy: animatedPinY.value,
-    r: animatedRadius.value * (graphWidth * 0.32),
+    r: animatedRadius.value * (graphWidth * SELECTION_RADIUS_FACTOR),
   }));
   const markerCircleAnimatedProps = useAnimatedProps(() => ({
     cx: animatedPinX.value,
@@ -1276,19 +1283,19 @@ export default function GraphScreen() {
         ...outlet,
         width: outlet.width * graphScale,
         height: outlet.height * graphScale,
-        x: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) * graphScale,
-        y: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale,
-        imageX: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) * graphScale - (outlet.width * graphScale) / 2,
-        imageY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale - (outlet.height * graphScale) / 2,
-        labelX: graphToSvg(outlet.gx, graphWidth) + (outlet.dx ?? 0) * graphScale + (outlet.labelDx ?? 0) * graphScale,
-        labelY: graphHeight - graphToSvg(outlet.gy, graphHeight) + outlet.dy * graphScale + (outlet.height * graphScale) / 2 + (outlet.labelDy ?? 10) * graphScale,
+        x: graphToSvg(outlet.gx * OUTLET_SPREAD, graphWidth) + (outlet.dx ?? 0) * graphScale,
+        y: graphHeight - graphToSvg(outlet.gy * OUTLET_SPREAD, graphHeight) + outlet.dy * graphScale,
+        imageX: graphToSvg(outlet.gx * OUTLET_SPREAD, graphWidth) + (outlet.dx ?? 0) * graphScale - (outlet.width * graphScale) / 2,
+        imageY: graphHeight - graphToSvg(outlet.gy * OUTLET_SPREAD, graphHeight) + outlet.dy * graphScale - (outlet.height * graphScale) / 2,
+        labelX: graphToSvg(outlet.gx * OUTLET_SPREAD, graphWidth) + (outlet.dx ?? 0) * graphScale + (outlet.labelDx ?? 0) * graphScale,
+        labelY: graphHeight - graphToSvg(outlet.gy * OUTLET_SPREAD, graphHeight) + outlet.dy * graphScale + (outlet.height * graphScale) / 2 + (outlet.labelDy ?? 10) * graphScale,
       })),
     [graphHeight, graphScale, graphWidth],
   );
 
   // Which sources fall inside the selection circle (canvas-space distance,
   // padded by half the logo size so "touching" counts as in).
-  const selectionRadiusPx = radius * graphWidth * 0.32;
+  const selectionRadiusPx = radius * graphWidth * SELECTION_RADIUS_FACTOR;
   const outletsWithSelection = useMemo(
     () =>
       positionedOutlets.map((outlet) => ({
@@ -1749,7 +1756,7 @@ export default function GraphScreen() {
               strokeDasharray="1,7"
               strokeLinecap="round"
             />
-            <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 16)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 5)} />
+            <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 20)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 6)} />
             {outletsWithSelection.map((outlet) => (
               <React.Fragment key={outlet.key}>
                 <SvgImage
@@ -1771,7 +1778,7 @@ export default function GraphScreen() {
                   textAnchor="middle"
                   fill={PAGE.text}
                   opacity={0.95}
-                  fontSize={clamp(9.5 * graphScale, 7.5, 10.5)}
+                  fontSize={clamp(9.5 * graphScale, 7.5, 12)}
                   fontWeight="700"
                 >
                   {outlet.label}
