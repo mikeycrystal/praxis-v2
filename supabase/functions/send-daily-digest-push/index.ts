@@ -93,9 +93,10 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
           {
             role: 'user',
             content:
-              // A real news alert, not a table of contents (Ayuka, 2026-09-15:
-              // "like a regular news update where it says what's going on").
-              `You write Praxis's morning news alert. From these headlines, write ONE wire-brief style line that tells the reader what is actually happening today. Present tense, concrete, specific. Separate distinct stories with semicolons. No intro phrases like "Top stories", no quotes, no hashtags, max 140 characters total.\n\n${titles.join('\n')}`,
+              // Style C — punchy fragments (Ayuka's pick, 2026-09-15): short
+              // present-tense sentences, biggest story first, scannable
+              // within iOS's ~2-line lock-screen cutoff.
+              `You write Praxis's morning news alert. From these headlines, pick the three biggest stories and write them as THREE short punchy sentences, present tense, biggest story first. No intro phrases, no quotes, no hashtags. Max 140 characters total.\n\n${titles.join('\n')}`,
           },
         ],
       }),
