@@ -117,9 +117,13 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
       {hasLiquidGlass ? (
         <GlassContainer spacing={14} style={[s.bar, { width: barWidth }]} pointerEvents="none">
           <GlassView
-            style={[StyleSheet.absoluteFillObject, { borderRadius: BAR_HEIGHT / 2 }]}
+            style={[StyleSheet.absoluteFillObject, s.capsule]}
             glassEffectStyle="regular"
-            tintColor="rgba(58,52,42,0.09)"
+            // Darker again at his ask — but 0.16 with a working lens reads as
+            // smoked glass, where 0.22 with a broken one read as a slab. The
+            // hairline rim is what actually makes glass legible on a light
+            // page; Apple's own capsule carries one.
+            tintColor="rgba(58,52,42,0.16)"
             colorScheme="light"
           />
           <Animated.View style={[s.lensWrap, { width: segmentWidth }, lensStyle]}>
@@ -196,6 +200,11 @@ const s = StyleSheet.create({
   bar: {
     height: BAR_HEIGHT,
     borderRadius: BAR_HEIGHT / 2,
+  },
+  capsule: {
+    borderRadius: BAR_HEIGHT / 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(74,66,54,0.20)',
   },
   // The buttons ride ABOVE the glass rather than inside it, so the glass
   // layer has nothing in it to flatten the effect.
