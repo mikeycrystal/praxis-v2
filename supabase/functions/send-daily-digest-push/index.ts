@@ -88,22 +88,34 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        max_tokens: 80,
+        max_tokens: 60,
+        temperature: 0.4,
         messages: [
           {
             role: 'user',
             content:
               // Style C — punchy fragments (Ayuka's pick, 2026-09-15): short
               // present-tense sentences, biggest story first, scannable
-              // within iOS's ~2-line lock-screen cutoff.
-              `You write Praxis's morning news alert. From these headlines, pick the three biggest stories and write them as THREE short punchy sentences, present tense, biggest story first. No intro phrases, no quotes, no hashtags. Max 140 characters total.\n\n${titles.join('\n')}`,
+              // within iOS's ~2-line lock-screen cutoff. The limit needs an
+              // example and a per-sentence cap to hold: asking for "max 140
+              // characters" alone produced 287 (2026-09-16).
+              `You write Praxis's morning push notification. Pick the three biggest stories below and write ONE line of three very short sentences, present tense, biggest first.\nHARD LIMIT: 140 characters for the whole line — it is a phone lock screen, anything longer is cut off. Each sentence must be under 45 characters.\nNo intro phrases, no quotes, no hashtags, no trailing commentary.\n\nExample of the right length: 'Treasury yields hit 5%. Crypto bill stalls in Congress. Voters reject the $5,000 checks.'\n\nHEADLINES:\n${titles.join('\n')}`,
           },
         ],
       }),
     });
     const ai = await aiRes.json();
-    const line = ai?.choices?.[0]?.message?.content?.trim();
-    return line && line.length <= 150 ? line : headlineLine;
+    const line: string | undefined = ai?.choices?.[0]?.message?.content?.trim();
+    if (!line) return headlineLine;
+    if (line.length <= 150) return line;
+    // Over budget: keep whole sentences while they fit rather than throwing
+    // a good line away and shipping raw headlines instead.
+    const kept: string[] = [];
+    for (const sentence of line.split(/(?<=[.!?])\s+/)) {
+      if ([...kept, sentence].join(' ').length > 140) break;
+      kept.push(sentence);
+    }
+    return kept.length > 0 ? kept.join(' ') : headlineLine;
   } catch {
     return fallback;
   }
