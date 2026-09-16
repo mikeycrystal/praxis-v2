@@ -10,7 +10,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { GlassSurface } from './GlassSurface';
+import { GlassContainer, GlassView } from 'expo-glass-effect';
+import { hasLiquidGlass } from './GlassSurface';
 
 // The floating glass tab pill (glass chrome build, Ayuka 2026-09-14).
 // - Occupies the same layout height as the old full-width bar, so no screen
@@ -105,24 +106,40 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
       pointerEvents="box-none"
       onLayout={(event) => setMeasuredWidth(event.nativeEvent.layout.width)}
     >
-      <GlassSurface
-        style={[s.bar, { width: barWidth }]}
-        glassEffectStyle="regular"
-        // Just enough smoke for the lens to read against, no more: 0.22 on
-        // a cream app rendered as a gray slab on device. The contrast now
-        // comes from a BRIGHTER lens, not a darker bar.
-        tintColor="rgba(58,52,42,0.09)"
-        fallbackStyle={s.barFallback}
-      >
-        <Animated.View style={[s.lensWrap, { width: segmentWidth }, lensStyle]} pointerEvents="none">
-          <GlassSurface
-            style={s.lensGlass}
+      {/*
+        The capsule and the selection lens are SIBLINGS inside a
+        GlassContainer — the structure Apple's own tab bars use. Nesting one
+        glass view inside another (what this was) gives the inner one nothing
+        to refract, so the lens rendered as a flat white blob no matter how it
+        was tinted. In a container they sample the same backdrop and merge at
+        the rim, which is the Phone-app effect.
+      */}
+      {hasLiquidGlass ? (
+        <GlassContainer spacing={14} style={[s.bar, { width: barWidth }]} pointerEvents="none">
+          <GlassView
+            style={[StyleSheet.absoluteFillObject, { borderRadius: BAR_HEIGHT / 2 }]}
             glassEffectStyle="regular"
-            isInteractive
-            tintColor="rgba(255,255,255,0.42)"
-            fallbackStyle={s.lensFallback}
+            tintColor="rgba(58,52,42,0.09)"
+            colorScheme="light"
           />
-        </Animated.View>
+          <Animated.View style={[s.lensWrap, { width: segmentWidth }, lensStyle]}>
+            <GlassView
+              style={s.lensGlass}
+              glassEffectStyle="clear"
+              isInteractive
+              tintColor="rgba(255,255,255,0.3)"
+              colorScheme="light"
+            />
+          </Animated.View>
+        </GlassContainer>
+      ) : (
+        <View style={[s.bar, s.barFallback, { width: barWidth }]} pointerEvents="none">
+          <Animated.View style={[s.lensWrap, { width: segmentWidth }, lensStyle]}>
+            <View style={[s.lensGlass, s.lensFallback]} />
+          </Animated.View>
+        </View>
+      )}
+      <View style={[s.bar, s.tabRow, { width: barWidth }]}>
         {visibleRoutes.map((route) => {
           const focused = isFocusedVisible(route.key);
           const color = focused ? TINT : INACTIVE;
@@ -159,7 +176,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
             </Pressable>
           );
         })}
-      </GlassSurface>
+      </View>
     </View>
   );
 }
@@ -179,10 +196,15 @@ const s = StyleSheet.create({
   bar: {
     height: BAR_HEIGHT,
     borderRadius: BAR_HEIGHT / 2,
+  },
+  // The buttons ride ABOVE the glass rather than inside it, so the glass
+  // layer has nothing in it to flatten the effect.
+  tabRow: {
+    position: 'absolute',
+    bottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-    overflow: 'hidden',
   },
   barFallback: {
     backgroundColor: '#FBF7F0',

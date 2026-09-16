@@ -16,6 +16,12 @@ import { useAuth } from '../context/AuthContext';
 import { GlassSurface } from '../components/GlassSurface';
 import { supabase } from '../services/supabase';
 
+import Constants from 'expo-constants';
+import { hasLiquidGlass } from '../components/GlassSurface';
+
+const appVersion = `${Constants.expoConfig?.version ?? '2.0.0'} (${
+  (Constants.expoConfig as { ios?: { buildNumber?: string } } | null)?.ios?.buildNumber ?? '—'
+})`;
 const TERMS_URL = 'https://praxisnews.co/terms.html';
 const PRIVACY_URL = 'https://praxisnews.co/privacy.html';
 
@@ -175,6 +181,15 @@ export default function AccountSettingsModal() {
           icon: 'shield-checkmark-outline',
           external: true,
           onPress: () => void Linking.openURL(PRIVACY_URL),
+        },
+        {
+          id: 'build',
+          // Says out loud whether iOS granted this build the Liquid Glass
+          // material — otherwise "the glass looks flat" is unfalsifiable
+          // from a screenshot.
+          label: `Version ${appVersion} · Glass ${hasLiquidGlass ? 'on' : 'off'}`,
+          icon: 'information-circle-outline',
+          onPress: () => {},
         },
       ],
     },
