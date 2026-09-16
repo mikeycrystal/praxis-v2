@@ -121,8 +121,8 @@ const graphToSvg = (graphValue: number, size: number) => ((graphValue + 100) / 2
 // Display-only spread: outlet coordinates cluster within ±76, which left the
 // canvas rim empty and made the map read small. Positions and the selection
 // radius scale together, so in/out membership is unchanged.
-const OUTLET_SPREAD = 1.1;
-const SELECTION_RADIUS_FACTOR = 0.352; // 0.32 * OUTLET_SPREAD
+const OUTLET_SPREAD = 1.12;
+const SELECTION_RADIUS_FACTOR = 0.3584; // 0.32 * OUTLET_SPREAD
 const normalizeTopicId = (value: string) => value.trim().toLowerCase();
 const topicToTestId = (topic: string) =>
   topic
@@ -374,7 +374,7 @@ export default function GraphScreen() {
       Math.max(windowHeight - 310, graphMinSize),
       GRAPH_MAX_SIZE,
     );
-    const availableWidth = Math.max(graphViewport.width - 4, 0);
+    const availableWidth = Math.max(graphViewport.width - 2, 0);
     // The readout card (40 + 12 margin) now lives inside the same wrap as
     // the canvas, so the square must leave room for it.
     const availableHeight = Math.max(
@@ -874,6 +874,10 @@ export default function GraphScreen() {
   const graphPanGesture = useMemo(
     () => Gesture.Pan()
       .minDistance(4)
+      // Single finger only: with two down, the pan centroid moved as the
+      // pinch spread and dragged the dot around mid-gesture — the "glitchy
+      // and finicky" pinch (Ayuka, 2026-09-16).
+      .maxPointers(1)
       .onBegin((event) => {
         activeGraphGestureRevision.value = graphResetRevision.value;
         animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
@@ -961,10 +965,13 @@ export default function GraphScreen() {
       })
       .onUpdate((event) => {
         animatedRadius.value = Math.max(0.05, Math.min(1, pinchBaseRadius.value * event.scale));
-        const stepped = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 20) / 20));
-        if (stepped !== lastPinchStep.value) {
-          lastPinchStep.value = stepped;
-          runOnJS(commitRadius)(stepped, activeSliderGestureRevision.value);
+        // Live preview at 10% granularity: committing every 5% re-rendered
+        // the whole SVG twice as often on the JS thread, which is what made
+        // the pinch stutter. The circle itself stays on the UI thread.
+        const preview = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 10) / 10));
+        if (preview !== lastPinchStep.value) {
+          lastPinchStep.value = preview;
+          runOnJS(commitRadius)(preview, activeSliderGestureRevision.value);
         }
       })
       .onFinalize(() => {
@@ -2369,9 +2376,9 @@ const s = StyleSheet.create({
     flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    // Slim margins: the canvas is width-bound on phones, so every trimmed
+    // Full bleed: the canvas is width-bound on phones, so every trimmed
     // horizontal pixel is a bigger map (axis words live inside the canvas).
-    paddingHorizontal: 8,
+    paddingHorizontal: 2,
     paddingTop: 2,
     paddingBottom: 8,
     position: 'relative',
@@ -2563,13 +2570,13 @@ const s = StyleSheet.create({
     overflow: 'hidden',
   },
   axisTopPill: {
-    top: 2,
+    top: -21,
     left: 0,
     right: 0,
     alignItems: 'center',
   },
   axisBottomPill: {
-    bottom: 2,
+    bottom: -21,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -2601,8 +2608,9 @@ const s = StyleSheet.create({
   feedNowCard: {
     marginHorizontal: 24,
     // Bigger presence: the readout absorbs part of the band under the map
-    // instead of whispering above it (Ayuka, 2026-09-15).
-    marginTop: 18,
+    // instead of whispering above it (Ayuka, 2026-09-15). The extra top
+    // margin keeps clear of OPINION, which now hangs below the plot square.
+    marginTop: 36,
     alignItems: 'center',
     height: 56,
     justifyContent: 'center',
