@@ -93,15 +93,31 @@ serve(async (req) => {
       .select('notify_social')
       .eq('id', userId)
       .single();
-    const hourAgo = new Date(Date.now() - 3600000).toISOString();
+    // Praxis is a news app: the notification budget belongs to the news
+    // (Ayuka, 2026-09-16). Routine badges celebrate in-app only — a push
+    // goes out just for the milestones worth interrupting someone for, and
+    // at most one a week. The old rule was one an HOUR, which is how he
+    // collected four badge pushes in a single day.
+    const MILESTONE_BADGES = new Set([
+      'Consistent Reader', // 7-day streak
+      'Dedicated',         // 30-day streak
+      'Unstoppable',       // 100-day streak
+      'Master Reader',     // 250 articles
+      'Renaissance Reader',// all 9 categories
+    ]);
+    const milestones = newBadges.filter((b: { name: string }) => MILESTONE_BADGES.has(b.name));
+
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
     const { data: recentSocial } = await supabase
       .from('push_log')
       .select('id')
       .eq('user_id', userId)
       .eq('push_type', 'social')
-      .gte('sent_at', hourAgo)
+      .gte('sent_at', weekAgo)
       .limit(1);
-    const pushAllowed = badgeProfile?.notify_social !== false && (!recentSocial || recentSocial.length === 0);
+    const pushAllowed = badgeProfile?.notify_social !== false
+      && milestones.length > 0
+      && (!recentSocial || recentSocial.length === 0);
 
     const { data: tokens } = pushAllowed
       ? await supabase.from('push_tokens').select('token, timezone').eq('user_id', userId)
@@ -110,12 +126,12 @@ serve(async (req) => {
     const awake = (tokens ?? []).filter((t: { token: string; timezone: string | null }) => !inQuietHours(t.timezone));
     if (awake.length > 0) {
       // One push even if several badges landed at once
-      const topBadge = newBadges[0];
-      const title = newBadges.length > 1
-        ? `${newBadges.length} badges earned`
-        : `Badge Earned: ${topBadge.name} ${topBadge.icon}`;
-      const body = newBadges.length > 1
-        ? newBadges.map(b => b.name).join(', ')
+      const topBadge = milestones[0];
+      const title = milestones.length > 1
+        ? `${milestones.length} milestones reached`
+        : `${topBadge.name} ${topBadge.icon}`;
+      const body = milestones.length > 1
+        ? milestones.map((b: { name: string }) => b.name).join(', ')
         : topBadge.description;
       const messages = awake.map(({ token }: { token: string }) => ({
         to: token,
