@@ -35,10 +35,11 @@ export const getArticleCardDimensions = (
   // export does not have, so web previews always look airier than reality.
   const reservedHeight = screenHeight < 740 ? 300 : 276;
   const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
-  // ONE ratio for both modes: the digest pill's height is already taken out
-  // of availableHeight, and a card that resized when the pill appeared made
-  // the page feel unsettled.
-  const preferredRatio = 1.54;
+  // One ratio, acting as a cap. In digest mode availableHeight binds (the
+  // progress bar is taller than the Top News chip); in Top News mode the
+  // ratio binds. 1.58 is the value that lands BOTH modes on even gaps —
+  // measured 34/33 with the progress bar, 32/31 without.
+  const preferredRatio = 1.58;
   const height = Math.max(280, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
