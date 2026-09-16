@@ -27,14 +27,16 @@ export const getArticleCardDimensions = (
   const width = Math.min(Math.max(screenWidth - horizontalInset, 240), 378, maximumWidth);
   // The deck's TOP edge is fixed by the stack (flex-start), so height alone
   // decides how far down it reaches. Tuned to leave ~50pt of air above the
-  // floating bar ON DEVICE — note a phone's status bar eats ~26pt that the
-  // web export does not have, so web previews always look airier (Ayuka,
-  // 2026-09-15: top gap is right, "too low").
-  const reservedHeight = screenHeight < 740 ? 296 : 300;
+  // floating bar ON DEVICE: ~18pt of air sits above the card, so a bottom
+  // margin near 40pt reads balanced — the first pass left ~85pt, which is
+  // the "awkward" Ayuka spotted. NB a phone's status bar eats ~26pt the web
+  // export does not have, so web previews always look airier than reality.
+  const reservedHeight = screenHeight < 740 ? 300 : 266;
   const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
-  // Digest progress takes real vertical space above the deck. Its card is a
-  // touch shorter still so the whole composition remains balanced.
-  const preferredRatio = verticalReserve > 0 ? 1.44 : 1.52;
+  // ONE ratio for both modes: the digest pill's height is already taken out
+  // of availableHeight, and a card that resized when the pill appeared made
+  // the page feel unsettled.
+  const preferredRatio = 1.54;
   const height = Math.max(280, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
