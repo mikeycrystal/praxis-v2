@@ -31,7 +31,7 @@ export const getArticleCardDimensions = (
   // margin near 40pt reads balanced — the first pass left ~85pt, which is
   // the "awkward" Ayuka spotted. NB a phone's status bar eats ~26pt the web
   // export does not have, so web previews always look airier than reality.
-  const reservedHeight = screenHeight < 740 ? 300 : 266;
+  const reservedHeight = screenHeight < 740 ? 300 : 276;
   const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
   // ONE ratio for both modes: the digest pill's height is already taken out
   // of availableHeight, and a card that resized when the pill appeared made
