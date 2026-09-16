@@ -2439,11 +2439,13 @@ const s = StyleSheet.create({
   cardStack: {
     flex: 1,
     alignItems: 'center',
-    // Card rides high under the digest pill; spare space falls below it,
-    // not above (Ayuka, 2026-09-15: "higher up, no awkward space"). The
-    // bottom padding still reserves the floating bar's footprint.
+    // Card rides high under the digest pill, and the 7pt nudge makes the air
+    // above it match the air below it — measured 27 top / 41 bottom before,
+    // 34 / 34 after (Ayuka, 2026-09-16: "I want it to be even and
+    // proportionally sized"). The bottom padding still reserves the
+    // floating bar's footprint.
     justifyContent: 'flex-start',
-    paddingTop: 10,
+    paddingTop: 17,
     paddingBottom: TAB_BAR_CLEARANCE,
     position: 'relative',
     zIndex: 0,
