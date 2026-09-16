@@ -23,17 +23,17 @@ const INACTIVE = '#4B463E';
 const BAR_MARGIN = 16;
 
 // Clearance for content that must not sit under the floating bar.
-export const TAB_BAR_CLEARANCE = 106;
-// A touch taller with bigger touch targets — the old 64 left the bar
-// feeling lost in the bottom zone (Ayuka, 2026-09-15).
-const BAR_HEIGHT = 80;
+export const TAB_BAR_CLEARANCE = 92;
+// 64 read as lost in the bottom zone, 80 read as a slab — 66 is the
+// settled middle (Ayuka, 2026-09-15: "think we over corrected").
+const BAR_HEIGHT = 66;
 const LENS_INSET = 6;
 const TAB_LABELS: Record<string, string> = { index: 'News', graph: 'Graph' };
 
 // The Graph tab's crosshair icon (moved from (tabs)/_layout.tsx).
 export function GraphTabIcon({ color }: { color: string }) {
   return (
-    <Svg width={32} height={32} viewBox="0 0 26 26">
+    <Svg width={27} height={27} viewBox="0 0 26 26">
       <Line x1="13" y1="5.3" x2="13" y2="20.7" stroke={color} strokeWidth="1.9" strokeLinecap="round" opacity="0.95" />
       <Line x1="5.3" y1="13" x2="20.7" y2="13" stroke={color} strokeWidth="1.9" strokeLinecap="round" opacity="0.95" />
       <Circle cx="13" cy="13" r="2.1" fill={color} opacity="0.96" />
@@ -103,10 +103,10 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
       <GlassSurface
         style={[s.bar, { width: barWidth }]}
         glassEffectStyle="regular"
-        // Warm smoke, not cream: the Phone-app lens reads as glass because
-        // the bar behind it is darker — a clear lens over a clear bar shows
-        // nothing (Ayuka, 2026-09-15: "make our bar a bit darker").
-        tintColor="rgba(58,52,42,0.22)"
+        // Just enough smoke for the lens to read against, no more: 0.22 on
+        // a cream app rendered as a gray slab on device. The contrast now
+        // comes from a BRIGHTER lens, not a darker bar.
+        tintColor="rgba(58,52,42,0.09)"
         fallbackStyle={s.barFallback}
       >
         <Animated.View style={[s.lensWrap, { width: segmentWidth }, lensStyle]} pointerEvents="none">
@@ -114,7 +114,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
             style={s.lensGlass}
             glassEffectStyle="regular"
             isInteractive
-            tintColor="rgba(255,255,255,0.2)"
+            tintColor="rgba(255,255,255,0.42)"
             fallbackStyle={s.lensFallback}
           />
         </Animated.View>
@@ -145,7 +145,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
             >
               <View style={s.iconFrame}>
                 {route.name === 'index' ? (
-                  <Ionicons name="newspaper-outline" size={27} color={color} />
+                  <Ionicons name="newspaper-outline" size={23} color={color} />
                 ) : (
                   <GraphTabIcon color={color} />
                 )}
@@ -224,7 +224,7 @@ const s = StyleSheet.create({
     gap: 2,
   },
   tabLabel: {
-    fontSize: 12.5,
+    fontSize: 11,
     fontWeight: '600',
   },
 });

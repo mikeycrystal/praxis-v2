@@ -20,18 +20,21 @@ export const getArticleCardDimensions = (
   screenHeight: number,
   verticalReserve = 0,
 ) => {
-  // Keep the deck inset from the device edges, but let it FILL the vertical
-  // room — since the tab bar became a floating overlay the old reserves left
-  // a dead band between the card and the bar on every size (Ayuka,
-  // 2026-09-15: "awkward space between the card and the bottom portion").
+  // Keep the deck inset from the device edges — a focused story unit, not a
+  // full-screen panel.
   const horizontalInset = screenWidth <= 340 ? 34 : screenWidth <= 390 ? 54 : 56;
   const maximumWidth = Math.max(screenWidth - 32, 240);
   const width = Math.min(Math.max(screenWidth - horizontalInset, 240), 378, maximumWidth);
-  const reservedHeight = screenHeight < 620 ? 236 : screenHeight < 740 ? 248 : 258;
+  // The deck's TOP edge is fixed by the stack (flex-start), so height alone
+  // decides how far down it reaches. Tuned to leave ~50pt of air above the
+  // floating bar ON DEVICE — note a phone's status bar eats ~26pt that the
+  // web export does not have, so web previews always look airier (Ayuka,
+  // 2026-09-15: top gap is right, "too low").
+  const reservedHeight = screenHeight < 740 ? 296 : 300;
   const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
   // Digest progress takes real vertical space above the deck. Its card is a
   // touch shorter still so the whole composition remains balanced.
-  const preferredRatio = verticalReserve > 0 ? 1.55 : 1.62;
+  const preferredRatio = verticalReserve > 0 ? 1.44 : 1.52;
   const height = Math.max(280, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
