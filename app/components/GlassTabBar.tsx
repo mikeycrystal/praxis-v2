@@ -61,7 +61,11 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
     430, // tablet/wide screens: the bar stays hand-sized, centered
   );
   const segmentWidth = (barWidth - LENS_INSET * 2) / 2;
-  const bottomOffset = Math.max(insets.bottom + 12, Platform.OS === 'web' ? 8 : 18);
+  // Sit LOW, the way Apple's own floating pill does — measured off his Phone
+  // screenshot at ~21pt from the screen edge on a 34pt-inset phone. Perching
+  // it above the safe area left a dead band underneath, which is the gap he
+  // was actually pointing at (2026-09-16).
+  const bottomOffset = Math.max(insets.bottom - 13, Platform.OS === 'web' ? 8 : 10);
 
   const visibleRoutes = VISIBLE_TABS
     .map((name) => state.routes.find((route) => route.name === name))
@@ -96,10 +100,6 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
         s.strip,
         {
           height: BAR_HEIGHT + bottomOffset + 10,
-          // Clear the home indicator instead of sitting in it: insets.bottom
-          // is 34 on indicator phones and the pill used to stop 30 short of
-          // the edge, i.e. 4pt INSIDE that reserved band. +6 past the safe
-          // area is what reads as floating (Ayuka, 2026-09-16).
           paddingBottom: bottomOffset,
         },
       ]}
