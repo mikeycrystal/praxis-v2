@@ -61,11 +61,12 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
     430, // tablet/wide screens: the bar stays hand-sized, centered
   );
   const segmentWidth = (barWidth - LENS_INSET * 2) / 2;
-  // Sit LOW, the way Apple's own floating pill does — measured off his Phone
-  // screenshot at ~21pt from the screen edge on a 34pt-inset phone. Perching
-  // it above the safe area left a dead band underneath, which is the gap he
-  // was actually pointing at (2026-09-16).
-  const bottomOffset = Math.max(insets.bottom - 13, Platform.OS === 'web' ? 8 : 10);
+  // Sit low like Apple's floating pill, but clear of the home indicator. At
+  // insets.bottom - 13 (~21pt) the indicator crowded the capsule's bottom edge
+  // — the gap Ayuka pointed at (2026-09-16). -4 puts the bar 30pt off the edge:
+  // ~17pt of clean air under the capsule before the indicator starts. Past ~32
+  // it reads as a dead band again (he called 40 and 46 too big the same day).
+  const bottomOffset = Math.max(insets.bottom - 4, Platform.OS === 'web' ? 8 : 10);
 
   const visibleRoutes = VISIBLE_TABS
     .map((name) => state.routes.find((route) => route.name === name))

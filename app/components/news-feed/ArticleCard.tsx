@@ -37,9 +37,11 @@ export const getArticleCardDimensions = (
   const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
   // One ratio, acting as a cap. In digest mode availableHeight binds (the
   // progress bar is taller than the Top News chip); in Top News mode the
-  // ratio binds. 1.58 is the value that lands BOTH modes on even gaps —
-  // measured 34/33 with the progress bar, 32/31 without.
-  const preferredRatio = 1.68;
+  // ratio binds. Dropped 1.68 -> 1.65 (566 -> 556 on a 337pt-wide card) when
+  // the bar moved 9pt up off the home indicator: the card's TOP is fixed by
+  // the stack, so it has to give back the same 9pt or the 16pt card-to-bar
+  // gap closes to 7. Digest still lands level (availableHeight 566 > 556).
+  const preferredRatio = 1.65;
   const height = Math.max(280, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
