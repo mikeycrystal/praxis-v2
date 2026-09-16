@@ -61,7 +61,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
     430, // tablet/wide screens: the bar stays hand-sized, centered
   );
   const segmentWidth = (barWidth - LENS_INSET * 2) / 2;
-  const bottomOffset = Math.max(insets.bottom + 6, Platform.OS === 'web' ? 8 : 12);
+  const bottomOffset = Math.max(insets.bottom + 12, Platform.OS === 'web' ? 8 : 18);
 
   const visibleRoutes = VISIBLE_TABS
     .map((name) => state.routes.find((route) => route.name === name))

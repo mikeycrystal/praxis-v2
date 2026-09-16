@@ -2445,7 +2445,7 @@ const s = StyleSheet.create({
     // proportionally sized"). The bottom padding still reserves the
     // floating bar's footprint.
     justifyContent: 'flex-start',
-    paddingTop: 17,
+    paddingTop: 3,
     paddingBottom: TAB_BAR_CLEARANCE,
     position: 'relative',
     zIndex: 0,
