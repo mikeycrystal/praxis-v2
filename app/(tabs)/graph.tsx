@@ -375,12 +375,12 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 2, 0);
-    // The readout card (56, plus its 36 top margin that clears the OPINION
+    // The readout card (56, plus its 30 top margin that clears the OPINION
     // pill) lives inside the same wrap as the canvas, so the square must
     // leave room for it. Measured on his phone, not modeled: the old 76
     // was a stale figure for a smaller card.
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 92, viewportHeightLimit),
+      Math.min(graphViewport.height - 86, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -1751,13 +1751,7 @@ export default function GraphScreen() {
         </InputAccessoryView>
       ) : null}
 
-      <Pressable
-        style={[
-          s.graphSection,
-          (topNewsFilterState || hasSearchCriteria) && s.graphSectionBelowSelected,
-        ]}
-        onPress={dismissSearch}
-      >
+      <Pressable style={s.graphSection} onPress={dismissSearch}>
         <View
           ref={onboardingGraphRef}
           collapsable={false}
@@ -2311,11 +2305,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
-  // One row (the selected pill, 36 + its gap) while a filter is active, so
-  // the HARD NEWS pill clears it. Trending itself never moves.
-  graphSectionBelowSelected: {
-    paddingTop: 44,
-  },
   selectedFiltersSection: {
     position: 'absolute',
     top: 104,
@@ -2440,8 +2429,11 @@ const s = StyleSheet.create({
     // bottom padding is the floating bar's clearance (66 bar + 30 offset +
     // 16 gap), which the old Apply bar used to carry.
     paddingHorizontal: 11,
-    paddingTop: 2,
-    paddingBottom: 112,
+    // The selected-pill row (36 + 8) under trending is reserved whether or
+    // not a pill is showing: "I don't want the map to move ever" (Ayuka,
+    // 2026-09-17, msg 1245). Costs ~30pt of map, lands it near 340.
+    paddingTop: 44,
+    paddingBottom: 108,
     position: 'relative',
     zIndex: 1,
   },
@@ -2670,8 +2662,9 @@ const s = StyleSheet.create({
     marginHorizontal: 24,
     // Bigger presence: the readout absorbs part of the band under the map
     // instead of whispering above it (Ayuka, 2026-09-15). The extra top
-    // margin keeps clear of OPINION, which now hangs below the plot square.
-    marginTop: 36,
+    // margin keeps clear of OPINION, which now hangs below the plot square
+    // (21 of pill + 9 of air; was 36 before the pill row above was reserved).
+    marginTop: 30,
     alignItems: 'center',
     height: 56,
     justifyContent: 'center',
