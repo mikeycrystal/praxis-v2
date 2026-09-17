@@ -2271,7 +2271,9 @@ const s = StyleSheet.create({
   },
   filterArea: {
     position: 'absolute',
-    top: 60,
+    // Trending 6pt closer to the search box; the pill row 8 under trending;
+    // HARD NEWS 12 under the pill row. "Less spaced" (Ayuka, 2026-09-17).
+    top: 54,
     left: 18,
     right: 0,
     minHeight: 30,
@@ -2280,7 +2282,7 @@ const s = StyleSheet.create({
   },
   selectedFiltersSection: {
     position: 'absolute',
-    top: 104,
+    top: 92,
     left: 18,
     right: 0,
     minHeight: 36,
@@ -2402,10 +2404,12 @@ const s = StyleSheet.create({
     // bottom padding is the floating bar's clearance (66 bar + 30 offset +
     // 16 gap), which the old Apply bar used to carry.
     paddingHorizontal: 11,
-    // The selected-pill row (36 + 8) under trending is reserved whether or
-    // not a pill is showing: "I don't want the map to move ever" (Ayuka,
-    // 2026-09-17, msg 1245). Costs ~30pt of map, lands it near 340.
-    paddingTop: 44,
+    // The selected-pill row under trending is reserved whether or not a
+    // pill is showing: "I don't want the map to move ever" (Ayuka,
+    // 2026-09-17, msg 1245). With the rows above pulled tighter, 24 is what
+    // the HARD NEWS pill needs to clear the pill row by ~12, and the map
+    // is width-bound at ~369 again.
+    paddingTop: 24,
     paddingBottom: 108,
     position: 'relative',
     zIndex: 1,
