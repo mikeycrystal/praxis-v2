@@ -375,12 +375,11 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 2, 0);
-    // The readout card (56, plus its 30 top margin that clears the OPINION
-    // pill) lives inside the same wrap as the canvas, so the square must
-    // leave room for it. Measured on his phone, not modeled: the old 76
-    // was a stale figure for a smaller card.
+    // Apply's slot (22 margin clearing the OPINION pill + 44 button, always
+    // laid out) lives inside the same wrap as the canvas, so the square
+    // must leave room for it. On his phone that lands the map near 360.
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 86, viewportHeightLimit),
+      Math.min(graphViewport.height - 66, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -1372,25 +1371,6 @@ export default function GraphScreen() {
       );
     return new Set(byDistance.slice(0, 3).map((outlet) => outlet.key));
   }, [insideOutlets, pinX, pinY]);
-  const feedNowLine = useMemo(() => {
-    const lean = getPoliticalLeanLabel(currentGraphPosition.x / 100);
-    const style = getReportingTypeLabel(currentGraphPosition.y / 100);
-    if (insideOutlets.length === 0) {
-      return { mode: `${lean} · ${style}`, sources: 'No sources in range — move the dot or widen the radius.' };
-    }
-    const byDistance = insideOutlets
-      .filter((outlet) => outlet.label) // NYT carries no caption — never name a blank
-      .sort(
-        (a, b) => Math.hypot(a.x - pinX, a.y - pinY) - Math.hypot(b.x - pinX, b.y - pinY),
-      );
-    const names = byDistance.slice(0, 3).map((outlet) => outlet.label);
-    const extra = insideOutlets.length - names.length;
-    return {
-      mode: `${lean} · ${style}`,
-      sources: `Drawing from ${names.join(', ')}${extra > 0 ? ` + ${extra} more` : ''}`,
-    };
-  }, [currentGraphPosition.x, currentGraphPosition.y, insideOutlets, pinX, pinY]);
-
   return (
     <SafeAreaView ref={onboardingRootRef} style={[s.container, { backgroundColor: PAGE.background }]}>
       {isHelpOpen || showSaveDialog || showSignInDialog ? (
@@ -1862,37 +1842,30 @@ export default function GraphScreen() {
           </View>
 
           {/*
-            One slot under the map: the readout when the graph is applied,
-            the Apply button while there are unapplied changes. Apply used to
-            own a bar of its own below this section, laid out even while
-            invisible so the page never jumped, and that reserved band is
-            what kept the map at 310pt on his phone. The readout describes
-            the applied state anyway, so mid-edit it had nothing to say
-            (Ayuka's "Ok do it", 2026-09-17).
+            The "CENTER · MIXED / Drawing from…" readout is gone: the lit
+            logos and the three names on the map already say it (Ayuka,
+            2026-09-17, msg 1246). What remains under the map is Apply's own
+            slot, laid out whether or not there is anything to apply so the
+            map never moves. It is 52pt where the readout took 86, and the
+            canvas is width-bound at ~369 on his phone, so this costs no map.
           */}
-          {hasChanges || isApplying ? (
-            <View style={s.feedNowCard}>
-              <TouchableOpacity
-                style={[s.applyButton, isApplying && s.applyButtonDisabled]}
-                onPress={handleApplyChanges}
-                disabled={isApplying}
-                accessibilityRole="button"
-                accessibilityLabel="Apply graph changes"
-                testID="graph-apply-button"
-              >
-                <Text style={s.applyButtonText}>
-                  {isApplying ? 'Loading...' : 'Apply Changes →'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={s.feedNowCard} accessibilityLiveRegion="polite">
-              <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
-              <Text style={s.feedNowText} numberOfLines={1} ellipsizeMode="tail">
-                {feedNowLine.sources}
+          <View
+            style={[s.applySlot, !(hasChanges || isApplying) && s.applySlotIdle]}
+            pointerEvents={hasChanges || isApplying ? 'auto' : 'none'}
+          >
+            <TouchableOpacity
+              style={[s.applyButton, isApplying && s.applyButtonDisabled]}
+              onPress={handleApplyChanges}
+              disabled={!hasChanges || isApplying}
+              accessibilityRole="button"
+              accessibilityLabel="Apply graph changes"
+              testID="graph-apply-button"
+            >
+              <Text style={s.applyButtonText}>
+                {isApplying ? 'Loading...' : 'Apply Changes →'}
               </Text>
-            </View>
-          )}
+            </TouchableOpacity>
+          </View>
         </View>
       </Pressable>
 
@@ -2658,31 +2631,6 @@ const s = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: '600',
   },
-  feedNowCard: {
-    marginHorizontal: 24,
-    // Bigger presence: the readout absorbs part of the band under the map
-    // instead of whispering above it (Ayuka, 2026-09-15). The extra top
-    // margin keeps clear of OPINION, which now hangs below the plot square
-    // (21 of pill + 9 of air; was 36 before the pill row above was reserved).
-    marginTop: 30,
-    alignItems: 'center',
-    height: 56,
-    justifyContent: 'center',
-  },
-  feedNowTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 2,
-    color: '#7B9A62',
-  },
-  feedNowText: {
-    marginTop: 5,
-    fontSize: 16,
-    lineHeight: 22,
-    color: PAGE.textMuted,
-    fontWeight: '500',
-    textAlign: 'center',
-  },
   sliderSection: {
     paddingHorizontal: 24,
     paddingTop: 8,
@@ -2697,6 +2645,18 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
     gap: 10,
+  },
+  // Apply's fixed slot under the map. Reserved even while idle (opacity 0,
+  // no touches) so the canvas never moves when a change appears.
+  applySlot: {
+    alignSelf: 'stretch',
+    marginHorizontal: 24,
+    // 21 of OPINION pill + 1, then the 44pt button.
+    marginTop: 22,
+    height: 44,
+  },
+  applySlotIdle: {
+    opacity: 0,
   },
   applyButton: {
     pointerEvents: 'auto',
