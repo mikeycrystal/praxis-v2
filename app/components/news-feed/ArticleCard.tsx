@@ -13,8 +13,6 @@ import {
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { GlassContainer, GlassView } from 'expo-glass-effect';
-import { hasLiquidGlass } from '../GlassSurface';
 import type { Article } from '../../hooks/useFeedArticles';
 
 export const getArticleCardDimensions = (
@@ -326,16 +324,9 @@ export const ArticleCard = memo(function ArticleCard({
               </View>
             ) : <View />}
 
-            {/*
-              Real glass on the card: these two circles sit over the photo,
-              which is the best backdrop in the app for the material. They
-              were drawing the plain translucent fallback on every device —
-              glass was never switched on here at all. Both live in one
-              container so they behave as a pair, like Apple's.
-            */}
-            <GlassContainer spacing={10} style={s.actionBtns}>
+            <View style={s.actionBtns}>
               <TouchableOpacity
-                style={[s.actionBtn, isCompactCard ? s.actionBtnCompact : null]}
+                style={[s.actionBtn, s.actionBtnFallback, isCompactCard ? s.actionBtnCompact : null]}
                 onPress={(event) => {
                   stopFlipPropagation(event);
                   onShare();
@@ -343,21 +334,10 @@ export const ArticleCard = memo(function ArticleCard({
                 accessibilityLabel="Share story"
                 accessibilityRole="button"
               >
-                {hasLiquidGlass ? (
-                  <GlassView
-                    style={StyleSheet.absoluteFillObject}
-                    glassEffectStyle="clear"
-                    isInteractive
-                    tintColor="rgba(255,255,255,0.16)"
-                    colorScheme="dark"
-                  />
-                ) : (
-                  <View style={[StyleSheet.absoluteFillObject, s.actionBtnFallback]} />
-                )}
                 <Ionicons name="share-social-outline" size={isCompactCard ? 16 : 18} color="#F5F9FC" />
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.actionBtn, isCompactCard ? s.actionBtnCompact : null]}
+                style={[s.actionBtn, s.actionBtnFallback, isCompactCard ? s.actionBtnCompact : null]}
                 onPress={(event) => {
                   stopFlipPropagation(event);
                   onSave();
@@ -365,20 +345,9 @@ export const ArticleCard = memo(function ArticleCard({
                 accessibilityLabel={isSaved ? 'Remove bookmark' : 'Save article'}
                 accessibilityRole="button"
               >
-                {hasLiquidGlass ? (
-                  <GlassView
-                    style={StyleSheet.absoluteFillObject}
-                    glassEffectStyle="clear"
-                    isInteractive
-                    tintColor="rgba(255,255,255,0.16)"
-                    colorScheme="dark"
-                  />
-                ) : (
-                  <View style={[StyleSheet.absoluteFillObject, s.actionBtnFallback]} />
-                )}
                 <Ionicons name={isSaved ? 'bookmark' : 'bookmark-outline'} size={isCompactCard ? 17 : 19} color="#F5F9FC" />
               </TouchableOpacity>
-            </GlassContainer>
+            </View>
           </View>
 
           <View style={[s.content, isCompactCard ? s.contentCompact : null, isVeryCompactCard ? s.contentVeryCompact : null]}>
@@ -771,7 +740,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
   },
   actionBtnFallback: {
-    borderRadius: 22,
     borderWidth: 1,
     backgroundColor: 'rgba(255,255,255,0.22)',
     borderColor: 'rgba(255,255,255,0.38)',
