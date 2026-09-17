@@ -375,10 +375,12 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 2, 0);
-    // The readout card (40 + 12 margin) now lives inside the same wrap as
-    // the canvas, so the square must leave room for it.
+    // The readout card (56, plus its 36 top margin that clears the OPINION
+    // pill) lives inside the same wrap as the canvas, so the square must
+    // leave room for it. Measured on his phone, not modeled: the old 76
+    // was a stale figure for a smaller card.
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 76, viewportHeightLimit),
+      Math.min(graphViewport.height - 92, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -1857,35 +1859,40 @@ export default function GraphScreen() {
             ) : null}
           </View>
 
-          <View style={s.feedNowCard} accessibilityLiveRegion="polite">
-            <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
-            <Text style={s.feedNowText} numberOfLines={1} ellipsizeMode="tail">
-              {feedNowLine.sources}
-            </Text>
-          </View>
+          {/*
+            One slot under the map: the readout when the graph is applied,
+            the Apply button while there are unapplied changes. Apply used to
+            own a bar of its own below this section, laid out even while
+            invisible so the page never jumped, and that reserved band is
+            what kept the map at 310pt on his phone. The readout describes
+            the applied state anyway, so mid-edit it had nothing to say
+            (Ayuka's "Ok do it", 2026-09-17).
+          */}
+          {hasChanges || isApplying ? (
+            <View style={s.feedNowCard}>
+              <TouchableOpacity
+                style={[s.applyButton, isApplying && s.applyButtonDisabled]}
+                onPress={handleApplyChanges}
+                disabled={isApplying}
+                accessibilityRole="button"
+                accessibilityLabel="Apply graph changes"
+                testID="graph-apply-button"
+              >
+                <Text style={s.applyButtonText}>
+                  {isApplying ? 'Loading...' : 'Apply Changes →'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={s.feedNowCard} accessibilityLiveRegion="polite">
+              <Text style={s.feedNowTitle}>{feedNowLine.mode.toUpperCase()}</Text>
+              <Text style={s.feedNowText} numberOfLines={1} ellipsizeMode="tail">
+                {feedNowLine.sources}
+              </Text>
+            </View>
+          )}
         </View>
       </Pressable>
-
-      <View
-        style={[s.applyBar, !(hasChanges || isApplying) && s.applyBarPlaceholder]}
-        pointerEvents={hasChanges || isApplying ? 'auto' : 'none'}
-      >
-          <TouchableOpacity
-            style={[
-              s.applyButton,
-              (!hasChanges || isApplying) && s.applyButtonDisabled,
-            ]}
-            onPress={handleApplyChanges}
-            disabled={!hasChanges || isApplying}
-            accessibilityRole="button"
-            accessibilityLabel="Apply graph changes"
-            testID="graph-apply-button"
-          >
-            <Text style={s.applyButtonText}>
-              {isApplying ? 'Loading...' : 'Apply Changes →'}
-            </Text>
-          </TouchableOpacity>
-      </View>
 
       {isHelpOpen ? (
         <View style={s.modalWrap} pointerEvents="box-none">
@@ -2418,11 +2425,13 @@ const s = StyleSheet.create({
     flexShrink: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    // Full bleed: the canvas is width-bound on phones, so every trimmed
-    // horizontal pixel is a bigger map (axis words live inside the canvas).
-    paddingHorizontal: 2,
+    // 11pt a side lands the canvas at ~370 on a 393pt phone, his pick over
+    // full bleed (2026-09-17): the readout still breathes under it. The
+    // bottom padding is the floating bar's clearance (66 bar + 30 offset +
+    // 16 gap), which the old Apply bar used to carry.
+    paddingHorizontal: 11,
     paddingTop: 2,
-    paddingBottom: 8,
+    paddingBottom: 112,
     position: 'relative',
     zIndex: 1,
   },
@@ -2686,24 +2695,9 @@ const s = StyleSheet.create({
     justifyContent: 'flex-start',
     gap: 10,
   },
-  applyBar: {
-    position: 'relative',
-    zIndex: 12,
-    elevation: 12,
-    paddingHorizontal: 18,
-    paddingBottom: 96,
-    paddingTop: 2,
-    width: '100%',
-    maxWidth: 560,
-    alignSelf: 'center',
-  },
-  // Reserve this space even before a change is made. Otherwise the map moves
-  // whenever filter chips or the Apply button enter/leave the layout.
-  applyBarPlaceholder: {
-    opacity: 0,
-  },
   applyButton: {
     pointerEvents: 'auto',
+    alignSelf: 'stretch',
     height: 44,
     borderRadius: 14,
     backgroundColor: '#2F2A24',
