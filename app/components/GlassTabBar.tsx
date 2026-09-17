@@ -144,7 +144,14 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
           </Animated.View>
         </View>
       )}
-      <View style={[s.bar, s.tabRow, { width: barWidth }]}>
+      {/*
+        Anchor the buttons to the CAPSULE, not the screen edge. tabRow is
+        absolutely positioned, and absolute children ignore the strip's
+        paddingBottom, so bottom:0 pinned the row to the screen while the
+        capsule rode bottomOffset higher. On his build-126 phone that put the
+        Graph icon at the capsule's floor and the label 12pt below it.
+      */}
+      <View style={[s.bar, s.tabRow, { width: barWidth, bottom: bottomOffset }]}>
         {visibleRoutes.map((route) => {
           const focused = isFocusedVisible(route.key);
           const color = focused ? TINT : INACTIVE;
