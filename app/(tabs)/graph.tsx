@@ -1701,12 +1701,14 @@ export default function GraphScreen() {
           ) : null}
         </View>
 
-        <View
-          style={[
-            s.filterArea,
-            (topNewsFilterState || hasSearchCriteria) && s.filterAreaBelowSelected,
-          ]}
-        >
+        {/*
+          Trending stays put under the search box; the selected pill (Top
+          News, or the chosen topics/keywords) goes UNDER trending instead of
+          between them, so the row he scans never moves and HARD NEWS stops
+          colliding with it (Ayuka, 2026-09-17, msg 1238). The section below
+          drops by one row only while a filter is active.
+        */}
+        <View style={s.filterArea}>
           {availableTrendingTopics.length > 0 ? (
             <ScrollView
               horizontal
@@ -1749,7 +1751,13 @@ export default function GraphScreen() {
         </InputAccessoryView>
       ) : null}
 
-      <Pressable style={s.graphSection} onPress={dismissSearch}>
+      <Pressable
+        style={[
+          s.graphSection,
+          (topNewsFilterState || hasSearchCriteria) && s.graphSectionBelowSelected,
+        ]}
+        onPress={dismissSearch}
+      >
         <View
           ref={onboardingGraphRef}
           collapsable={false}
@@ -2303,12 +2311,14 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
-  filterAreaBelowSelected: {
-    top: 104,
+  // One row (the selected pill, 36 + its gap) while a filter is active, so
+  // the HARD NEWS pill clears it. Trending itself never moves.
+  graphSectionBelowSelected: {
+    paddingTop: 44,
   },
   selectedFiltersSection: {
     position: 'absolute',
-    top: 60,
+    top: 104,
     left: 18,
     right: 0,
     minHeight: 36,
