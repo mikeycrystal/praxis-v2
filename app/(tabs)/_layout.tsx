@@ -59,14 +59,16 @@ export default function TabsLayout() {
         tabBarActiveTintColor: c.tint,
         tabBarInactiveTintColor: c.tabIconDefault,
         tabBarShowLabel: false,
-        // Smooth switching: a FAST cross-fade. freezeOnBlur was removed —
-        // unfreezing the heavy Graph tree happened right at tap time and
-        // read as switch lag (Ayuka, 2026-09-15).
-        animation: 'fade',
-        transitionSpec: {
-          animation: 'timing',
-          config: { duration: 130 },
-        },
+        // Instant swap, the way Apple's own tab bars switch: the content
+        // changes on the tap and only the lens glides. The 130ms cross-fade
+        // that was here read as "delayed and laggy" on device (Ayuka,
+        // 2026-09-17). A CDP profile of the web export put the switch at
+        // 17-19ms of JS with no long task, so the cost was not JS: it was
+        // two full screens fading under a liquid-glass bar that re-samples
+        // its backdrop every frame, which the web fallback never shows.
+        // freezeOnBlur stays off (2026-09-15): unfreezing the Graph tree at
+        // tap time was its own lag.
+        animation: 'none',
       }}
     >
       <Tabs.Screen
