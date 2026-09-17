@@ -81,7 +81,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
   useEffect(() => {
     // Crisp glide, no overshoot — the spring version wobbled before settling.
     lensPosition.value = withTiming(activeVisibleIndex, {
-      duration: 200,
+      duration: 160,
       easing: Easing.out(Easing.cubic),
     });
   }, [activeVisibleIndex, lensPosition]);
@@ -152,7 +152,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
         Graph icon at the capsule's floor and the label 12pt below it.
       */}
       <View style={[s.bar, s.tabRow, { width: barWidth, bottom: bottomOffset }]}>
-        {visibleRoutes.map((route) => {
+        {visibleRoutes.map((route, visibleIndex) => {
           const focused = isFocusedVisible(route.key);
           const color = focused ? TINT : INACTIVE;
           const { options } = descriptors[route.key];
@@ -164,6 +164,17 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
               canPreventDefault: true,
             });
             if (!focused && !event.defaultPrevented) {
+              // Start the lens NOW, on the UI thread, before the navigator
+              // commits. The screens re-render in the same React commit as
+              // this bar, so with the lens keyed off state.index nothing on
+              // screen moved until that commit finished — the tap felt
+              // dead for as long as the Graph tree took to render (Ayuka:
+              // "delayed and laggy", 2026-09-17). The effect below retargets
+              // to the same value once state lands, which is a no-op.
+              lensPosition.value = withTiming(visibleIndex, {
+                duration: 160,
+                easing: Easing.out(Easing.cubic),
+              });
               navigation.navigate(route.name, route.params);
             }
           };

@@ -531,10 +531,52 @@ export default function GraphScreen() {
     setIsApplying(false);
   }, [animatedPinX, animatedPinY, animatedRadius, readPersistedGraphState]);
 
+  // Focus used to re-sync unconditionally: nine setStates with fresh array
+  // and object identities, i.e. a full re-render of this 2.7k-line screen
+  // (13 SVG logos included) in the middle of the tab fade. The blur-time
+  // effect below already keeps the graph current whenever preferences
+  // change, so on focus there is nothing to do unless the user walked away
+  // from unapplied edits — then the old reset still runs. Read through a
+  // ref so the focus callback stays stable; putting live state in its deps
+  // would re-run the reset on every keystroke while focused.
+  const focusSyncStateRef = useRef({
+    search,
+    isDropdownOpen,
+    isApplying,
+    selectedTopics,
+    promptTerms,
+    radius,
+    hasAppliedTopNewsFilter,
+  });
+  focusSyncStateRef.current = {
+    search,
+    isDropdownOpen,
+    isApplying,
+    selectedTopics,
+    promptTerms,
+    radius,
+    hasAppliedTopNewsFilter,
+  };
   useFocusEffect(
     useCallback(() => {
+      const live = focusSyncStateRef.current;
+      const persisted = readPersistedGraphState();
+      const position = graphPositionRef.current;
+      const sameList = (a: string[], b: string[]) =>
+        a.length === b.length && a.every((value, index) => value === b[index]);
+      const dirty =
+        live.search !== '' ||
+        live.isDropdownOpen ||
+        live.isApplying ||
+        Math.abs(position.x - persisted.graphPosition.x) > 1e-6 ||
+        Math.abs(position.y - persisted.graphPosition.y) > 1e-6 ||
+        Math.abs(live.radius - persisted.radius / 100) > 1e-6 ||
+        live.hasAppliedTopNewsFilter !== persisted.hasAppliedTopNewsFilter ||
+        !sameList(live.selectedTopics, persisted.selectedTopics) ||
+        !sameList(live.promptTerms, persisted.promptTerms);
+      if (!dirty) return;
       syncGraphStateFromPreferences();
-    }, [syncGraphStateFromPreferences]),
+    }, [readPersistedGraphState, syncGraphStateFromPreferences]),
   );
 
   useEffect(() => {
