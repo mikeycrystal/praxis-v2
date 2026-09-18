@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassContainer, GlassView } from 'expo-glass-effect';
-import { hasLiquidGlass } from './GlassSurface';
+import { useGlassEnabled } from './GlassSurface';
 
 // The floating glass tab pill (glass chrome build, Ayuka 2026-09-14).
 // - Occupies the same layout height as the old full-width bar, so no screen
@@ -67,6 +67,9 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
   // ~17pt of clean air under the capsule before the indicator starts. Past ~32
   // it reads as a dead band again (he called 40 and 46 too big the same day).
   const bottomOffset = Math.max(insets.bottom - 4, Platform.OS === 'web' ? 8 : 10);
+  // Settings > About can switch the material off at runtime, so one build
+  // can tell whether the glass bar is what makes the tab switch lag.
+  const glassOn = useGlassEnabled();
 
   const visibleRoutes = VISIBLE_TABS
     .map((name) => state.routes.find((route) => route.name === name))
@@ -115,7 +118,7 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
         was tinted. In a container they sample the same backdrop and merge at
         the rim, which is the Phone-app effect.
       */}
-      {hasLiquidGlass ? (
+      {glassOn ? (
         <GlassContainer spacing={14} style={[s.bar, { width: barWidth }]} pointerEvents="none">
           <GlassView
             style={[StyleSheet.absoluteFillObject, s.capsule]}
