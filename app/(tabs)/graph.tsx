@@ -11,7 +11,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router, useFocusEffect } from 'expo-router';
-import { useIsFocused } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { GraphOnboarding, type SpotlightRect } from '../components/onboarding/GraphOnboarding';
@@ -361,7 +360,10 @@ export default function GraphScreen() {
     applyTopNewsPreferences,
     syncTopNewsFallbackState,
   } = useNewsPreferences();
-  const isFocused = useIsFocused();
+  // A ref, not useIsFocused(): that hook re-rendered this whole screen (13
+  // SVG logos on Hermes) on every tab switch just to flip a boolean the
+  // blur-time effect reads. The focus effect below keeps it current.
+  const isFocusedRef = useRef(false);
   const [graphViewport, setGraphViewport] = useState({ width: 0, height: 0 });
   const graphWidth = useMemo(() => {
     // Tighter margins since the readout became a two-line whisper — the
@@ -375,11 +377,11 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 2, 0);
-    // Apply's slot (22 margin clearing the OPINION pill + 44 button, always
+    // Apply's slot (30 margin clearing the OPINION pill + 44 button, always
     // laid out) lives inside the same wrap as the canvas, so the square
-    // must leave room for it. On his phone that lands the map near 360.
+    // must leave room for it. On his phone that lands the map near 365.
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 66, viewportHeightLimit),
+      Math.min(graphViewport.height - 74, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -560,6 +562,10 @@ export default function GraphScreen() {
   };
   useFocusEffect(
     useCallback(() => {
+      isFocusedRef.current = true;
+      const unfocus = () => {
+        isFocusedRef.current = false;
+      };
       const live = focusSyncStateRef.current;
       const persisted = readPersistedGraphState();
       const position = graphPositionRef.current;
@@ -575,19 +581,18 @@ export default function GraphScreen() {
         live.hasAppliedTopNewsFilter !== persisted.hasAppliedTopNewsFilter ||
         !sameList(live.selectedTopics, persisted.selectedTopics) ||
         !sameList(live.promptTerms, persisted.promptTerms);
-      if (!dirty) return;
-      syncGraphStateFromPreferences();
+      if (dirty) syncGraphStateFromPreferences();
+      return unfocus;
     }, [readPersistedGraphState, syncGraphStateFromPreferences]),
   );
 
   useEffect(() => {
-    if (isFocused) {
+    if (isFocusedRef.current) {
       return;
     }
 
     syncGraphStateFromPreferences();
   }, [
-    isFocused,
     preferences.activeQuery,
     preferences.isTopNewsActive,
     preferences.recommendationRequest,
@@ -2410,7 +2415,11 @@ const s = StyleSheet.create({
     // the HARD NEWS pill needs to clear the pill row by ~12, and the map
     // is width-bound at ~369 again.
     paddingTop: 24,
-    paddingBottom: 108,
+    // The page is a SafeAreaView, so its 34pt bottom inset already lifts
+    // the content: clearance = bar 66 + offset 30 - inset 34 + 14 gap = 76.
+    // 108 here left 44pt of dead air under Apply and cost the map 34pt,
+    // measured on his build-127 screenshot (2026-09-18).
+    paddingBottom: 76,
     position: 'relative',
     zIndex: 1,
   },
@@ -2655,8 +2664,9 @@ const s = StyleSheet.create({
   applySlot: {
     alignSelf: 'stretch',
     marginHorizontal: 24,
-    // 21 of OPINION pill + 1, then the 44pt button.
-    marginTop: 22,
+    // 21 of OPINION pill + 9 of air, then the 44pt button: "drop Apply a
+    // bit lower so it's not crowding the graph" (Ayuka, 2026-09-18).
+    marginTop: 30,
     height: 44,
   },
   applySlotIdle: {
