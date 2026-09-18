@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   ScrollView,
   InteractionManager,
+  Keyboard,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -117,12 +118,13 @@ export default function SearchModal() {
   const [browseExpanded, setBrowseExpanded] = useState(false);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
-  // Focus after the modal animation settles — autoFocus opened the keyboard
-  // mid-transition, which is what made opening Search feel glitchy.
+  // Focus the moment the slide settles — autoFocus opened the keyboard
+  // mid-transition, and the old extra 60ms made the keyboard read as a
+  // separate second motion after the slide (Ayuka, 2026-09-18).
   const searchInputRef = useRef<TextInput>(null);
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
-      setTimeout(() => searchInputRef.current?.focus(), 60);
+      searchInputRef.current?.focus();
     });
     return () => task.cancel();
   }, []);
@@ -134,7 +136,10 @@ export default function SearchModal() {
   useEffect(() => {
     let isActive = true;
     let unsubscribe = () => {};
-    const task = InteractionManager.runAfterInteractions(() => {
+    let keyboardSub: { remove: () => void } | null = null;
+    let fallback: ReturnType<typeof setTimeout> | null = null;
+
+    const hydrate = () => {
       void (async () => {
         const [storedHistory, articles] = await Promise.all([
           AsyncStorage.getItem(SEARCH_HISTORY_STORAGE_KEY),
@@ -165,11 +170,30 @@ export default function SearchModal() {
             console.warn('[SearchModal] Trending topics unavailable', error);
           });
       })();
+    };
+
+    // Hydrate only once the slide AND the keyboard have settled. This used
+    // to fire the instant the slide ended, the same instant the keyboard
+    // started rising, so the list re-rendered under a moving keyboard —
+    // the "glitchy" he saw opening Search. Fallback timer covers the case
+    // where the keyboard never shows (hardware keyboard, focus lost).
+    const task = InteractionManager.runAfterInteractions(() => {
+      const runOnce = () => {
+        keyboardSub?.remove();
+        keyboardSub = null;
+        if (fallback) clearTimeout(fallback);
+        fallback = null;
+        if (isActive) hydrate();
+      };
+      keyboardSub = Keyboard.addListener('keyboardDidShow', runOnce);
+      fallback = setTimeout(runOnce, 700);
     });
 
     return () => {
       isActive = false;
       task.cancel();
+      keyboardSub?.remove();
+      if (fallback) clearTimeout(fallback);
       unsubscribe();
     };
   }, [user?.id]);
