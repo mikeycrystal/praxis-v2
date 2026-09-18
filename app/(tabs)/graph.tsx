@@ -1849,7 +1849,12 @@ export default function GraphScreen() {
             <GestureDetector gesture={graphGesture}>
               <Animated.View style={{ width: graphWidth, height: graphHeight }}>
                 <Svg width={graphWidth} height={graphHeight}>
-                  <Line x1={centerX} y1={graphAxisInset} x2={centerX} y2={graphHeight - graphAxisInset} stroke="#DED6C8" strokeWidth={1.25} />
+                  {/* The vertical line runs out to its labels — 8 from HARD
+                      NEWS, 16 from OPINION; the pills sit 21 outside the
+                      canvas and are 18 tall, so their inner edges are 3
+                      outside it. Left/Right already touch the horizontal
+                      line, which keeps the inset (Ayuka, 2026-09-18). */}
+                  <Line x1={centerX} y1={5} x2={centerX} y2={graphHeight - 13} stroke="#DED6C8" strokeWidth={1.25} />
                   <Line x1={graphAxisInset} y1={centerY} x2={graphWidth - graphAxisInset} y2={centerY} stroke="#DED6C8" strokeWidth={1.25} />
                   <AnimatedCircle
                     animatedProps={radiusCircleAnimatedProps}
@@ -1890,29 +1895,36 @@ export default function GraphScreen() {
           </View>
 
           {/*
-            The "CENTER · MIXED / Drawing from…" readout is gone: the lit
-            logos and the three names on the map already say it (Ayuka,
-            2026-09-17, msg 1246). What remains under the map is Apply's own
-            slot, laid out whether or not there is anything to apply so the
-            map never moves. It is 52pt where the readout took 86, and the
-            canvas is width-bound at ~369 on his phone, so this costs no map.
+            One fixed slot under OPINION so the map never moves: the
+            one-line "CENTER · MIXED" readout while the graph is applied,
+            the Apply button while there are unapplied changes. The
+            two-line readout card was cut 2026-09-17 (msg 1246); the
+            single line came back by his ask (msg 1442, option C). Mid-edit
+            the readout would describe a state that isn't feeding yet, so
+            Apply owning the slot then is not just space-saving.
           */}
           <View
-            style={[s.applySlot, !(hasChanges || isApplying) && s.applySlotIdle]}
+            style={s.applySlot}
             pointerEvents={hasChanges || isApplying ? 'auto' : 'none'}
           >
-            <TouchableOpacity
-              style={[s.applyButton, isApplying && s.applyButtonDisabled]}
-              onPress={handleApplyChanges}
-              disabled={!hasChanges || isApplying}
-              accessibilityRole="button"
-              accessibilityLabel="Apply graph changes"
-              testID="graph-apply-button"
-            >
-              <Text style={s.applyButtonText}>
-                {isApplying ? 'Loading...' : 'Apply Changes →'}
+            {hasChanges || isApplying ? (
+              <TouchableOpacity
+                style={[s.applyButton, isApplying && s.applyButtonDisabled]}
+                onPress={handleApplyChanges}
+                disabled={isApplying}
+                accessibilityRole="button"
+                accessibilityLabel="Apply graph changes"
+                testID="graph-apply-button"
+              >
+                <Text style={s.applyButtonText}>
+                  {isApplying ? 'Loading...' : 'Apply Changes →'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={s.readoutText} accessibilityLiveRegion="polite">
+                {`${getPoliticalLeanLabel(currentGraphPosition.x / 100)} · ${getReportingTypeLabel(currentGraphPosition.y / 100)}`}
               </Text>
-            </TouchableOpacity>
+            )}
           </View>
         </View>
       </Pressable>
@@ -2712,8 +2724,16 @@ const s = StyleSheet.create({
     marginTop: 30,
     height: 44,
   },
-  applySlotIdle: {
-    opacity: 0,
+  // Same voice as the axis pills — the readout is axis furniture, not a
+  // card. Top-aligned in the 44pt slot so it sits 9 under OPINION.
+  readoutText: {
+    alignSelf: 'center',
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: '800',
+    letterSpacing: 2,
+    color: '#8A8272',
+    textTransform: 'uppercase',
   },
   applyButton: {
     pointerEvents: 'auto',
