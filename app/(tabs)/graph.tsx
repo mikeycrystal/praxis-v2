@@ -444,11 +444,11 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 2, 0);
-    // Apply's slot (30 margin clearing the OPINION pill + 44 button, always
-    // laid out) lives inside the same wrap as the canvas, so the square
-    // must leave room for it. On his phone that lands the map near 365.
+    // The readout line (26 margin clearing the OPINION pill + 15 text) and
+    // Apply's slot (6 + 44 button), both always laid out, live inside the
+    // same wrap as the canvas, so the square must leave room for them.
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 74, viewportHeightLimit),
+      Math.min(graphViewport.height - 91, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -1895,36 +1895,31 @@ export default function GraphScreen() {
           </View>
 
           {/*
-            One fixed slot under OPINION so the map never moves: the
-            one-line "CENTER · MIXED" readout while the graph is applied,
-            the Apply button while there are unapplied changes. The
-            two-line readout card was cut 2026-09-17 (msg 1246); the
-            single line came back by his ask (msg 1442, option C). Mid-edit
-            the readout would describe a state that isn't feeding yet, so
-            Apply owning the slot then is not just space-saving.
+            The one-line "CENTER · MIXED" readout, back by his ask (msg
+            1442, option C) after the two-line card was cut 2026-09-17
+            (msg 1246). Its own always-laid-out line ABOVE Apply's slot —
+            not swapping with the button (his 1451) — so it tracks the
+            dot live while dragging and Apply pins it.
           */}
+          <Text style={s.readoutText} accessibilityLiveRegion="polite">
+            {`${getPoliticalLeanLabel(currentGraphPosition.x / 100)} · ${getReportingTypeLabel(currentGraphPosition.y / 100)}`}
+          </Text>
           <View
-            style={s.applySlot}
+            style={[s.applySlot, !(hasChanges || isApplying) && s.applySlotIdle]}
             pointerEvents={hasChanges || isApplying ? 'auto' : 'none'}
           >
-            {hasChanges || isApplying ? (
-              <TouchableOpacity
-                style={[s.applyButton, isApplying && s.applyButtonDisabled]}
-                onPress={handleApplyChanges}
-                disabled={isApplying}
-                accessibilityRole="button"
-                accessibilityLabel="Apply graph changes"
-                testID="graph-apply-button"
-              >
-                <Text style={s.applyButtonText}>
-                  {isApplying ? 'Loading...' : 'Apply Changes →'}
-                </Text>
-              </TouchableOpacity>
-            ) : (
-              <Text style={s.readoutText} accessibilityLiveRegion="polite">
-                {`${getPoliticalLeanLabel(currentGraphPosition.x / 100)} · ${getReportingTypeLabel(currentGraphPosition.y / 100)}`}
+            <TouchableOpacity
+              style={[s.applyButton, isApplying && s.applyButtonDisabled]}
+              onPress={handleApplyChanges}
+              disabled={!hasChanges || isApplying}
+              accessibilityRole="button"
+              accessibilityLabel="Apply graph changes"
+              testID="graph-apply-button"
+            >
+              <Text style={s.applyButtonText}>
+                {isApplying ? 'Loading...' : 'Apply Changes →'}
               </Text>
-            )}
+            </TouchableOpacity>
           </View>
         </View>
       </Pressable>
@@ -2719,15 +2714,19 @@ const s = StyleSheet.create({
   applySlot: {
     alignSelf: 'stretch',
     marginHorizontal: 24,
-    // 21 of OPINION pill + 9 of air, then the 44pt button: "drop Apply a
-    // bit lower so it's not crowding the graph" (Ayuka, 2026-09-18).
-    marginTop: 30,
+    // The readout line above already clears the OPINION pill; 6 of air
+    // between it and the 44pt button.
+    marginTop: 6,
     height: 44,
   },
+  applySlotIdle: {
+    opacity: 0,
+  },
   // Same voice as the axis pills — the readout is axis furniture, not a
-  // card. Top-aligned in the 44pt slot so it sits 9 under OPINION.
+  // card. 26 top margin clears the OPINION pill (21) with 5 of air.
   readoutText: {
     alignSelf: 'center',
+    marginTop: 26,
     fontSize: 12,
     lineHeight: 15,
     fontWeight: '800',
