@@ -1473,9 +1473,14 @@ export default function FeedScreen() {
   // The expanded Digest summary is intentionally an overlay. Reserving only
   // the compact progress control keeps the story deck from jumping down when
   // the details appear.
+  // 120, measured on his build-128 phone (2026-09-18): in digest mode the
+  // card starts at 228pt (the progress bar is taller than the Top News
+  // chip) and at 66 its bottom (754) sat on the bar (756). 852 - 220 - 120
+  // = 512 lands it 16 above the bar. Top News mode is unaffected: with no
+  // reserve the width ratio binds at 532.
   const digestVerticalReserve = shouldShowDigestProgress
     && isDailyDigestActive
-    ? 66
+    ? 120
     : 0;
   const { width: cardWidth, height: cardHeight } = useMemo(
     () => getArticleCardDimensions(screenWidth, screenHeight, digestVerticalReserve),
