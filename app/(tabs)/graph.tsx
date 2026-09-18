@@ -859,7 +859,19 @@ export default function GraphScreen() {
     // and users expect the full set of categories in the dropdown.
     // Typing: filter the full 12k-topic catalog but keep the suggestion set
     // short, since rendering the entire catalog per keystroke lags the field.
-    const pool = query ? allTopics.filter(topic => topic.toLowerCase().includes(query)) : seedTopics;
+    // Matches rank exact, then prefix, then shortest title — typing
+    // "europe" must surface Europe itself, not bury it under every
+    // "… in Europe" subtopic in catalog order (Mariel, 2026-09-18).
+    const pool = query
+      ? allTopics
+          .map(topic => [topic, topic.toLowerCase()] as const)
+          .filter(([, lower]) => lower.includes(query))
+          .sort(([, a], [, b]) => {
+            const rank = (t: string) => (t === query ? 0 : t.startsWith(query) ? 1 : 2);
+            return rank(a) - rank(b) || a.length - b.length;
+          })
+          .map(([topic]) => topic)
+      : seedTopics;
     const filtered = pool.filter(topic => !selectedTopics.includes(normalizeTopicId(topic)));
     return query ? filtered.slice(0, MAX_TOPIC_SUGGESTIONS) : filtered;
   }, [allTopics, query, seedTopics, selectedTopics]);
