@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { registerPushToken, unregisterPushToken } from '../utils/notifications';
@@ -103,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from('profiles')
       .select('*')
@@ -113,17 +113,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
     // Register push token whenever we load a profile (no-op if already registered)
     registerPushToken(userId);
-  };
+  }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
     writeGuestMode(false);
     setIsGuestMode(false);
     void trackAuth('sign_in', 'password');
-  };
+  }, []);
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signUp = useCallback(async (email: string, password: string, fullName: string) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -151,9 +151,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await transferGuestStreakToProfile(newUserId);
       await fetchProfile(newUserId);
     }
-  };
+  }, [fetchProfile]);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     const userId = session?.user?.id;
 
     // Push cleanup must never prevent someone from leaving their account.
@@ -171,20 +171,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProfile(null);
     setSession(null);
     setLoading(false);
-  };
+  }, [session]);
 
-  const continueAsGuest = () => {
+  const continueAsGuest = useCallback(() => {
     writeGuestMode(true);
     setIsGuestMode(true);
     setProfile(null);
     setLoading(false);
-  };
+  }, []);
 
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     if (session?.user) await fetchProfile(session.user.id);
-  };
+  }, [fetchProfile, session]);
 
-  const updateProfile = async (updates: Partial<Profile>) => {
+  const updateProfile = useCallback(async (updates: Partial<Profile>) => {
     if (!session?.user) return;
     const { error } = await supabase
       .from('profiles')
@@ -192,22 +192,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .eq('id', session.user.id);
     if (error) throw error;
     await refreshProfile();
-  };
+  }, [refreshProfile, session]);
+
+  const value = useMemo(() => ({
+    session,
+    user: session?.user ?? null,
+    profile,
+    loading,
+    isGuestMode,
+    continueAsGuest,
+    signIn,
+    signUp,
+    signOut,
+    refreshProfile,
+    updateProfile,
+  }), [session, profile, loading, isGuestMode, continueAsGuest, signIn, signUp, signOut, refreshProfile, updateProfile]);
 
   return (
-    <AuthContext.Provider value={{
-      session,
-      user: session?.user ?? null,
-      profile,
-      loading,
-      isGuestMode,
-      continueAsGuest,
-      signIn,
-      signUp,
-      signOut,
-      refreshProfile,
-      updateProfile,
-    }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
