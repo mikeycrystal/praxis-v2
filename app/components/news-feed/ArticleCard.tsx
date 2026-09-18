@@ -35,12 +35,11 @@ export const getArticleCardDimensions = (
   const availableHeight = Math.max(screenHeight - reservedHeight - verticalReserve, 280);
   // One ratio, acting as a cap; with the bar 30pt off the bottom the ratio
   // binds in BOTH modes (digest availableHeight is 566 on an 852pt phone).
-  // 1.60 = 539pt on a 337pt-wide card. Measured off Ayuka's build-126
-  // screenshot, not a web export: at 1.65 the card's bottom edge (755pt)
-  // landed exactly on the capsule's top (756pt), zero gap. Every earlier
-  // "on-device" figure here was a web-preview model that ran ~16pt long, so
-  // the 16pt card-to-bar gap he asked for is now measured, not derived.
-  const preferredRatio = 1.6;
+  // 1.58 = 532pt on a 337pt-wide card. Measured off Ayuka's phone twice:
+  // build 126 at 1.65 put the card's bottom (755pt) on the capsule's top
+  // (756), build 127 at 1.60 measured 206-748, an 8pt gap. He asked for
+  // 16; 1.58 lands ~17. Never derive this number from a web export.
+  const preferredRatio = 1.58;
   const height = Math.max(280, Math.min(width * preferredRatio, availableHeight));
 
   return { width, height };
