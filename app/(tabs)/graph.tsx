@@ -117,6 +117,73 @@ const OUTLETS = [
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const graphToSvg = (graphValue: number, size: number) => ((graphValue + 100) / 200) * size;
+
+type GraphOutlet = {
+  key: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  imageX: number;
+  imageY: number;
+  label: string;
+  logo: number;
+  logoWeb: string;
+  inside: boolean;
+};
+
+// The ~25 logos + labels only change with the pin, the radius, the outlet
+// list, or the canvas size. Before this memo every page state change (a
+// search keystroke, the trending list arriving, a dropdown) re-rendered all
+// of them on the JS thread: the "trending row feels laggy" and part of the
+// "pinch is glitchy" reports (Ayuka, 2026-09-17/18). Axes and the two
+// animated circles stay in the parent so the draw order is unchanged
+// (circles under the logos).
+const GraphOutletLayer = React.memo(function GraphOutletLayer({
+  graphWidth,
+  graphScale,
+  outletsWithSelection,
+  labeledOutletKeys,
+}: {
+  graphWidth: number;
+  graphScale: number;
+  outletsWithSelection: GraphOutlet[];
+  labeledOutletKeys: Set<string>;
+}) {
+  return (
+    <>
+      {outletsWithSelection.map((outlet) => (
+        <React.Fragment key={outlet.key}>
+          <SvgImage
+            x={outlet.imageX}
+            y={outlet.imageY}
+            width={outlet.width}
+            height={outlet.height}
+            href={Platform.OS === 'web' ? outlet.logoWeb : outlet.logo}
+            preserveAspectRatio="xMidYMid meet"
+            opacity={outlet.inside ? 1 : 0.4}
+          />
+          {outlet.label && labeledOutletKeys.has(outlet.key) ? (
+            <SvgText
+              // Centered under its own logo (the per-outlet offsets were
+              // tuned for the old everyone-labeled layout and let names
+              // drift onto neighboring logos), clamped into the canvas.
+              x={clamp(outlet.x, 34, graphWidth - 34)}
+              y={outlet.y + outlet.height / 2 + 11 * graphScale}
+              textAnchor="middle"
+              fill={PAGE.text}
+              opacity={0.95}
+              fontSize={clamp(9.5 * graphScale, 7.5, 12)}
+              fontWeight="700"
+            >
+              {outlet.label}
+            </SvgText>
+          ) : null}
+        </React.Fragment>
+      ))}
+    </>
+  );
+});
 // Display-only spread: outlet coordinates cluster within ±76, which left the
 // canvas rim empty and made the map read small. Positions and the selection
 // radius scale together, so in/out membership is unchanged.
@@ -1000,25 +1067,25 @@ export default function GraphScreen() {
 
   // Pinch anywhere on the graph to grow/shrink the selection circle —
   // the radius control lives on the map itself. Sources light up LIVE as
-  // the circle crosses them (per 5% step) — updating only on release made
+  // the circle crosses them — updating only on release made
   // the gesture feel glitchy (Ayuka, 2026-09-15).
+  // Time-throttle live JS commits while the circle previews on the UI thread:
+  // step-based updates made pinch feel uneven (Ayuka, 2026-09-16, 2026-09-18).
   const pinchBaseRadius = useSharedValue(0);
-  const lastPinchStep = useSharedValue(-1);
+  const lastPinchCommitAt = useSharedValue(0);
   const graphPinchGesture = useMemo(
     () => Gesture.Pinch()
       .onBegin(() => {
         activeSliderGestureRevision.value = graphResetRevision.value;
         pinchBaseRadius.value = animatedRadius.value;
-        lastPinchStep.value = -1;
+        lastPinchCommitAt.value = 0;
       })
       .onUpdate((event) => {
-        animatedRadius.value = Math.max(0.05, Math.min(1, pinchBaseRadius.value * event.scale));
-        // Live preview at 10% granularity: committing every 5% re-rendered
-        // the whole SVG twice as often on the JS thread, which is what made
-        // the pinch stutter. The circle itself stays on the UI thread.
-        const preview = Math.max(0.05, Math.min(1, Math.round(animatedRadius.value * 10) / 10));
-        if (preview !== lastPinchStep.value) {
-          lastPinchStep.value = preview;
+        const preview = Math.max(0.05, Math.min(1, pinchBaseRadius.value * event.scale));
+        animatedRadius.value = preview;
+        const now = Date.now();
+        if (now - lastPinchCommitAt.value >= 50) {
+          lastPinchCommitAt.value = now;
           runOnJS(commitRadius)(preview, activeSliderGestureRevision.value);
         }
       })
@@ -1027,7 +1094,7 @@ export default function GraphScreen() {
         animatedRadius.value = withTiming(stepped, { duration: 120 });
         runOnJS(commitRadius)(stepped, activeSliderGestureRevision.value);
       }),
-    [activeSliderGestureRevision, animatedRadius, commitRadius, graphResetRevision, lastPinchStep, pinchBaseRadius],
+    [activeSliderGestureRevision, animatedRadius, commitRadius, graphResetRevision, lastPinchCommitAt, pinchBaseRadius],
   );
 
   const graphGesture = useMemo(
@@ -1782,48 +1849,24 @@ export default function GraphScreen() {
             <GestureDetector gesture={graphGesture}>
               <Animated.View style={{ width: graphWidth, height: graphHeight }}>
                 <Svg width={graphWidth} height={graphHeight}>
-            <Line x1={centerX} y1={graphAxisInset} x2={centerX} y2={graphHeight - graphAxisInset} stroke="#DED6C8" strokeWidth={1.25} />
-            <Line x1={graphAxisInset} y1={centerY} x2={graphWidth - graphAxisInset} y2={centerY} stroke="#DED6C8" strokeWidth={1.25} />
-
-            <AnimatedCircle
-              animatedProps={radiusCircleAnimatedProps}
-              fill="rgba(141,174,115,0.06)"
-              stroke={PAGE.green}
-              strokeOpacity={0.75}
-              strokeWidth={1.75}
-              strokeDasharray="1,7"
-              strokeLinecap="round"
-            />
-            <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 20)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 6)} />
-            {outletsWithSelection.map((outlet) => (
-              <React.Fragment key={outlet.key}>
-                <SvgImage
-                  x={outlet.imageX}
-                  y={outlet.imageY}
-                  width={outlet.width}
-                  height={outlet.height}
-                  href={Platform.OS === 'web' ? outlet.logoWeb : outlet.logo}
-                  preserveAspectRatio="xMidYMid meet"
-                  opacity={outlet.inside ? 1 : 0.4}
-                />
-                {outlet.label && labeledOutletKeys.has(outlet.key) ? (
-                <SvgText
-                  // Centered under its own logo (the per-outlet offsets were
-                  // tuned for the old everyone-labeled layout and let names
-                  // drift onto neighboring logos), clamped into the canvas.
-                  x={clamp(outlet.x, 34, graphWidth - 34)}
-                  y={outlet.y + outlet.height / 2 + 11 * graphScale}
-                  textAnchor="middle"
-                  fill={PAGE.text}
-                  opacity={0.95}
-                  fontSize={clamp(9.5 * graphScale, 7.5, 12)}
-                  fontWeight="700"
-                >
-                  {outlet.label}
-                </SvgText>
-                ) : null}
-              </React.Fragment>
-            ))}
+                  <Line x1={centerX} y1={graphAxisInset} x2={centerX} y2={graphHeight - graphAxisInset} stroke="#DED6C8" strokeWidth={1.25} />
+                  <Line x1={graphAxisInset} y1={centerY} x2={graphWidth - graphAxisInset} y2={centerY} stroke="#DED6C8" strokeWidth={1.25} />
+                  <AnimatedCircle
+                    animatedProps={radiusCircleAnimatedProps}
+                    fill="rgba(141,174,115,0.06)"
+                    stroke={PAGE.green}
+                    strokeOpacity={0.75}
+                    strokeWidth={1.75}
+                    strokeDasharray="1,7"
+                    strokeLinecap="round"
+                  />
+                  <AnimatedCircle animatedProps={markerCircleAnimatedProps} r={clamp(16 * graphScale, 11, 20)} fill={PAGE.green} stroke="#FFFFFF" strokeWidth={clamp(5 * graphScale, 3.5, 6)} />
+                  <GraphOutletLayer
+                    graphWidth={graphWidth}
+                    graphScale={graphScale}
+                    outletsWithSelection={outletsWithSelection}
+                    labeledOutletKeys={labeledOutletKeys}
+                  />
                 </Svg>
               </Animated.View>
             </GestureDetector>
