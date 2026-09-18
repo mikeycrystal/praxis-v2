@@ -17,7 +17,7 @@ import { GlassSurface } from '../components/GlassSurface';
 import { supabase } from '../services/supabase';
 
 import Constants from 'expo-constants';
-import { hasLiquidGlass, setGlassEnabled, useGlassEnabled } from '../components/GlassSurface';
+import { hasLiquidGlass } from '../components/GlassSurface';
 
 const appVersion = `${Constants.expoConfig?.version ?? '2.0.0'} (${
   (Constants.expoConfig as { ios?: { buildNumber?: string } } | null)?.ios?.buildNumber ?? '—'
@@ -48,7 +48,6 @@ type SettingsRow = {
 
 export default function AccountSettingsModal() {
   const { isGuestMode, loading, profile, signOut, user } = useAuth();
-  const glassOn = useGlassEnabled();
   const [busyAction, setBusyAction] = useState<'signout' | 'delete' | null>(null);
   // Set while this screen itself is ending the session. Sign-out used to fire
   // three root-stack replaces at once (this effect, performSignOut, and
@@ -196,15 +195,10 @@ export default function AccountSettingsModal() {
           id: 'build',
           // Says out loud whether iOS granted this build the Liquid Glass
           // material — otherwise "the glass looks flat" is unfalsifiable
-          // from a screenshot. Tapping toggles it at runtime, so the tab
-          // bar can be compared with and without glass in one build.
-          label: hasLiquidGlass
-            ? `Version ${appVersion} · Glass ${glassOn ? 'on' : 'OFF'} (tap to switch)`
-            : `Version ${appVersion} · Glass unavailable`,
+          // from a screenshot.
+          label: `Version ${appVersion} · Glass ${hasLiquidGlass ? 'on' : 'off'}`,
           icon: 'information-circle-outline',
-          onPress: () => {
-            if (hasLiquidGlass) setGlassEnabled(!glassOn);
-          },
+          onPress: () => {},
         },
       ],
     },

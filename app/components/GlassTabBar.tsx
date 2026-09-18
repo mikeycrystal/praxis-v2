@@ -67,8 +67,6 @@ export function GlassTabBar({ state, descriptors, navigation }: BottomTabBarProp
   // ~17pt of clean air under the capsule before the indicator starts. Past ~32
   // it reads as a dead band again (he called 40 and 46 too big the same day).
   const bottomOffset = Math.max(insets.bottom - 4, Platform.OS === 'web' ? 8 : 10);
-  // Settings > About can switch the material off at runtime, so one build
-  // can tell whether the glass bar is what makes the tab switch lag.
   const glassOn = useGlassEnabled();
 
   const visibleRoutes = VISIBLE_TABS

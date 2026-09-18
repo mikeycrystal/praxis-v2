@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react';
 import { Platform, StyleProp, View, ViewProps, ViewStyle } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 
 // One switch for the whole app: real Liquid Glass on iOS 26+, and the
@@ -8,36 +6,11 @@ import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 // material handles Reduce Transparency / Increase Contrast for free.
 export const hasLiquidGlass = Platform.OS === 'ios' && isLiquidGlassAvailable();
 
-// Runtime override, so one build can answer "is the glass bar what makes
-// the tab switch lag?" from Settings instead of a diagnosis build per guess
-// (Ayuka, 2026-09-18: "still a bit laggy to switch to the graph page").
-// Default on; persisted; applies live to every subscriber.
-const GLASS_PREF_KEY = 'praxis.glassEnabled.v1';
-let glassEnabled = true;
-const glassListeners = new Set<(value: boolean) => void>();
-void AsyncStorage.getItem(GLASS_PREF_KEY).then((stored) => {
-  if (stored === 'off') {
-    glassEnabled = false;
-    glassListeners.forEach((listener) => listener(false));
-  }
-});
-
-export function setGlassEnabled(value: boolean) {
-  glassEnabled = value;
-  glassListeners.forEach((listener) => listener(value));
-  void AsyncStorage.setItem(GLASS_PREF_KEY, value ? 'on' : 'off');
-}
-
+// One hook for every glass caller; the material is decided once per build.
+// (A runtime on/off switch lived here 2026-09-18 for a lag A/B; Ayuka had it
+// removed the same night.)
 export function useGlassEnabled() {
-  const [value, setValue] = useState(glassEnabled);
-  useEffect(() => {
-    glassListeners.add(setValue);
-    setValue(glassEnabled);
-    return () => {
-      glassListeners.delete(setValue);
-    };
-  }, []);
-  return hasLiquidGlass && value;
+  return hasLiquidGlass;
 }
 
 type GlassSurfaceProps = ViewProps & {
