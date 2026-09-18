@@ -11,6 +11,7 @@ import {
   ScrollView,
   InteractionManager,
   Keyboard,
+  Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
@@ -34,6 +35,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { searchLiveArticles } from '../hooks/useFeedArticles';
 import { getRecommenderConfig } from '../lib/recommenderConfig';
+import { getPoliticalLeanLabel, getReportingLabel } from '../lib/leanLabels';
 
 type LocalArticleResult = {
   type: 'article';
@@ -94,20 +96,6 @@ const formatPublishedLabel = (dateString: string) => {
   });
 };
 
-const getPoliticalLeanLabel = (value: number | null) => {
-  if (value == null) return null;
-  if (value < -0.3) return 'Left-leaning';
-  if (value > 0.3) return 'Right-leaning';
-  return 'Center';
-};
-
-const getReportingLabel = (value: number | null) => {
-  if (value == null) return null;
-  if (value > 0.3) return 'High quality';
-  if (value < -0.3) return 'Sensational';
-  return 'Mixed';
-};
-
 export default function SearchModal() {
   const { user } = useAuth();
   const c = SEARCH_COLORS;
@@ -116,6 +104,9 @@ export default function SearchModal() {
   const [savedArticles, setSavedArticles] = useState<SavedArticleSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
   const [browseExpanded, setBrowseExpanded] = useState(false);
+  // Which result has its lean/type chips opened to show the explanation
+  // (one at a time; tapping the chips of another row moves it).
+  const [expandedResultId, setExpandedResultId] = useState<number | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
   // Focus the moment the slide settles — autoFocus opened the keyboard
@@ -503,9 +494,42 @@ export default function SearchModal() {
             >
               <View style={s.resultCopy}>
                 {(getPoliticalLeanLabel(item.x) || getReportingLabel(item.y)) ? (
-                  <View style={s.resultTags}>
+                  // The chips open to the same lean/type explanations the
+                  // article page shows, without leaving the list (Ayuka,
+                  // 2026-09-18). Tapping anywhere else on the row still
+                  // opens the article.
+                  <Pressable
+                    style={s.resultTags}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={expandedResultId === item.id ? 'Hide lean and type details' : 'Show lean and type details'}
+                    onPress={() => setExpandedResultId((current) => (current === item.id ? null : item.id))}
+                  >
                     {getPoliticalLeanLabel(item.x) ? <View style={[s.resultTag, { backgroundColor: '#E7EDF9' }]}><Text style={[s.resultTagText, { color: '#4668A7' }]}>{getPoliticalLeanLabel(item.x)}</Text></View> : null}
                     {getReportingLabel(item.y) ? <View style={[s.resultTag, { backgroundColor: '#E7F0DA' }]}><Text style={[s.resultTagText, { color: '#5D7650' }]}>{getReportingLabel(item.y)}</Text></View> : null}
+                    {(item.xExplanation || item.yExplanation) ? (
+                      <Ionicons
+                        name={expandedResultId === item.id ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={c.textMuted}
+                      />
+                    ) : null}
+                  </Pressable>
+                ) : null}
+                {expandedResultId === item.id && (item.xExplanation || item.yExplanation) ? (
+                  <View style={s.resultExplanations}>
+                    {item.xExplanation ? (
+                      <Text style={[s.resultExplanation, { color: c.textMuted }]}>
+                        <Text style={{ color: '#4668A7', fontWeight: '700' }}>{getPoliticalLeanLabel(item.x)}: </Text>
+                        {item.xExplanation}
+                      </Text>
+                    ) : null}
+                    {item.yExplanation ? (
+                      <Text style={[s.resultExplanation, { color: c.textMuted }]}>
+                        <Text style={{ color: '#5D7650', fontWeight: '700' }}>{getReportingLabel(item.y)}: </Text>
+                        {item.yExplanation}
+                      </Text>
+                    ) : null}
                   </View>
                 ) : null}
                 <Text style={[s.resultTitle, { color: c.text }]} numberOfLines={2}>
@@ -800,6 +824,15 @@ const s = StyleSheet.create({
   resultCopy: {
     flex: 1,
     gap: 8,
+  },
+  resultExplanations: {
+    marginTop: 2,
+    marginBottom: 8,
+    gap: 6,
+  },
+  resultExplanation: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   resultTags: {
     flexDirection: 'row',

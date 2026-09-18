@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View, Text, FlatList, StyleSheet, SafeAreaView,
-  TouchableOpacity, ActivityIndicator, Alert,
+  TouchableOpacity, ActivityIndicator, Alert, Pressable,
   TextInput, InteractionManager, type GestureResponderEvent,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { router, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getPoliticalLeanLabel, getReportingLabel } from '../lib/leanLabels';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { buildHref } from '../lib/buildHref';
@@ -28,6 +29,8 @@ export default function SavedArticlesModal() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [failedImages, setFailedImages] = useState<Record<number, boolean>>({});
+  // Which row has its lean/type chips opened to show the explanation.
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const isSavedPage = segments[0] === '(tabs)';
   const c = {
     background: '#F7F3EA',
@@ -312,6 +315,41 @@ export default function SavedArticlesModal() {
                     {formatSavedDate(item.saved_at)}
                   </Text>
                 </View>
+                {(getPoliticalLeanLabel(item.x) || getReportingLabel(item.y)) ? (
+                  // Same chips as Search, and they open to the article
+                  // page's lean/type explanations without leaving the
+                  // list (Ayuka, 2026-09-18). The rest of the row still
+                  // opens the article.
+                  <Pressable
+                    style={s.tags}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={expandedId === item.id ? 'Hide lean and type details' : 'Show lean and type details'}
+                    onPress={() => setExpandedId((current) => (current === item.id ? null : item.id))}
+                  >
+                    {getPoliticalLeanLabel(item.x) ? <View style={[s.tag, { backgroundColor: '#E7EDF9' }]}><Text style={[s.tagText, { color: '#4668A7' }]}>{getPoliticalLeanLabel(item.x)}</Text></View> : null}
+                    {getReportingLabel(item.y) ? <View style={[s.tag, { backgroundColor: '#E7F0DA' }]}><Text style={[s.tagText, { color: '#5D7650' }]}>{getReportingLabel(item.y)}</Text></View> : null}
+                    {(item.meta?.x_explanation || item.meta?.y_explanation) ? (
+                      <Ionicons name={expandedId === item.id ? 'chevron-up' : 'chevron-down'} size={14} color={c.textMuted} />
+                    ) : null}
+                  </Pressable>
+                ) : null}
+                {expandedId === item.id && (item.meta?.x_explanation || item.meta?.y_explanation) ? (
+                  <View style={s.explanations}>
+                    {item.meta?.x_explanation ? (
+                      <Text style={[s.explanation, { color: c.textMuted }]}>
+                        <Text style={{ color: '#4668A7', fontWeight: '700' }}>{getPoliticalLeanLabel(item.x)}: </Text>
+                        {item.meta.x_explanation}
+                      </Text>
+                    ) : null}
+                    {item.meta?.y_explanation ? (
+                      <Text style={[s.explanation, { color: c.textMuted }]}>
+                        <Text style={{ color: '#5D7650', fontWeight: '700' }}>{getReportingLabel(item.y)}: </Text>
+                        {item.meta.y_explanation}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
                 <Text style={[s.articleTitle, { color: c.text }]} numberOfLines={2}>
                   {item.title}
                 </Text>
@@ -452,6 +490,11 @@ const s = StyleSheet.create({
   articleTitle: { fontSize: 16.5, fontWeight: '800', lineHeight: 21, letterSpacing: -0.25 },
   lede: { fontSize: 12.5, lineHeight: 18 },
   date: { fontSize: 11, fontWeight: '500' },
+  tags: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  tag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  tagText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
+  explanations: { gap: 6, marginBottom: 2 },
+  explanation: { fontSize: 13, lineHeight: 18 },
   rowFooter: {
     marginTop: 'auto',
     flexDirection: 'row',
