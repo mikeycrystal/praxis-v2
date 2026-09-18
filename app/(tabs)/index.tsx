@@ -1765,14 +1765,14 @@ export default function FeedScreen() {
               accessibilityRole="button"
               accessibilityLabel="Saved Articles requires an account"
             >
-              <Ionicons name="bookmark-outline" size={18} color={c.icon} />
+              <Ionicons name="bookmark-outline" size={20} color={c.icon} />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               onPress={() => router.push('saved' as any)}
               style={s.headerBtn}
             >
-              <Ionicons name="bookmark-outline" size={18} color={c.icon} />
+              <Ionicons name="bookmark-outline" size={20} color={c.icon} />
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -1786,7 +1786,7 @@ export default function FeedScreen() {
             style={s.headerBtn}
             accessibilityLabel={isGuestMode || !user ? 'Search requires an account' : 'Search Praxis'}
           >
-            <Ionicons name="search-outline" size={18} color={c.icon} />
+            <Ionicons name="search-outline" size={20} color={c.icon} />
           </TouchableOpacity>
         </View>
       </View>
