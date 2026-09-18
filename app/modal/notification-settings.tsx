@@ -33,6 +33,11 @@ const SWITCHES = [
     hint: 'Your 5 stories, once a day, around the time you usually read.',
   },
   {
+    key: 'notify_news' as const,
+    label: 'News through the day',
+    hint: 'An evening update, breaking news, and blind-spot alerts. Never more than 4 a day.',
+  },
+  {
     key: 'notify_streak' as const,
     label: 'Streak reminder',
     hint: 'One evening nudge, only when your streak is at risk.',

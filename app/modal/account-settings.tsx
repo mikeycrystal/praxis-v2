@@ -130,6 +130,7 @@ export default function AccountSettingsModal() {
 
   const notifSummary = [
     profile?.notify_digest !== false && 'digest',
+    profile?.notify_news !== false && 'news',
     profile?.notify_streak !== false && 'streak',
     profile?.notify_social !== false && 'social',
   ].filter(Boolean);
@@ -164,8 +165,8 @@ export default function AccountSettingsModal() {
         {
           id: 'notifications',
           label: 'Notifications',
-          hint: notifSummary.length === 3
-            ? 'Digest, streak, social — all on.'
+          hint: notifSummary.length === 4
+            ? 'Digest, news, streak, social — all on.'
             : notifSummary.length === 0
               ? 'All off.'
               : `On: ${notifSummary.join(', ')}.`,

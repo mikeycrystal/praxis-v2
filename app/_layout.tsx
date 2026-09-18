@@ -121,6 +121,16 @@ function PushNotificationHandler() {
         // Both pushes promise today's digest; the feed consumes the open request.
         void writeDailyDigestOpenRequest(true);
         router.push('/');
+      } else if (data?.type === 'breaking' || data?.type === 'split' || data?.type === 'news') {
+        // Content pushes (send-news-push) carry the lead article; open it
+        // directly so the tap never lands on a dead end. No id → the feed.
+        // The feed's article_id is a number; the route wants a string.
+        const articleId = data.articleId == null ? '' : String(data.articleId);
+        if (articleId) {
+          router.push({ pathname: '/article/[id]', params: { id: articleId } });
+        } else {
+          router.push('/');
+        }
       }
     };
 

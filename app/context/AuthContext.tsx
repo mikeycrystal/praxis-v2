@@ -27,6 +27,7 @@ export interface Profile {
   notify_digest?: boolean | null;
   notify_streak?: boolean | null;
   notify_social?: boolean | null;
+  notify_news?: boolean | null;
   notify_quiet_hours?: boolean | null;
 }
 
