@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { registerPushToken, unregisterPushToken } from '../utils/notifications';
@@ -52,6 +52,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isGuestMode, setIsGuestMode] = useState(() => readGuestMode());
   const [loading, setLoading] = useState(true);
+  // Read inside the auth listener (which closes over the first render).
+  const sessionUserIdRef = useRef<string | null>(null);
+  const profileLoadedRef = useRef(false);
+  useEffect(() => { sessionUserIdRef.current = session?.user?.id ?? null; }, [session]);
+  useEffect(() => { profileLoadedRef.current = profile !== null; }, [profile]);
 
   // Guests who granted permission (via the card, or iOS Settings) keep their
   // device token registered; it carries no user until a sign-in claims it.
@@ -69,14 +74,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        writeGuestMode(false);
-        setIsGuestMode(false);
-      }
-      setSession(session);
-      if (session?.user) fetchProfile(session.user.id);
-      else { setProfile(null); setLoading(false); }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // INITIAL_SESSION duplicates the getSession() above: same session, a
+      // second profile fetch, two full re-renders at launch. Skip it.
+      if (event === 'INITIAL_SESSION') return;
+      // TOKEN_REFRESHED fires on foreground once the JWT nears expiry. Nothing
+      // a consumer reads (user id, signed-in-ness, profile) changes and the
+      // client already holds the new token, but re-publishing the session
+      // re-rendered every useAuth() consumer (23 screens/hooks, the graph SVG
+      // among them) and refetched the profile: the few seconds the app feels
+      // dead after coming back (Ayuka, 2026-09-18, msg 1408). Same user, same
+      // profile: leave state alone.
+      const sameUser = Boolean(nextSession?.user?.id) && nextSession?.user?.id === sessionUserIdRef.current;
+      if ((event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') && sameUser && profileLoadedRef.current) return;
+      // Leave the auth callback before touching supabase again (the client
+      // holds its auth lock while notifying; querying inside can deadlock).
+      setTimeout(() => {
+        if (nextSession?.user) {
+          writeGuestMode(false);
+          setIsGuestMode(false);
+        }
+        setSession(nextSession);
+        if (nextSession?.user) fetchProfile(nextSession.user.id);
+        else { setProfile(null); setLoading(false); }
+      }, 0);
     });
 
     return () => subscription.unsubscribe();
