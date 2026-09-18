@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -50,22 +50,30 @@ export default function AccountSettingsModal() {
   const { isGuestMode, loading, profile, signOut, user } = useAuth();
   const glassOn = useGlassEnabled();
   const [busyAction, setBusyAction] = useState<'signout' | 'delete' | null>(null);
+  // Set while this screen itself is ending the session. Sign-out used to fire
+  // three root-stack replaces at once (this effect, performSignOut, and
+  // RootRedirect in _layout), and the sheet went blank mid-flight, which
+  // showed as a second page flashing under the login screen. During a
+  // deliberate sign-out this screen stays painted and does not navigate;
+  // RootRedirect performs the single replace once the session is gone.
+  const leavingRef = useRef(false);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || leavingRef.current) return;
     if (isGuestMode || !user) {
       router.replace({ pathname: '/login', params: { returnTo: '/profile' } });
     }
   }, [isGuestMode, loading, user]);
 
-  if (loading || isGuestMode || !user) return null;
+  if (loading || ((isGuestMode || !user) && !leavingRef.current)) return null;
 
   const performSignOut = async () => {
     setBusyAction('signout');
+    leavingRef.current = true;
     try {
       await signOut();
-      router.replace('/login');
     } catch (error: any) {
+      leavingRef.current = false;
       Alert.alert('Sign out failed', error?.message ?? 'Could not sign out.');
     } finally {
       setBusyAction(null);
@@ -104,12 +112,13 @@ export default function AccountSettingsModal() {
           style: 'destructive',
           onPress: async () => {
             setBusyAction('delete');
+            leavingRef.current = true;
             try {
               const { error } = await supabase.functions.invoke('delete-account', { body: {} });
               if (error) throw error;
-              await supabase.auth.signOut();
-              router.replace('/login');
+              await signOut();
             } catch (error: any) {
+              leavingRef.current = false;
               Alert.alert('Delete failed', error?.message ?? 'Could not delete your account.');
             } finally {
               setBusyAction(null);
