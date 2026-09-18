@@ -32,7 +32,7 @@ export type Surface =
 export type BiasBucket = 'left' | 'center' | 'right';
 export type CompletionMethod = 'swipe' | 'open' | 'detail_page';
 
-type AnalyticsEventName =
+export type AnalyticsEventName =
   | 'page_view'
   | 'session_start'
   | 'session_end'
@@ -45,7 +45,8 @@ type AnalyticsEventName =
   | 'bookmark_remove'
   | 'ai_analysis_open'
   | 'preferences_apply'
-  | 'feed_load';
+  | 'feed_load'
+  | 'ui_stall';
 
 // The mobile feed uses 'top-news'; the analytics schema (and web) use 'top_news'.
 export const normalizeFeedMode = (mode: string | null | undefined): FeedMode | undefined => {
@@ -92,6 +93,8 @@ let currentPath = '/';
 export const setCurrentAnalyticsPath = (path: string) => {
   currentPath = path || '/';
 };
+
+export const getCurrentAnalyticsPath = () => currentPath;
 
 const getDeviceContext = () => {
   const { width, height } = Dimensions.get('window');

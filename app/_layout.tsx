@@ -15,6 +15,7 @@ import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { supabase } from './services/supabase';
 import { endSession, startSession, trackPageView } from './lib/analytics';
 import { writeDailyDigestOpenRequest } from './lib/dailyDigest';
+import { startUiStallMonitor } from './lib/uiStallMonitor';
 
 function AnalyticsTracker() {
   const pathname = usePathname();
@@ -30,6 +31,11 @@ function AnalyticsTracker() {
       }
     });
     return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    return startUiStallMonitor();
   }, []);
 
   useEffect(() => {
