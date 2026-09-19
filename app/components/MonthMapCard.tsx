@@ -46,10 +46,13 @@ const FRESH_COUNT = 150;
 const ZOOM_MAX = 3;
 const MIN_WIN = PANEL / ZOOM_MAX;
 const COMMIT_MS = 66; // ~15Hz live-preview commits while pinching
-const TAP_TOLERANCE = 12; // screen px; an ember winning the scan is a no-op
-// PostgREST caps any single response at max_rows (1000 on this project), so
-// a bigger .limit() is a silent no-op — page instead. 4 pages covers 4k
-// events/month, ~3x Ayuka's real volume.
+const TAP_TOLERANCE = 12; // screen px around a fresh dot that counts as a hit
+// PostgREST caps any single response at max_rows — 1000 in
+// supabase/config.toml; keep PAGE_ROWS equal to it, the <PAGE_ROWS
+// termination below assumes they match. Keyset pages (created_at cursor)
+// rather than offsets so a clamped response can't misalign later pages;
+// rows tying the cursor's timestamp at a page boundary can be skipped,
+// accepted — inserts are single-row, ties across a boundary are rare.
 const PAGE_ROWS = 1000;
 const MAX_PAGES = 4;
 
@@ -64,7 +67,9 @@ interface ArticleRead {
   x: number | null;
   y: number | null;
   source: string | null;
-  bias: number | null;
+  bucket: string | null;
+  title: string | null;
+  url: string | null;
 }
 
 interface MonthDot {
@@ -72,6 +77,9 @@ interface MonthDot {
   x: number;
   y: number;
   order: number; // 0 = most recent; dots are stored newest-first
+  source: string | null;
+  title: string | null;
+  url: string | null;
 }
 
 interface MonthStats {
@@ -89,10 +97,10 @@ interface MapWindow {
 
 const FULL_WINDOW: MapWindow = { x: 0, y: 0, w: PANEL };
 
-// One deduped reads list per user+month, so a tap-to-article round trip
-// refetches a 0–2 row delta instead of the whole month every focus
-// (standing Praxis cost rule). Newest-first, deduped by article.
-const monthCache = new Map<string, { newestCreatedAt: string; reads: ArticleRead[] }>();
+// One deduped reads list for the CURRENT user+month (older entries are
+// dropped on write), so a tap-to-article round trip refetches a 0–2 row
+// delta instead of the whole month every focus (standing cost rule).
+const monthCache = new Map<string, { watermark: string; reads: ArticleRead[] }>();
 
 const monthStartIso = () => {
   const now = new Date();
@@ -102,8 +110,11 @@ const monthStartIso = () => {
 const dotCx = (dot: { x: number }) => HALF + dot.x * SPAN;
 const dotCy = (dot: { y: number }) => HALF - dot.y * SPAN;
 
+// bias_bucket, not bias_score: the stored bucket is the canonical ±10
+// split (deriveBiasBucket) — a re-derived threshold here drifted to ±15
+// and could disagree with every other consumer (review finding).
 const SLIM_SELECT =
-  'created_at, aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bias:properties->bias_score';
+  'created_at, aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bucket:properties->>bias_bucket, title:properties->>title, url:properties->>url';
 
 const rowToRead = (row: Record<string, unknown>): ArticleRead | null => {
   const id = typeof row.aid === 'string' ? row.aid : null;
@@ -115,8 +126,20 @@ const rowToRead = (row: Record<string, unknown>): ArticleRead | null => {
     x: typeof row.ax === 'number' ? row.ax : null,
     y: typeof row.ay === 'number' ? row.ay : null,
     source: typeof row.src === 'string' ? row.src : null,
-    bias: typeof row.bias === 'number' ? row.bias : Number(row.bias) || null,
+    bucket: typeof row.bucket === 'string' ? row.bucket : null,
+    title: typeof row.title === 'string' ? row.title : null,
+    url: typeof row.url === 'string' ? row.url : null,
   };
+};
+
+// Newest-first dedup by article — both load paths must uphold this
+// invariant (a re-read emits a second event for the same article).
+const dedupeReads = (rows: ArticleRead[]): ArticleRead[] => {
+  const byArticle = new Map<string, ArticleRead>();
+  for (const read of rows) {
+    if (!byArticle.has(read.articleId)) byArticle.set(read.articleId, read);
+  }
+  return [...byArticle.values()];
 };
 
 export function MonthMapCard() {
@@ -128,12 +151,14 @@ export function MonthMapCard() {
 
   const scale = PANEL / win.w;
 
-  const dotsRef = useRef<MonthDot[]>([]);
+  const freshRef = useRef<MonthDot[]>([]);
   const emberRef = useRef<MonthDot[]>([]);
   const winRef = useRef<MapWindow>(FULL_WINDOW);
   const startRef = useRef({ ...FULL_WINDOW, fx: 0, fy: 0 });
   const lastCommitRef = useRef(0);
   const pinchRef = useRef({ active: false, endedAt: 0 });
+  const monthKeyRef = useRef('');
+  const loadPromiseRef = useRef<Promise<void> | null>(null);
 
   const commitWindow = useCallback((next: MapWindow, force: boolean) => {
     winRef.current = next;
@@ -152,15 +177,21 @@ export function MonthMapCard() {
     let rightReads = 0;
     for (const read of reads) {
       if (read.source) sources.add(read.source.toLowerCase());
-      if (typeof read.bias === 'number') {
-        if (read.bias <= -15) leftReads += 1;
-        if (read.bias >= 15) rightReads += 1;
-      }
+      if (read.bucket === 'left') leftReads += 1;
+      if (read.bucket === 'right') rightReads += 1;
       if (read.x != null && read.y != null) {
-        nextDots.push({ articleId: read.articleId, x: read.x, y: read.y, order: order++ });
+        nextDots.push({
+          articleId: read.articleId,
+          x: read.x,
+          y: read.y,
+          order: order++,
+          source: read.source,
+          title: read.title,
+          url: read.url,
+        });
       }
     }
-    dotsRef.current = nextDots.slice(0, FRESH_COUNT);
+    freshRef.current = nextDots.slice(0, FRESH_COUNT);
     emberRef.current = nextDots.slice(FRESH_COUNT);
     setDots(nextDots);
     setStats({ reads: reads.length, sources: sources.size, leftReads, rightReads });
@@ -168,67 +199,113 @@ export function MonthMapCard() {
 
   const load = useCallback(async () => {
     if (!user) return;
-    const cacheKey = `${user.id}:${monthStartIso()}`;
-    const cached = monthCache.get(cacheKey);
-    if (cached) {
-      applyReads(cached.reads);
-      // Delta: only events newer than what we hold (usually 0–2 rows).
-      const { data, error } = await supabase
-        .from('analytics_events')
-        .select(SLIM_SELECT)
-        .eq('user_id', user.id)
-        .eq('event_name', 'article_read_complete')
-        .gt('created_at', cached.newestCreatedAt)
-        .order('created_at', { ascending: false })
-        .limit(PAGE_ROWS);
-      if (error || !data || data.length === 0) return;
-      const fresh = (data as Array<Record<string, unknown>>)
-        .map(rowToRead)
-        .filter((r): r is ArticleRead => r !== null);
-      if (fresh.length === 0) return;
-      const seen = new Set(fresh.map((r) => r.articleId));
-      const merged = [...fresh, ...cached.reads.filter((r) => !seen.has(r.articleId))];
-      const entry = { newestCreatedAt: fresh[0].createdAt, reads: merged };
-      monthCache.set(cacheKey, entry);
-      applyReads(merged);
-      return;
-    }
+    // A focus while a load is running joins it instead of doubling the
+    // request sequence (cost rule) or racing last-writer-wins on the cache.
+    if (loadPromiseRef.current) return loadPromiseRef.current;
 
-    // First load of the month: page past PostgREST's max_rows response cap.
-    const byArticle = new Map<string, ArticleRead>();
-    let newestCreatedAt: string | null = null;
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const { data, error } = await supabase
-        .from('analytics_events')
-        .select(SLIM_SELECT)
-        .eq('user_id', user.id)
-        .eq('event_name', 'article_read_complete')
-        .gte('created_at', monthStartIso())
-        .order('created_at', { ascending: false })
-        .range(page * PAGE_ROWS, (page + 1) * PAGE_ROWS - 1);
-      if (error || !data) return;
-      for (const raw of data as Array<Record<string, unknown>>) {
-        const read = rowToRead(raw);
-        if (!read) continue;
-        if (!newestCreatedAt) newestCreatedAt = read.createdAt;
-        if (!byArticle.has(read.articleId)) byArticle.set(read.articleId, read); // newest-first
+    const run = (async () => {
+      const monthStart = monthStartIso();
+      const cacheKey = `${user.id}:${monthStart}`;
+      if (monthKeyRef.current && monthKeyRef.current !== cacheKey) {
+        // Month rolled over (or user switched): a 3x window into last
+        // month's corner makes no sense over the new, near-empty map.
+        commitWindow(FULL_WINDOW, true);
       }
-      if (data.length < PAGE_ROWS) break;
+      monthKeyRef.current = cacheKey;
+
+      const cached = monthCache.get(cacheKey);
+      if (cached) {
+        applyReads(cached.reads);
+        // Delta: only events at/after the watermark (usually 0–2 rows).
+        // gte + dedupe rather than gt, so a row sharing the watermark's
+        // timestamp can't slip through the crack forever.
+        const { data, error } = await supabase
+          .from('analytics_events')
+          .select(SLIM_SELECT)
+          .eq('user_id', user.id)
+          .eq('event_name', 'article_read_complete')
+          .gte('created_at', cached.watermark)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(PAGE_ROWS);
+        if (error || !data) return;
+        if (data.length === PAGE_ROWS) {
+          // A full delta page means something bulk-landed (backfill);
+          // an unpaged merge would advance the watermark past rows it
+          // never saw. Rebuild from scratch instead.
+          monthCache.delete(cacheKey);
+          loadPromiseRef.current = null;
+          return load();
+        }
+        const rawNewest = (data[0] as Record<string, unknown> | undefined)?.created_at;
+        const fresh = dedupeReads(
+          (data as Array<Record<string, unknown>>)
+            .map(rowToRead)
+            .filter((r): r is ArticleRead => r !== null),
+        );
+        const freshIds = new Set(fresh.map((r) => r.articleId));
+        const merged = [...fresh, ...cached.reads.filter((r) => !freshIds.has(r.articleId))];
+        const entry = {
+          // Watermark comes from the raw newest row, valid or not —
+          // otherwise a malformed newest row gets re-downloaded forever.
+          watermark: typeof rawNewest === 'string' ? rawNewest : cached.watermark,
+          reads: merged,
+        };
+        monthCache.clear();
+        monthCache.set(cacheKey, entry);
+        if (fresh.length > 0) applyReads(merged);
+        return;
+      }
+
+      // First load of the month: keyset-page past the max_rows response cap.
+      const rows: ArticleRead[] = [];
+      let watermark: string | null = null;
+      let cursor: string | null = null;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        let query = supabase
+          .from('analytics_events')
+          .select(SLIM_SELECT)
+          .eq('user_id', user.id)
+          .eq('event_name', 'article_read_complete')
+          .gte('created_at', monthStart)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .limit(PAGE_ROWS);
+        if (cursor) query = query.lt('created_at', cursor);
+        const { data, error } = await query;
+        if (error || !data) return;
+        for (const raw of data as Array<Record<string, unknown>>) {
+          if (!watermark && typeof raw.created_at === 'string') watermark = raw.created_at;
+          const read = rowToRead(raw);
+          if (read) rows.push(read);
+        }
+        if (data.length < PAGE_ROWS) break;
+        const last = data[data.length - 1] as Record<string, unknown>;
+        if (typeof last.created_at !== 'string') break;
+        cursor = last.created_at;
+      }
+      const reads = dedupeReads(rows);
+      monthCache.clear();
+      // Cache the empty month too (watermark = month start), or every
+      // focus re-runs the cold query for a card that renders null.
+      monthCache.set(cacheKey, { watermark: watermark ?? monthStart, reads });
+      applyReads(reads);
+    })();
+
+    loadPromiseRef.current = run;
+    try {
+      await run;
+    } finally {
+      if (loadPromiseRef.current === run) loadPromiseRef.current = null;
     }
-    if (!newestCreatedAt) {
-      applyReads([]);
-      return;
-    }
-    const reads = [...byArticle.values()];
-    monthCache.set(cacheKey, { newestCreatedAt, reads });
-    applyReads(reads);
-  }, [applyReads, user]);
+  }, [applyReads, commitWindow, user]);
 
   useFocusEffect(
     useCallback(() => {
       void load();
-      // No zoom reset here: tap-dot → article blurs this screen, and coming
-      // back to the zoomed spot is the workflow. Double-tap resets.
+      // No zoom reset on blur: tap-dot → article blurs this screen, and
+      // coming back to the zoomed spot is the workflow. Double-tap resets;
+      // month rollover resets inside load().
     }, [load]),
   );
 
@@ -241,21 +318,36 @@ export function MonthMapCard() {
     const tolerance = TAP_TOLERANCE * (view.w / PANEL);
     let best: MonthDot | null = null;
     let bestDist = tolerance;
-    for (const dot of dotsRef.current) {
+    for (const dot of freshRef.current) {
       const dist = Math.hypot(dotCx(dot) - svgX, dotCy(dot) - svgY);
       if (dist < bestDist) {
         best = dot;
         bestDist = dist;
       }
     }
-    // If a (non-tappable) ember is what the finger is actually on, swallow
-    // the tap instead of teleporting to some fresh dot nearby.
+    if (!best) return;
+    // Swallow the tap only when an ember is MEANINGFULLY closer than the
+    // fresh hit (fresh dots draw on top of ember terrain, and in a dense
+    // cluster some ember center is almost always marginally nearer) —
+    // "meaningfully" = by more than the fresh dot's own drawn radius.
+    const freshRadius = 2.6 * (view.w / PANEL);
     for (const ember of emberRef.current) {
-      if (Math.hypot(dotCx(ember) - svgX, dotCy(ember) - svgY) < bestDist) return;
+      if (Math.hypot(dotCx(ember) - svgX, dotCy(ember) - svgY) < bestDist - freshRadius) return;
     }
-    if (best) {
-      router.push({ pathname: '/article/[id]', params: { id: best.articleId } });
-    }
+    router.push({
+      pathname: '/article/[id]',
+      params: {
+        id: best.articleId,
+        // The article screen hydrates id-only pushes from the recommender,
+        // which ages articles out — a month-old dot needs its own facts.
+        title: best.title ?? '',
+        url: best.url ?? '',
+        publisher_name: best.source ?? '',
+        x: String(best.x),
+        y: String(best.y),
+        source_context: 'month_map',
+      },
+    });
   }, []);
 
   const panelGesture = useMemo(() => {
