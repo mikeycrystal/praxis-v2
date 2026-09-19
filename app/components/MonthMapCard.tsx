@@ -49,10 +49,10 @@ const COMMIT_MS = 66; // ~15Hz live-preview commits while pinching
 const TAP_TOLERANCE = 12; // screen px around a fresh dot that counts as a hit
 // PostgREST caps any single response at max_rows — 1000 in
 // supabase/config.toml; keep PAGE_ROWS equal to it, the <PAGE_ROWS
-// termination below assumes they match. Keyset pages (created_at cursor)
-// rather than offsets so a clamped response can't misalign later pages;
-// rows tying the cursor's timestamp at a page boundary can be skipped,
-// accepted — inserts are single-row, ties across a boundary are rare.
+// termination below assumes they match. Keyset pages on a COMPOUND
+// (created_at, id) cursor rather than offsets: a clamped response can't
+// misalign later pages, and rows tying a boundary timestamp (bulk
+// backfills share one transaction now()) can't be dropped.
 const PAGE_ROWS = 1000;
 const MAX_PAGES = 4;
 
@@ -69,6 +69,7 @@ interface ArticleRead {
   y: number | null;
   source: string | null;
   bucket: string | null;
+  url: string | null;
 }
 
 interface MonthDot {
@@ -76,6 +77,15 @@ interface MonthDot {
   x: number;
   y: number;
   order: number; // 0 = most recent; dots are stored newest-first
+  source: string | null;
+  url: string | null;
+}
+
+// Compound watermark: strictly-after filtering on (created_at, id) means an
+// idle focus returns 0 rows (no watermark-row echo) and a tie can't hide.
+interface Watermark {
+  createdAt: string;
+  rowId: string;
 }
 
 interface MonthStats {
@@ -96,7 +106,7 @@ const FULL_WINDOW: MapWindow = { x: 0, y: 0, w: PANEL };
 // One deduped reads list for the CURRENT user+month (older entries are
 // dropped on write), so a tap-to-article round trip refetches a 0–2 row
 // delta instead of the whole month every focus (standing cost rule).
-const monthCache = new Map<string, { watermark: string; reads: ArticleRead[] }>();
+const monthCache = new Map<string, { watermark: Watermark; reads: ArticleRead[] }>();
 
 const monthStartIso = () => {
   const now = new Date();
@@ -110,7 +120,7 @@ const dotCy = (dot: { y: number }) => HALF - dot.y * SPAN;
 // split (deriveBiasBucket) — a re-derived threshold here drifted to ±15
 // and could disagree with every other consumer (review finding).
 const SLIM_SELECT =
-  'id, created_at, aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bucket:properties->>bias_bucket';
+  'id, created_at, aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bucket:properties->>bias_bucket, url:properties->>url';
 
 const rowToRead = (row: Record<string, unknown>): ArticleRead | null => {
   const id = typeof row.aid === 'string' ? row.aid : null;
@@ -124,8 +134,14 @@ const rowToRead = (row: Record<string, unknown>): ArticleRead | null => {
     y: typeof row.ay === 'number' ? row.ay : null,
     source: typeof row.src === 'string' ? row.src : null,
     bucket: typeof row.bucket === 'string' ? row.bucket : null,
+    url: typeof row.url === 'string' ? row.url : null,
   };
 };
+
+// PostgREST or() filter for "strictly after the watermark" on the
+// compound (created_at, id) order. postgrest-js percent-encodes values.
+const afterWatermark = (wm: Watermark) =>
+  `created_at.gt.${wm.createdAt},and(created_at.eq.${wm.createdAt},id.gt.${wm.rowId})`;
 
 // Newest-first dedup by article — both load paths must uphold this
 // invariant (a re-read emits a second event for the same article).
@@ -154,6 +170,9 @@ export function MonthMapCard() {
   const pinchRef = useRef({ active: false, endedAt: 0 });
   const monthKeyRef = useRef('');
   const loadPromiseRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
+  // Monotonic token: a newer load (other account, month rollover) bumps it,
+  // and a stale run must stop writing the cache or the UI when it settles.
+  const loadTokenRef = useRef(0);
 
   const commitWindow = useCallback((next: MapWindow, force: boolean) => {
     winRef.current = next;
@@ -175,7 +194,14 @@ export function MonthMapCard() {
       if (read.bucket === 'left') leftReads += 1;
       if (read.bucket === 'right') rightReads += 1;
       if (read.x != null && read.y != null) {
-        nextDots.push({ articleId: read.articleId, x: read.x, y: read.y, order: order++ });
+        nextDots.push({
+          articleId: read.articleId,
+          x: read.x,
+          y: read.y,
+          order: order++,
+          source: read.source,
+          url: read.url,
+        });
       }
     }
     freshRef.current = nextDots.slice(0, FRESH_COUNT);
@@ -194,6 +220,9 @@ export function MonthMapCard() {
     // in-flight load would render their map into this one's view.
     if (loadPromiseRef.current?.key === cacheKey) return loadPromiseRef.current.promise;
 
+    const token = ++loadTokenRef.current;
+    const stale = () => loadTokenRef.current !== token;
+
     const run = (async () => {
       if (monthKeyRef.current && monthKeyRef.current !== cacheKey) {
         // Month rolled over (or user switched): a 3x window into last
@@ -205,47 +234,41 @@ export function MonthMapCard() {
       const cached = monthCache.get(cacheKey);
       if (cached) {
         applyReads(cached.reads);
-        // Delta: only events at/after the watermark (usually 0–2 rows).
-        // gte + dedupe rather than gt, so a row sharing the watermark's
-        // timestamp can't slip through the crack forever.
+        // Delta: strictly after the compound watermark, so an idle focus
+        // returns 0 rows — no watermark echo, no per-focus payload.
         const { data, error } = await supabase
           .from('analytics_events')
           .select(SLIM_SELECT)
           .eq('user_id', user.id)
           .eq('event_name', 'article_read_complete')
-          .gte('created_at', cached.watermark)
+          .or(afterWatermark(cached.watermark))
           .order('created_at', { ascending: false })
           .order('id', { ascending: false })
           .limit(PAGE_ROWS);
-        if (error || !data) return;
+        if (error || !data || data.length === 0 || stale()) return;
         if (data.length === PAGE_ROWS) {
           // A full delta page means something bulk-landed (backfill);
           // an unpaged merge would advance the watermark past rows it
           // never saw. Rebuild from scratch instead.
           monthCache.delete(cacheKey);
-          loadPromiseRef.current = null;
+          if (loadPromiseRef.current?.key === cacheKey) loadPromiseRef.current = null;
           return load();
         }
-        const rawNewest = (data[0] as Record<string, unknown> | undefined)?.created_at;
+        const rawNewest = data[0] as Record<string, unknown>;
         const fresh = dedupeReads(
           (data as Array<Record<string, unknown>>)
             .map(rowToRead)
             .filter((r): r is ArticleRead => r !== null),
         );
-        // gte always re-returns the watermark row itself; only re-render
-        // and re-cache when something actually changed (a new article, or
-        // the watermark advanced — i.e. a re-read moved a dot to front).
-        const cachedIds = new Set(cached.reads.map((r) => r.articleId));
-        const changed =
-          fresh.some((r) => !cachedIds.has(r.articleId)) ||
-          (typeof rawNewest === 'string' && rawNewest !== cached.watermark);
-        if (!changed) return;
         const freshIds = new Set(fresh.map((r) => r.articleId));
         const merged = [...fresh, ...cached.reads.filter((r) => !freshIds.has(r.articleId))];
         const entry = {
           // Watermark comes from the raw newest row, valid or not —
           // otherwise a malformed newest row gets re-downloaded forever.
-          watermark: typeof rawNewest === 'string' ? rawNewest : cached.watermark,
+          watermark:
+            typeof rawNewest.created_at === 'string' && rawNewest.id != null
+              ? { createdAt: rawNewest.created_at, rowId: String(rawNewest.id) }
+              : cached.watermark,
           reads: merged,
         };
         monthCache.clear();
@@ -259,8 +282,8 @@ export function MonthMapCard() {
       // every row tying the boundary timestamp, and a single-transaction
       // backfill gives thousands of rows the same now().
       const rows: ArticleRead[] = [];
-      let watermark: string | null = null;
-      let cursor: { createdAt: string; rowId: string } | null = null;
+      let watermark: Watermark | null = null;
+      let cursor: Watermark | null = null;
       for (let page = 0; page < MAX_PAGES; page++) {
         let query = supabase
           .from('analytics_events')
@@ -277,9 +300,11 @@ export function MonthMapCard() {
           );
         }
         const { data, error } = await query;
-        if (error || !data) return;
+        if (error || !data || stale()) return;
         for (const raw of data as Array<Record<string, unknown>>) {
-          if (!watermark && typeof raw.created_at === 'string') watermark = raw.created_at;
+          if (!watermark && typeof raw.created_at === 'string' && raw.id != null) {
+            watermark = { createdAt: raw.created_at, rowId: String(raw.id) };
+          }
           const read = rowToRead(raw);
           if (read) rows.push(read);
         }
@@ -288,11 +313,15 @@ export function MonthMapCard() {
         if (typeof last.created_at !== 'string' || last.id == null) break;
         cursor = { createdAt: last.created_at, rowId: String(last.id) };
       }
+      if (stale()) return;
       const reads = dedupeReads(rows);
       monthCache.clear();
-      // Cache the empty month too (watermark = month start), or every
-      // focus re-runs the cold query for a card that renders null.
-      monthCache.set(cacheKey, { watermark: watermark ?? monthStart, reads });
+      // Cache the empty month too (sentinel watermark at month start), or
+      // every focus re-runs the cold query for a card that renders null.
+      monthCache.set(cacheKey, {
+        watermark: watermark ?? { createdAt: monthStart, rowId: '0' },
+        reads,
+      });
       applyReads(reads);
     })();
 
@@ -338,13 +367,24 @@ export function MonthMapCard() {
     for (const ember of emberRef.current) {
       if (Math.hypot(dotCx(ember) - svgX, dotCy(ember) - svgY) < bestDist - freshRadius) return;
     }
-    // id-only on purpose: the article screen treats ANY title param as the
-    // full article (it then skips recommender hydration entirely), so
-    // passing our slim facts rendered live articles with no lede/image and
-    // a fabricated ts_pub that Save persisted (review finding). id-only
-    // hydrates properly; dots aged out of the recommender render the
-    // placeholder — 1.1 item: make [id].tsx treat params as a FALLBACK.
-    router.push({ pathname: '/article/[id]', params: { id: best.articleId } });
+    // No title param ON PURPOSE: [id].tsx's hydration gate keys on
+    // params.title alone — passing it suppresses hydration entirely and a
+    // live article rendered with no lede/image and a fabricated ts_pub
+    // that Save persisted (review finding). Without title, hydration runs
+    // wherever the recommender is configured, and url/publisher/x/y keep
+    // "Read Original Article" and the map badge working when it isn't
+    // (dev/preview builds, aged-out articles). 1.1 item: make [id].tsx
+    // treat params as a fallback so both can be passed.
+    router.push({
+      pathname: '/article/[id]',
+      params: {
+        id: best.articleId,
+        url: best.url ?? '',
+        publisher_name: best.source ?? '',
+        x: String(best.x),
+        y: String(best.y),
+      },
+    });
   }, []);
 
   const panelGesture = useMemo(() => {
