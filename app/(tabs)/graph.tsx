@@ -188,7 +188,11 @@ const GraphOutletLayer = React.memo(function GraphOutletLayer({
 // canvas rim empty and made the map read small. Positions and the selection
 // radius scale together, so in/out membership is unchanged.
 const OUTLET_SPREAD = 1.12;
-const SELECTION_RADIUS_FACTOR = 0.3584; // 0.32 * OUTLET_SPREAD
+// 0.36 * OUTLET_SPREAD (was 0.32): at full pinch the circle reaches ~80%
+// of the map, "so that it feels nice to select the range" (Ayuka,
+// 2026-09-19, msg 1499). Selection math shares this factor, so the lit
+// sources always match the drawn circle.
+const SELECTION_RADIUS_FACTOR = 0.4032;
 const normalizeTopicId = (value: string) => value.trim().toLowerCase();
 const topicToTestId = (topic: string) =>
   topic
@@ -998,6 +1002,7 @@ export default function GraphScreen() {
   // travel so the SVG re-render can't flood the JS thread).
   const lastLivePanX = useSharedValue(-1);
   const lastLivePanY = useSharedValue(-1);
+  const panDidActivate = useSharedValue(false);
   const graphPanGesture = useMemo(
     () => Gesture.Pan()
       .minDistance(4)
@@ -1005,8 +1010,18 @@ export default function GraphScreen() {
       // pinch spread and dragged the dot around mid-gesture — the "glitchy
       // and finicky" pinch (Ayuka, 2026-09-16).
       .maxPointers(1)
-      .onBegin((event) => {
+      // onBegin fires on plain touch-down, BEFORE the gesture qualifies —
+      // moving the pin there teleported the dot to the first finger of an
+      // incoming pinch, and onFinalize (which also runs for gestures that
+      // never activated) then committed it (Ayuka, 2026-09-19, msg 1499).
+      // The pin now moves only once the pan actually activates; bare taps
+      // stay the tap gesture's job.
+      .onBegin(() => {
         activeGraphGestureRevision.value = graphResetRevision.value;
+        panDidActivate.value = false;
+      })
+      .onStart((event) => {
+        panDidActivate.value = true;
         animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
         animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
         lastLivePanX.value = animatedPinX.value;
@@ -1031,6 +1046,8 @@ export default function GraphScreen() {
         }
       })
       .onFinalize(() => {
+        if (!panDidActivate.value) return;
+        panDidActivate.value = false;
         runOnJS(commitGraphPosition)(
           animatedPinX.value,
           animatedPinY.value,
@@ -1047,6 +1064,7 @@ export default function GraphScreen() {
       graphWidth,
       lastLivePanX,
       lastLivePanY,
+      panDidActivate,
     ],
   );
 
