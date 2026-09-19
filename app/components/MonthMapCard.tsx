@@ -64,12 +64,11 @@ const GREEN = '#7A9A62';
 interface ArticleRead {
   articleId: string;
   createdAt: string;
+  rowId: string; // analytics_events.id (bigint, verified on the live table) — keyset tiebreaker
   x: number | null;
   y: number | null;
   source: string | null;
   bucket: string | null;
-  title: string | null;
-  url: string | null;
 }
 
 interface MonthDot {
@@ -77,9 +76,6 @@ interface MonthDot {
   x: number;
   y: number;
   order: number; // 0 = most recent; dots are stored newest-first
-  source: string | null;
-  title: string | null;
-  url: string | null;
 }
 
 interface MonthStats {
@@ -114,21 +110,20 @@ const dotCy = (dot: { y: number }) => HALF - dot.y * SPAN;
 // split (deriveBiasBucket) — a re-derived threshold here drifted to ±15
 // and could disagree with every other consumer (review finding).
 const SLIM_SELECT =
-  'created_at, aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bucket:properties->>bias_bucket, title:properties->>title, url:properties->>url';
+  'id, created_at, aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bucket:properties->>bias_bucket';
 
 const rowToRead = (row: Record<string, unknown>): ArticleRead | null => {
   const id = typeof row.aid === 'string' ? row.aid : null;
   const createdAt = typeof row.created_at === 'string' ? row.created_at : null;
-  if (!id || !createdAt) return null;
+  if (!id || !createdAt || row.id == null) return null;
   return {
     articleId: id,
     createdAt,
+    rowId: String(row.id),
     x: typeof row.ax === 'number' ? row.ax : null,
     y: typeof row.ay === 'number' ? row.ay : null,
     source: typeof row.src === 'string' ? row.src : null,
     bucket: typeof row.bucket === 'string' ? row.bucket : null,
-    title: typeof row.title === 'string' ? row.title : null,
-    url: typeof row.url === 'string' ? row.url : null,
   };
 };
 
@@ -158,7 +153,7 @@ export function MonthMapCard() {
   const lastCommitRef = useRef(0);
   const pinchRef = useRef({ active: false, endedAt: 0 });
   const monthKeyRef = useRef('');
-  const loadPromiseRef = useRef<Promise<void> | null>(null);
+  const loadPromiseRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
   const commitWindow = useCallback((next: MapWindow, force: boolean) => {
     winRef.current = next;
@@ -180,15 +175,7 @@ export function MonthMapCard() {
       if (read.bucket === 'left') leftReads += 1;
       if (read.bucket === 'right') rightReads += 1;
       if (read.x != null && read.y != null) {
-        nextDots.push({
-          articleId: read.articleId,
-          x: read.x,
-          y: read.y,
-          order: order++,
-          source: read.source,
-          title: read.title,
-          url: read.url,
-        });
+        nextDots.push({ articleId: read.articleId, x: read.x, y: read.y, order: order++ });
       }
     }
     freshRef.current = nextDots.slice(0, FRESH_COUNT);
@@ -199,13 +186,15 @@ export function MonthMapCard() {
 
   const load = useCallback(async () => {
     if (!user) return;
+    const monthStart = monthStartIso();
+    const cacheKey = `${user.id}:${monthStart}`;
     // A focus while a load is running joins it instead of doubling the
-    // request sequence (cost rule) or racing last-writer-wins on the cache.
-    if (loadPromiseRef.current) return loadPromiseRef.current;
+    // request sequence (cost rule) or racing last-writer-wins on the cache
+    // — but only a load for the SAME user+month; joining another account's
+    // in-flight load would render their map into this one's view.
+    if (loadPromiseRef.current?.key === cacheKey) return loadPromiseRef.current.promise;
 
     const run = (async () => {
-      const monthStart = monthStartIso();
-      const cacheKey = `${user.id}:${monthStart}`;
       if (monthKeyRef.current && monthKeyRef.current !== cacheKey) {
         // Month rolled over (or user switched): a 3x window into last
         // month's corner makes no sense over the new, near-empty map.
@@ -243,6 +232,14 @@ export function MonthMapCard() {
             .map(rowToRead)
             .filter((r): r is ArticleRead => r !== null),
         );
+        // gte always re-returns the watermark row itself; only re-render
+        // and re-cache when something actually changed (a new article, or
+        // the watermark advanced — i.e. a re-read moved a dot to front).
+        const cachedIds = new Set(cached.reads.map((r) => r.articleId));
+        const changed =
+          fresh.some((r) => !cachedIds.has(r.articleId)) ||
+          (typeof rawNewest === 'string' && rawNewest !== cached.watermark);
+        if (!changed) return;
         const freshIds = new Set(fresh.map((r) => r.articleId));
         const merged = [...fresh, ...cached.reads.filter((r) => !freshIds.has(r.articleId))];
         const entry = {
@@ -253,14 +250,17 @@ export function MonthMapCard() {
         };
         monthCache.clear();
         monthCache.set(cacheKey, entry);
-        if (fresh.length > 0) applyReads(merged);
+        applyReads(merged);
         return;
       }
 
       // First load of the month: keyset-page past the max_rows response cap.
+      // The cursor is compound (created_at, id) — created_at alone drops
+      // every row tying the boundary timestamp, and a single-transaction
+      // backfill gives thousands of rows the same now().
       const rows: ArticleRead[] = [];
       let watermark: string | null = null;
-      let cursor: string | null = null;
+      let cursor: { createdAt: string; rowId: string } | null = null;
       for (let page = 0; page < MAX_PAGES; page++) {
         let query = supabase
           .from('analytics_events')
@@ -271,7 +271,11 @@ export function MonthMapCard() {
           .order('created_at', { ascending: false })
           .order('id', { ascending: false })
           .limit(PAGE_ROWS);
-        if (cursor) query = query.lt('created_at', cursor);
+        if (cursor) {
+          query = query.or(
+            `created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.rowId})`,
+          );
+        }
         const { data, error } = await query;
         if (error || !data) return;
         for (const raw of data as Array<Record<string, unknown>>) {
@@ -281,8 +285,8 @@ export function MonthMapCard() {
         }
         if (data.length < PAGE_ROWS) break;
         const last = data[data.length - 1] as Record<string, unknown>;
-        if (typeof last.created_at !== 'string') break;
-        cursor = last.created_at;
+        if (typeof last.created_at !== 'string' || last.id == null) break;
+        cursor = { createdAt: last.created_at, rowId: String(last.id) };
       }
       const reads = dedupeReads(rows);
       monthCache.clear();
@@ -292,11 +296,11 @@ export function MonthMapCard() {
       applyReads(reads);
     })();
 
-    loadPromiseRef.current = run;
+    loadPromiseRef.current = { key: cacheKey, promise: run };
     try {
       await run;
     } finally {
-      if (loadPromiseRef.current === run) loadPromiseRef.current = null;
+      if (loadPromiseRef.current?.promise === run) loadPromiseRef.current = null;
     }
   }, [applyReads, commitWindow, user]);
 
@@ -334,20 +338,13 @@ export function MonthMapCard() {
     for (const ember of emberRef.current) {
       if (Math.hypot(dotCx(ember) - svgX, dotCy(ember) - svgY) < bestDist - freshRadius) return;
     }
-    router.push({
-      pathname: '/article/[id]',
-      params: {
-        id: best.articleId,
-        // The article screen hydrates id-only pushes from the recommender,
-        // which ages articles out — a month-old dot needs its own facts.
-        title: best.title ?? '',
-        url: best.url ?? '',
-        publisher_name: best.source ?? '',
-        x: String(best.x),
-        y: String(best.y),
-        source_context: 'month_map',
-      },
-    });
+    // id-only on purpose: the article screen treats ANY title param as the
+    // full article (it then skips recommender hydration entirely), so
+    // passing our slim facts rendered live articles with no lede/image and
+    // a fabricated ts_pub that Save persisted (review finding). id-only
+    // hydrates properly; dots aged out of the recommender render the
+    // placeholder — 1.1 item: make [id].tsx treat params as a FALLBACK.
+    router.push({ pathname: '/article/[id]', params: { id: best.articleId } });
   }, []);
 
   const panelGesture = useMemo(() => {
