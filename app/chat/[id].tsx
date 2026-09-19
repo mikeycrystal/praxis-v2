@@ -11,12 +11,11 @@ import { useTheme } from '../hooks/useTheme';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { buildHref } from '../lib/buildHref';
 import {
-  REPORT_REASONS,
   blockUser,
   fetchIsBlocked,
-  reportSubject,
   unblockUser,
 } from '../lib/moderation';
+import { ReportSheet } from '../components/ReportSheet';
 
 interface Message {
   id: number;
@@ -48,6 +47,7 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [reportMessage, setReportMessage] = useState<Message | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const convId = user ? conversationId(user.id, userId) : '';
@@ -61,26 +61,6 @@ export default function ChatScreen() {
 
   const openModerationMenu = () => {
     Alert.alert(otherName, undefined, [
-      {
-        text: 'Report conversation',
-        onPress: () => {
-          Alert.alert('Report conversation', 'Why are you reporting it?', [
-            ...REPORT_REASONS.map((reason) => ({
-              text: reason,
-              onPress: async () => {
-                if (!user) return;
-                try {
-                  await reportSubject(user.id, 'conversation', convId, reason);
-                  Alert.alert('Report sent', 'Thanks — we review every report.');
-                } catch {
-                  Alert.alert('Could not send report', 'Something went wrong. Try again.');
-                }
-              },
-            })),
-            { text: 'Cancel', style: 'cancel' as const },
-          ]);
-        },
-      },
       isBlocked
         ? {
             text: 'Unblock',
@@ -148,12 +128,14 @@ export default function ChatScreen() {
       .select('id, sender_id, body, created_at, read_at')
       .eq('conversation_id', convId)
       .order('created_at', { ascending: true });
-    setMessages(data ?? []);
+    // Keep a blocked person's incoming content out of the chat without deleting it.
+    const visibleMessages = isBlocked ? (data ?? []).filter((m: Message) => m.sender_id === user?.id) : (data ?? []);
+    setMessages(visibleMessages);
     setLoading(false);
 
     // Mark received messages as read
     if (user && data) {
-      const unreadIds = data
+      const unreadIds = visibleMessages
         .filter((m: Message) => m.sender_id !== user.id && !m.read_at)
         .map((m: Message) => m.id);
       if (unreadIds.length > 0) {
@@ -163,7 +145,7 @@ export default function ChatScreen() {
           .in('id', unreadIds);
       }
     }
-  }, [convId, user]);
+  }, [convId, isBlocked, user]);
 
   useEffect(() => {
     loadMessages();
@@ -184,6 +166,7 @@ export default function ChatScreen() {
         },
         (payload) => {
           const newMsg = payload.new as Message;
+          if (isBlocked && newMsg.sender_id !== user?.id) return;
           setMessages(prev => [...prev, newMsg]);
           // Mark as read if it's from the other user
           if (user && newMsg.sender_id !== user.id) {
@@ -197,7 +180,7 @@ export default function ChatScreen() {
       .subscribe();
     channelRef.current = channel;
     return () => { supabase.removeChannel(channel); };
-  }, [convId, user]);
+  }, [convId, isBlocked, user]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -252,7 +235,11 @@ export default function ChatScreen() {
               }
             </View>
           )}
-          <View style={[
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onLongPress={() => { if (!isMe) setReportMessage(item); }}
+            disabled={isMe}
+            style={[
             s.bubble,
             isMe
               ? { backgroundColor: c.tint, borderBottomRightRadius: 4 }
@@ -262,7 +249,7 @@ export default function ChatScreen() {
             <Text style={[s.bubbleTime, { color: isMe ? c.tintForeground + 'AA' : c.textMuted }]}>
               {formatTime(item.created_at)}{isMe && item.read_at ? ' ✓✓' : isMe ? ' ✓' : ''}
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
       </>
     );
@@ -363,6 +350,14 @@ export default function ChatScreen() {
         </View>
         )}
       </KeyboardAvoidingView>
+      {reportMessage && user ? <ReportSheet
+        visible
+        reporterId={user.id}
+        target={{ targetUserId: reportMessage.sender_id, targetType: 'message', targetId: reportMessage.id }}
+        onClose={() => setReportMessage(null)}
+        offerBlock
+        onBlock={async () => { await blockUser(user.id, reportMessage.sender_id); setIsBlocked(true); }}
+      /> : null}
     </SafeAreaView>
   );
 }

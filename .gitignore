@@ -44,3 +44,4 @@ yarn-error.*
 
 # Supabase CLI local state
 /supabase/.temp/
+BLOCK_REPORT_SPEC.md

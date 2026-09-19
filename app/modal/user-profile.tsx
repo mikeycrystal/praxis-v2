@@ -10,12 +10,11 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import { buildHref } from '../lib/buildHref';
 import {
-  REPORT_REASONS,
   blockUser,
   fetchIsBlocked,
-  reportSubject,
   unblockUser,
 } from '../lib/moderation';
+import { ReportSheet } from '../components/ReportSheet';
 
 export default function UserProfileModal() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
@@ -24,6 +23,7 @@ export default function UserProfileModal() {
   const [profile, setProfile] = useState<any>(null);
   const [isFollowing, setIsFollowing] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -61,6 +61,7 @@ export default function UserProfileModal() {
               await blockUser(user.id, userId);
               setIsBlocked(true);
               setIsFollowing(false);
+              router.back();
             } catch {
               Alert.alert('Could not block', 'Something went wrong. Try again.');
             }
@@ -80,37 +81,15 @@ export default function UserProfileModal() {
     }
   };
 
-  const startReport = () => {
-    Alert.alert(
-      `Report ${displayName}`,
-      'Why are you reporting this account?',
-      [
-        ...REPORT_REASONS.map((reason) => ({
-          text: reason,
-          onPress: async () => {
-            if (!user || !userId) return;
-            try {
-              await reportSubject(user.id, 'user', userId, reason);
-              Alert.alert('Report sent', 'Thanks — we review every report.');
-            } catch {
-              Alert.alert('Could not send report', 'Something went wrong. Try again.');
-            }
-          },
-        })),
-        { text: 'Cancel', style: 'cancel' as const },
-      ],
-    );
-  };
-
   const openModerationMenu = () => {
     Alert.alert(
       displayName,
       undefined,
       [
-        { text: 'Report', onPress: startReport },
+        { text: 'Report user', onPress: () => setReporting(true) },
         isBlocked
-          ? { text: 'Unblock', onPress: () => void doUnblock() }
-          : { text: 'Block', style: 'destructive' as const, onPress: confirmBlock },
+          ? { text: 'Unblock user', onPress: () => void doUnblock() }
+          : { text: 'Block user', style: 'destructive' as const, onPress: confirmBlock },
         { text: 'Cancel', style: 'cancel' as const },
       ],
     );
@@ -203,6 +182,12 @@ export default function UserProfileModal() {
           ))}
         </View>
       </ScrollView>
+      {user && userId ? <ReportSheet
+        visible={reporting}
+        reporterId={user.id}
+        target={{ targetUserId: userId, targetType: 'profile' }}
+        onClose={() => setReporting(false)}
+      /> : null}
     </SafeAreaView>
   );
 }

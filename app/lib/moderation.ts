@@ -1,62 +1,71 @@
 import { supabase } from '../services/supabase';
 
-// Blocking and reporting (App Store Guideline 1.2). Blocks are enforced
-// server-side too: messages RLS, a follows guard trigger, and the push
-// functions all check blocked_users — this lib is the client surface.
+export const REPORT_REASONS = ['spam', 'harassment', 'hate', 'violence', 'impersonation', 'other'] as const;
+export type ReportReason = typeof REPORT_REASONS[number];
+export type ReportTarget = { targetUserId: string; targetType: 'message' | 'profile'; targetId?: string | number | null };
 
-export const REPORT_REASONS = [
-  'Harassment or hate',
-  'Spam',
-  'Impersonation',
-  'Inappropriate content',
-  'Something else',
-] as const;
+type BlockListener = (ids: Set<string>) => void;
+const blockedCache = new Map<string, Set<string>>();
+const listeners = new Map<string, Set<BlockListener>>();
 
-export async function fetchIsBlocked(myId: string, otherId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from('blocked_users')
-    .select('blocked_id')
-    .eq('blocker_id', myId)
-    .eq('blocked_id', otherId)
-    .maybeSingle();
-  return Boolean(data);
+function publish(userId: string, ids: Set<string>) {
+  blockedCache.set(userId, ids);
+  listeners.get(userId)?.forEach((listener) => listener(new Set(ids)));
 }
 
-export async function fetchBlockedIds(myId: string): Promise<Set<string>> {
-  const { data } = await supabase
-    .from('blocked_users')
-    .select('blocked_id')
-    .eq('blocker_id', myId);
-  return new Set((data ?? []).map((row) => row.blocked_id as string));
+/** Refreshes the current user's block list and keeps one in-memory copy for all screens. */
+export async function fetchBlockedIds(userId: string, refresh = false): Promise<Set<string>> {
+  if (!refresh && blockedCache.has(userId)) return new Set(blockedCache.get(userId));
+  const { data, error } = await supabase.from('blocked_users').select('blocked_id').eq('blocker_id', userId);
+  if (error) throw error;
+  const ids = new Set((data ?? []).map((row) => String(row.blocked_id)));
+  publish(userId, ids);
+  return new Set(ids);
+}
+
+export function subscribeBlockedIds(userId: string, listener: BlockListener) {
+  const userListeners = listeners.get(userId) ?? new Set<BlockListener>();
+  userListeners.add(listener);
+  listeners.set(userId, userListeners);
+  const cached = blockedCache.get(userId);
+  if (cached) listener(new Set(cached));
+  return () => {
+    userListeners.delete(listener);
+    if (userListeners.size === 0) listeners.delete(userId);
+  };
+}
+
+export async function fetchIsBlocked(myId: string, otherId: string): Promise<boolean> {
+  return (await fetchBlockedIds(myId)).has(otherId);
 }
 
 export async function blockUser(myId: string, otherId: string): Promise<void> {
-  const { error } = await supabase
-    .from('blocked_users')
-    .upsert({ blocker_id: myId, blocked_id: otherId }, { onConflict: 'blocker_id,blocked_id' });
+  const { error } = await supabase.from('blocked_users').upsert(
+    { blocker_id: myId, blocked_id: otherId }, { onConflict: 'blocker_id,blocked_id' },
+  );
   if (error) throw error;
+  // The database trigger protects this too; this removes both edges immediately.
+  const { error: followsError } = await supabase.from('follows').delete().or(
+    `and(follower_id.eq.${myId},following_id.eq.${otherId}),and(follower_id.eq.${otherId},following_id.eq.${myId})`,
+  );
+  if (followsError) throw followsError;
+  await fetchBlockedIds(myId, true);
 }
 
 export async function unblockUser(myId: string, otherId: string): Promise<void> {
-  const { error } = await supabase
-    .from('blocked_users')
-    .delete()
-    .eq('blocker_id', myId)
-    .eq('blocked_id', otherId);
+  const { error } = await supabase.from('blocked_users').delete().eq('blocker_id', myId).eq('blocked_id', otherId);
   if (error) throw error;
+  await fetchBlockedIds(myId, true);
 }
 
-export async function reportSubject(
-  reporterId: string,
-  subjectType: 'user' | 'conversation' | 'message',
-  subjectId: string,
-  reason: string,
-): Promise<void> {
+export async function submitReport(reporterId: string, target: ReportTarget, reason: ReportReason, details?: string): Promise<void> {
   const { error } = await supabase.from('moderation_reports').insert({
     reporter_id: reporterId,
-    subject_type: subjectType,
-    subject_id: subjectId,
+    target_user_id: target.targetUserId,
+    target_type: target.targetType,
+    target_id: target.targetType === 'message' && target.targetId != null ? String(target.targetId) : null,
     reason,
+    details: details?.trim() || null,
   });
   if (error) throw error;
 }

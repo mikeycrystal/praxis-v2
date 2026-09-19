@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { GlassTabBar, GraphTabIcon } from '../components/GlassTabBar';
+import { fetchBlockedIds } from '../lib/moderation';
 
 function useSocialBadge() {
   const { user } = useAuth();
@@ -14,12 +15,15 @@ function useSocialBadge() {
       setUnread(0);
       return;
     }
-    const { count } = await supabase
+    const [blockedIds, result] = await Promise.all([
+      fetchBlockedIds(user.id),
+      supabase
       .from('messages')
-      .select('id', { count: 'exact', head: true })
+      .select('sender_id')
       .eq('recipient_id', user.id)
-      .is('read_at', null);
-    setUnread(count ?? 0);
+      .is('read_at', null),
+    ]);
+    setUnread((result.data ?? []).filter((message) => !blockedIds.has(message.sender_id)).length);
   };
 
   useEffect(() => {

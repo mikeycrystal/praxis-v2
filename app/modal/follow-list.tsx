@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../services/supabase';
+import { fetchBlockedIds } from '../lib/moderation';
 
 interface FollowProfile {
   id: string;
@@ -82,16 +83,20 @@ export default function FollowListModal() {
         return;
       }
 
-      const { data, error } = await supabase
+      const [blockedIds, profileResult] = await Promise.all([
+        fetchBlockedIds(user.id),
+        supabase
         .from('profiles')
         .select('id, full_name, username, avatar_url, bio')
-        .in('id', ids);
+        .in('id', ids),
+      ]);
+      const { data, error } = profileResult;
 
       if (error) console.warn('[FollowList] Failed to load profiles', error);
       if (!isActive) return;
 
       const byId = new Map((data ?? []).map((profile: any) => [profile.id, profile]));
-      setProfiles(ids.map((id) => byId.get(id)).filter(Boolean) as FollowProfile[]);
+      setProfiles(ids.filter((id) => !blockedIds.has(id)).map((id) => byId.get(id)).filter(Boolean) as FollowProfile[]);
       setLoading(false);
     };
 
@@ -99,7 +104,7 @@ export default function FollowListModal() {
     return () => {
       isActive = false;
     };
-  }, [targetUserId, type]);
+  }, [targetUserId, type, user?.id]);
 
   if (authLoading || isGuestMode || !user) return null;
 

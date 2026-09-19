@@ -8,7 +8,7 @@ import { supabase } from '../services/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
 import { buildHref } from '../lib/buildHref';
-import { fetchBlockedIds } from '../lib/moderation';
+import { fetchBlockedIds, subscribeBlockedIds } from '../lib/moderation';
 
 interface FollowUser {
   id: string;
@@ -44,11 +44,15 @@ export default function SocialScreen() {
   const fetchFollowing = useCallback(async () => {
     if (!user) return;
     setLoadingFollowing(true);
-    const { data } = await supabase
+    const [blockedIds, result] = await Promise.all([
+      fetchBlockedIds(user.id),
+      supabase
       .from('follows')
       .select('following_id, profiles!follows_following_id_fkey(id, full_name, username, avatar_url, articles_read, current_streak)')
-      .eq('follower_id', user.id);
-    if (data) setFollowing(data.map((r: any) => r.profiles).filter(Boolean));
+      .eq('follower_id', user.id),
+    ]);
+    const { data } = result;
+    if (data) setFollowing(data.map((r: any) => r.profiles).filter((profile: any) => profile && !blockedIds.has(profile.id)));
     setLoadingFollowing(false);
   }, [user]);
 
@@ -117,6 +121,15 @@ export default function SocialScreen() {
 
   useEffect(() => { fetchFollowing(); }, [fetchFollowing]);
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
+
+  // A block made from a profile modal updates this already-mounted tab too.
+  useEffect(() => {
+    if (!user?.id) return;
+    return subscribeBlockedIds(user.id, () => {
+      void fetchFollowing();
+      void fetchConversations();
+    });
+  }, [fetchConversations, fetchFollowing, user?.id]);
 
   // Realtime: refresh convs when new message arrives
   useEffect(() => {
