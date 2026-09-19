@@ -19,6 +19,7 @@ import { readSavedArticles, subscribeSavedArticles } from '../lib/savedArticles'
 import { buildHref } from '../lib/buildHref';
 import { isAnalyticsAdmin } from '../lib/analyticsAccess';
 import { MonthMapCard } from '../components/MonthMapCard';
+import { TAB_BAR_CLEARANCE } from '../components/GlassTabBar';
 
 interface BadgeDefinition {
   id: string;
@@ -389,9 +390,9 @@ export default function ProfileScreen() {
 
 
         <MonthMapCard />
-        {/* Floating bar overlays the scroll (66pt capsule + offset); 32 let the
-            month card's insight/stats/Share ride under it (Ayuka, msg 1704). */}
-        <View style={{ height: 116 }} />
+        {/* Floating bar overlays the scroll; 32 let the month card's
+            insight/stats/Share ride under it (Ayuka, msg 1704). */}
+        <View style={{ height: TAB_BAR_CLEARANCE }} />
       </ScrollView>
     </SafeAreaView>
   );
