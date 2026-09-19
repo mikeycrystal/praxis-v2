@@ -44,6 +44,7 @@ export default function AIAnalysisScreen() {
           url: data.url,
           category: data.category ?? null,
           x: data.x,
+          y: data.y,
           meta: data.meta ?? null,
         }, { surface: 'article_detail' }));
       }

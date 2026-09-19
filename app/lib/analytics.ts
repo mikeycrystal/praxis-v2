@@ -353,7 +353,12 @@ export const trackPushOpen = async (
   pushType: string,
   articleId?: string | number | null,
 ) => {
-  setPendingSessionSource('push', pushType);
+  // Only stamp the pending source when no session is live: a tap on an open
+  // app belongs to the current session (the push_open row carries its id),
+  // and a stale flag would mislabel a LATER organic session as push-driven.
+  // Cold starts can still race startSession — the push_open/session_id join
+  // stays the exact source of truth for "from a push".
+  if (!sessionId) setPendingSessionSource('push', pushType);
   await trackEvent('push_open', {
     push_type: pushType,
     article_id: articleId == null ? null : String(articleId),

@@ -1093,6 +1093,7 @@ export default function FeedScreen() {
       url: article.url,
       category: article.category,
       x: article.x,
+      y: article.y,
       meta: article.meta,
     },
     {

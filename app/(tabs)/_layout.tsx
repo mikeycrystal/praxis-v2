@@ -15,15 +15,19 @@ function useSocialBadge() {
       setUnread(0);
       return;
     }
-    const [blockedIds, result] = await Promise.all([
-      fetchBlockedIds(user.id),
-      supabase
+    // Keep the exact head count (a row fetch silently caps at PostgREST's
+    // 1000-row default) and exclude blocked senders server-side.
+    const blockedIds = await fetchBlockedIds(user.id);
+    let query = supabase
       .from('messages')
-      .select('sender_id')
+      .select('id', { count: 'exact', head: true })
       .eq('recipient_id', user.id)
-      .is('read_at', null),
-    ]);
-    setUnread((result.data ?? []).filter((message) => !blockedIds.has(message.sender_id)).length);
+      .is('read_at', null);
+    if (blockedIds.size > 0) {
+      query = query.not('sender_id', 'in', `(${[...blockedIds].map((id) => `"${id}"`).join(',')})`);
+    }
+    const { count } = await query;
+    setUnread(count ?? 0);
   };
 
   useEffect(() => {

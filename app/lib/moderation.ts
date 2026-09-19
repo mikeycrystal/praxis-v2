@@ -13,11 +13,16 @@ function publish(userId: string, ids: Set<string>) {
   listeners.get(userId)?.forEach((listener) => listener(new Set(ids)));
 }
 
-/** Refreshes the current user's block list and keeps one in-memory copy for all screens. */
+/** Refreshes the current user's block list and keeps one in-memory copy for all screens.
+ * Never throws: on a failed fetch it degrades to the cached set (or an empty one), so a
+ * network blip filters nothing rather than wedging every caller's loading state. */
 export async function fetchBlockedIds(userId: string, refresh = false): Promise<Set<string>> {
   if (!refresh && blockedCache.has(userId)) return new Set(blockedCache.get(userId));
   const { data, error } = await supabase.from('blocked_users').select('blocked_id').eq('blocker_id', userId);
-  if (error) throw error;
+  if (error) {
+    console.warn('[moderation] Failed to fetch block list', error);
+    return new Set(blockedCache.get(userId) ?? []);
+  }
   const ids = new Set((data ?? []).map((row) => String(row.blocked_id)));
   publish(userId, ids);
   return new Set(ids);

@@ -46,7 +46,10 @@ export default function ChatScreen() {
   const [body, setBody] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [isBlocked, setIsBlocked] = useState(false);
+  // null = not yet known; the message list must not load (and must not
+  // write read receipts) until the block check resolves, or a blocked
+  // sender's messages flash and get marked read (leaking the checkmarks).
+  const [isBlocked, setIsBlocked] = useState<boolean | null>(null);
   const [reportMessage, setReportMessage] = useState<Message | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -54,7 +57,7 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!user || !userId) return;
-    void fetchIsBlocked(user.id, userId).then(setIsBlocked);
+    void fetchIsBlocked(user.id, userId).then(setIsBlocked).catch(() => setIsBlocked(false));
   }, [user, userId]);
 
   const otherName = otherUser?.full_name ?? otherUser?.username ?? 'this user';
@@ -122,7 +125,7 @@ export default function ChatScreen() {
 
   // Load message history
   const loadMessages = useCallback(async () => {
-    if (!convId) return;
+    if (!convId || isBlocked === null) return;
     const { data } = await supabase
       .from('messages')
       .select('id, sender_id, body, created_at, read_at')

@@ -22,9 +22,12 @@ BEGIN
     EXECUTE format('ALTER TABLE public.blocked_users DROP CONSTRAINT %I', constraint_name);
   END LOOP;
 END $$;
+-- ON DELETE CASCADE is load-bearing: the delete-account function removes the
+-- auth.users row, and without the cascade any block row (either direction)
+-- makes account deletion fail with an FK violation (App Store 5.1.1(v)).
 ALTER TABLE public.blocked_users
-  ADD CONSTRAINT blocked_users_blocker_id_fkey FOREIGN KEY (blocker_id) REFERENCES auth.users,
-  ADD CONSTRAINT blocked_users_blocked_id_fkey FOREIGN KEY (blocked_id) REFERENCES auth.users;
+  ADD CONSTRAINT blocked_users_blocker_id_fkey FOREIGN KEY (blocker_id) REFERENCES auth.users ON DELETE CASCADE,
+  ADD CONSTRAINT blocked_users_blocked_id_fkey FOREIGN KEY (blocked_id) REFERENCES auth.users ON DELETE CASCADE;
 
 ALTER TABLE public.blocked_users ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "blocked_users_select_own" ON public.blocked_users;

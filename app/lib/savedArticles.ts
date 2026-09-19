@@ -242,6 +242,7 @@ export const upsertSavedArticle = async (
     url: normalized.url,
     category: normalized.category,
     x: normalized.x,
+    y: normalized.y,
     meta: normalized.meta,
   }, { topics: normalized.topics }));
   return next;
@@ -263,6 +264,7 @@ export const removeSavedArticle = async (
       url: removed.url,
       category: removed.category,
       x: removed.x,
+      y: removed.y,
       meta: removed.meta,
     }, { topics: removed.topics }));
   }
