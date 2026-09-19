@@ -306,6 +306,111 @@ export const writeDailyDigestPanelHint = async () => {
   }
 };
 
+// The digest used to re-pick from the top of the pool with no memory, so a
+// story that stayed highly ranked came back day after day (The Hill's AI
+// policy series, 2026-09-19). Remember the last three days of picks and
+// skip them — by id, and by near-identical title, since the same story
+// returns under a fresh headline. Mirrors the server's push dedupe.
+const DIGEST_HISTORY_STORAGE_KEY = 'praxis.mobileDigestHistory.v1';
+const DIGEST_HISTORY_DAYS = 3;
+
+interface DigestHistoryEntry {
+  date: string;
+  articleIds: number[];
+  titles: string[];
+}
+
+const historyMemoryStorage = new Map<string, string>();
+
+const readDigestHistory = async (): Promise<DigestHistoryEntry[]> => {
+  let raw: string | null = null;
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      raw = window.localStorage.getItem(DIGEST_HISTORY_STORAGE_KEY);
+    } else {
+      raw = historyMemoryStorage.get(DIGEST_HISTORY_STORAGE_KEY) ?? null;
+    }
+  } else {
+    try {
+      raw = await AsyncStorage.getItem(DIGEST_HISTORY_STORAGE_KEY);
+    } catch (error) {
+      console.warn('[dailyDigest] Failed to read digest history', error);
+    }
+  }
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((entry) => entry && typeof entry.date === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeDigestHistory = async (entries: DigestHistoryEntry[]) => {
+  const value = JSON.stringify(entries);
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(DIGEST_HISTORY_STORAGE_KEY, value);
+    } else {
+      historyMemoryStorage.set(DIGEST_HISTORY_STORAGE_KEY, value);
+    }
+    return;
+  }
+  try {
+    await AsyncStorage.setItem(DIGEST_HISTORY_STORAGE_KEY, value);
+  } catch (error) {
+    console.warn('[dailyDigest] Failed to write digest history', error);
+  }
+};
+
+const TITLE_STOPWORDS = new Set([
+  'about', 'administration', 'after', 'against', 'america', 'american',
+  'americans', 'amid', 'among', 'announces', 'because', 'before', 'being',
+  'between', 'biden', 'breaking', 'calls', 'claims', 'congress', 'could',
+  'court', 'democrat', 'democrats', 'during', 'every', 'federal', 'first',
+  'former', 'house', 'might', 'nation', 'national', 'officials', 'other',
+  'president', 'report', 'republican', 'republicans', 'says', 'senate',
+  'should', 'state', 'states', 'their', 'there', 'these', 'things', 'times',
+  'today', 'trump', 'under', 'vance', 'warns', 'white', 'whose', 'world',
+  'would', 'years',
+]);
+
+const significantTitleWords = (text: string): Set<string> =>
+  new Set(
+    text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word.length >= 5 && !TITLE_STOPWORDS.has(word)),
+  );
+
+const isNearDuplicateTitle = (title: string, recentTitles: string[]): boolean => {
+  const words = significantTitleWords(title);
+  for (const recent of recentTitles) {
+    let shared = 0;
+    for (const word of significantTitleWords(recent)) {
+      if (words.has(word) && ++shared >= 2) return true;
+    }
+  }
+  return false;
+};
+
+interface DigestExclusions {
+  ids: Set<number>;
+  titles: string[];
+}
+
+const buildDigestExclusions = (history: DigestHistoryEntry[], today: string): DigestExclusions => {
+  const ids = new Set<number>();
+  const titles: string[] = [];
+  for (const entry of history) {
+    if (entry.date === today) continue; // today's own picks are not repeats
+    for (const id of entry.articleIds ?? []) ids.add(id);
+    for (const title of entry.titles ?? []) if (typeof title === 'string') titles.push(title);
+  }
+  return { ids, titles };
+};
+
 const scoreArticleForDigest = (article: Article, index: number) => {
   const hasSummary = article.meta?.summary || article.lede;
   const hasImage = article.image_url;
@@ -319,7 +424,7 @@ const scoreArticleForDigest = (article: Article, index: number) => {
   );
 };
 
-const selectDigestArticles = (articles: Article[]) => {
+const selectDigestArticles = (articles: Article[], exclusions?: DigestExclusions) => {
   const seenSources = new Set<string>();
   const selected: Article[] = [];
   const candidates = articles
@@ -331,13 +436,30 @@ const selectDigestArticles = (articles: Article[]) => {
     }))
     .sort((left, right) => right.score - left.score);
 
+  const isRecentRepeat = (article: Article) =>
+    Boolean(
+      exclusions &&
+        (exclusions.ids.has(article.id) ||
+          (article.title && isNearDuplicateTitle(article.title, exclusions.titles))),
+    );
+
   candidates.forEach((candidate) => {
     if (selected.length >= DAILY_DIGEST_STORY_COUNT) return;
     if (candidate.source && seenSources.has(candidate.source)) return;
+    if (isRecentRepeat(candidate.article)) return;
     selected.push(candidate.article);
     if (candidate.source) seenSources.add(candidate.source);
   });
 
+  candidates.forEach((candidate) => {
+    if (selected.length >= DAILY_DIGEST_STORY_COUNT) return;
+    if (selected.some((article) => article.id === candidate.article.id)) return;
+    if (isRecentRepeat(candidate.article)) return;
+    selected.push(candidate.article);
+  });
+
+  // A thin pool beats a short digest: only if skipping repeats leaves fewer
+  // than five stories do repeats become eligible again.
   candidates.forEach((candidate) => {
     if (selected.length >= DAILY_DIGEST_STORY_COUNT) return;
     if (selected.some((article) => article.id === candidate.article.id)) return;
@@ -358,6 +480,8 @@ const finalizeDigestSelection = async (
   completedIds: number[],
 ): Promise<DailyDigestFeed> => {
   const today = getTodayKey();
+  const history = await readDigestHistory();
+  const exclusions = buildDigestExclusions(history, today);
   const articleById = new Map(articles.map((article) => [article.id, article]));
   const snapshotById = new Map(snapshot.map((article) => [article.id, article]));
   const resolve = (id: number) => articleById.get(id) ?? snapshotById.get(id);
@@ -366,7 +490,7 @@ const finalizeDigestSelection = async (
     ? preferredIds
         .map(resolve)
         .filter((article): article is Article => Boolean(article))
-    : selectDigestArticles(articles);
+    : selectDigestArticles(articles, exclusions);
   const has = (id: number) => digestArticles.some((article) => article.id === id);
 
   if (digestArticles.length < DAILY_DIGEST_STORY_COUNT) {
@@ -374,7 +498,7 @@ const finalizeDigestSelection = async (
       if (digestArticles.length >= DAILY_DIGEST_STORY_COUNT) break;
       if (!has(article.id)) digestArticles.push(article);
     }
-    for (const article of selectDigestArticles(articles.filter((candidate) => !has(candidate.id)))) {
+    for (const article of selectDigestArticles(articles.filter((candidate) => !has(candidate.id)), exclusions)) {
       if (digestArticles.length >= DAILY_DIGEST_STORY_COUNT) break;
       digestArticles.push(article);
     }
@@ -390,6 +514,19 @@ const finalizeDigestSelection = async (
   };
 
   await writeStorageValue(state);
+
+  // Record today's picks so the next days can avoid repeating them.
+  const nextHistory = [
+    ...history.filter((entry) => entry.date !== today),
+    {
+      date: today,
+      articleIds: digestIds,
+      titles: digestArticles.map((article) => article.title).filter((t): t is string => Boolean(t)),
+    },
+  ]
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .slice(-DIGEST_HISTORY_DAYS);
+  await writeDigestHistory(nextHistory);
 
   const digestIdSet = new Set(digestIds);
   const remainingArticles = articles.filter((article) => !digestIdSet.has(article.id));
