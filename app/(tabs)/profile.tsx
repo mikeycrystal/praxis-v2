@@ -389,7 +389,9 @@ export default function ProfileScreen() {
 
 
         <MonthMapCard />
-        <View style={{ height: 32 }} />
+        {/* Floating bar overlays the scroll (66pt capsule + offset); 32 let the
+            month card's insight/stats/Share ride under it (Ayuka, msg 1704). */}
+        <View style={{ height: 116 }} />
       </ScrollView>
     </SafeAreaView>
   );

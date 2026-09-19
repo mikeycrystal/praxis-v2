@@ -1,6 +1,13 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
@@ -11,10 +18,19 @@ import { supabase } from '../services/supabase';
 // article read this month, opacity = recency, tap = open the article.
 // Copy rule: the headline states what the reader DID; a lopsided month gets
 // a neutral line, never a corrective one.
+//
+// Density ("embers + fresh", his pick 2026-09-19 msg 1710): at Ayuka's real
+// volume (~1.3k reads/month) uniform dots merged into blobs. The month now
+// renders as two layers — everything older than the newest FRESH_COUNT
+// articles becomes faint ember terrain (small, near-transparent, no touch
+// target), the fresh reads stay crisp and tappable on top. Ink only, no
+// color coding: position already encodes lean, color would say it twice.
 
 const PANEL = 326;
 const HALF = PANEL / 2;
 const SPAN = 123; // dot field radius in px; coords are -1..1
+const FRESH_COUNT = 150;
+const ZOOM_MAX = 3;
 
 const INK = '#2B2823';
 const INK_LINE = '#454037';
@@ -45,6 +61,77 @@ export function MonthMapCard() {
   const { c } = useTheme();
   const [dots, setDots] = useState<MonthDot[]>([]);
   const [stats, setStats] = useState<MonthStats | null>(null);
+  const [zoomed, setZoomed] = useState(false);
+
+  // Pinch-to-zoom on the panel (1x–ZOOM_MAX, double-tap resets) — same
+  // gesture the Graph tab taught. One-finger pan only engages while zoomed
+  // so the profile scroll keeps working at rest.
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const savedTx = useSharedValue(0);
+  const savedTy = useSharedValue(0);
+
+  const pinchGesture = useMemo(
+    () => Gesture.Pinch()
+      .onStart(() => {
+        savedScale.value = scale.value;
+      })
+      .onUpdate((event) => {
+        const next = Math.min(ZOOM_MAX, Math.max(1, savedScale.value * event.scale));
+        scale.value = next;
+        const limit = ((next - 1) * PANEL) / 2;
+        tx.value = Math.min(limit, Math.max(-limit, tx.value));
+        ty.value = Math.min(limit, Math.max(-limit, ty.value));
+      })
+      .onEnd(() => {
+        runOnJS(setZoomed)(scale.value > 1.02);
+      }),
+    [savedScale, scale, tx, ty],
+  );
+
+  const panGesture = useMemo(
+    () => Gesture.Pan()
+      .enabled(zoomed)
+      .maxPointers(1)
+      .onStart(() => {
+        savedTx.value = tx.value;
+        savedTy.value = ty.value;
+      })
+      .onUpdate((event) => {
+        const limit = ((scale.value - 1) * PANEL) / 2;
+        tx.value = Math.min(limit, Math.max(-limit, savedTx.value + event.translationX));
+        ty.value = Math.min(limit, Math.max(-limit, savedTy.value + event.translationY));
+      }),
+    [savedTx, savedTy, scale, tx, ty, zoomed],
+  );
+
+  const doubleTapGesture = useMemo(
+    () => Gesture.Tap()
+      .numberOfTaps(2)
+      .onEnd((_event, success) => {
+        if (!success) return;
+        scale.value = withTiming(1, { duration: 200 });
+        tx.value = withTiming(0, { duration: 200 });
+        ty.value = withTiming(0, { duration: 200 });
+        runOnJS(setZoomed)(false);
+      }),
+    [scale, tx, ty],
+  );
+
+  const panelGesture = useMemo(
+    () => Gesture.Race(doubleTapGesture, Gesture.Simultaneous(pinchGesture, panGesture)),
+    [doubleTapGesture, panGesture, pinchGesture],
+  );
+
+  const zoomStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: tx.value },
+      { translateY: ty.value },
+      { scale: scale.value },
+    ] as const,
+  }));
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -107,7 +194,7 @@ export function MonthMapCard() {
     <Text style={[s.insight, { color: c.text }]}>Your month on the map.</Text>
   );
 
-  const denom = Math.max(dots.length - 1, 1);
+  const freshDenom = Math.max(Math.min(dots.length, FRESH_COUNT) - 1, 1);
 
   const onShare = () => {
     void Share.share({
@@ -123,23 +210,41 @@ export function MonthMapCard() {
       </View>
 
       <View style={s.panelWrap}>
-        <Svg width={PANEL} height={PANEL}>
-          <Rect x={0} y={0} width={PANEL} height={PANEL} rx={14} fill={INK} />
-          <Line x1={HALF} y1={40} x2={HALF} y2={PANEL - 40} stroke={INK_LINE} strokeWidth={1} />
-          <Line x1={40} y1={HALF} x2={PANEL - 40} y2={HALF} stroke={INK_LINE} strokeWidth={1} />
-          <Circle cx={HALF} cy={HALF} r={2} fill="#5A5344" />
-          {dots.map((dot) => (
-            <Circle
-              key={dot.articleId}
-              cx={HALF + dot.x * SPAN}
-              cy={HALF - dot.y * SPAN}
-              r={4.5}
-              fill={CREAM}
-              opacity={0.95 - 0.6 * (dot.order / denom)}
-              onPress={() => router.push({ pathname: '/article/[id]', params: { id: dot.articleId } })}
-            />
-          ))}
-        </Svg>
+        <GestureDetector gesture={panelGesture}>
+          <View style={s.zoomClip} collapsable={false}>
+            <Animated.View style={zoomStyle}>
+              <Svg width={PANEL} height={PANEL}>
+                <Rect x={0} y={0} width={PANEL} height={PANEL} rx={14} fill={INK} />
+                <Line x1={HALF} y1={40} x2={HALF} y2={PANEL - 40} stroke={INK_LINE} strokeWidth={1} />
+                <Line x1={40} y1={HALF} x2={PANEL - 40} y2={HALF} stroke={INK_LINE} strokeWidth={1} />
+                <Circle cx={HALF} cy={HALF} r={2} fill="#5A5344" />
+                {/* ember layer: the month's terrain, no touch targets */}
+                {dots.map((dot) => (dot.order >= FRESH_COUNT ? (
+                  <Circle
+                    key={dot.articleId}
+                    cx={HALF + dot.x * SPAN}
+                    cy={HALF - dot.y * SPAN}
+                    r={1.7}
+                    fill={CREAM}
+                    opacity={0.11}
+                  />
+                ) : null))}
+                {/* fresh layer: newest FRESH_COUNT reads, crisp and tappable */}
+                {dots.map((dot) => (dot.order < FRESH_COUNT ? (
+                  <Circle
+                    key={dot.articleId}
+                    cx={HALF + dot.x * SPAN}
+                    cy={HALF - dot.y * SPAN}
+                    r={2.6}
+                    fill={CREAM}
+                    opacity={0.95 - 0.6 * (dot.order / freshDenom)}
+                    onPress={() => router.push({ pathname: '/article/[id]', params: { id: dot.articleId } })}
+                  />
+                ) : null))}
+              </Svg>
+            </Animated.View>
+          </View>
+        </GestureDetector>
         <Text style={[s.quad, s.quadTop]}>HARD NEWS</Text>
         <Text style={[s.quad, s.quadBottom]}>OPINION</Text>
         <Text style={[s.quad, s.quadLeft]}>LEFT</Text>
@@ -172,6 +277,7 @@ const s = StyleSheet.create({
   label: { fontSize: 13, fontWeight: '800', letterSpacing: 0.2 },
   lock: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
   panelWrap: { width: PANEL, height: PANEL, alignSelf: 'center', marginTop: 10 },
+  zoomClip: { width: PANEL, height: PANEL, borderRadius: 14, overflow: 'hidden' },
   quad: {
     position: 'absolute', fontSize: 8, fontWeight: '800', letterSpacing: 1.6, color: '#8E8877',
   },
