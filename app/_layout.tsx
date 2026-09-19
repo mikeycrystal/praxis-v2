@@ -207,6 +207,7 @@ export default function RootLayout() {
             <Stack.Screen name="chat/[id]" options={{ presentation: 'card' }} />
             <Stack.Screen name="modal/reading-activity" options={{ presentation: 'modal' }} />
             <Stack.Screen name="modal/analytics" options={{ presentation: 'modal' }} />
+            <Stack.Screen name="modal/achievements" options={{ presentation: 'modal' }} />
           </Stack>
           <StatusBar style="dark" />
         </NewsPreferencesProvider>

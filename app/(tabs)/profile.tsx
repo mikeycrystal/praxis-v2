@@ -18,6 +18,7 @@ import {
 import { readSavedArticles, subscribeSavedArticles } from '../lib/savedArticles';
 import { buildHref } from '../lib/buildHref';
 import { isAnalyticsAdmin } from '../lib/analyticsAccess';
+import { MonthMapCard } from '../components/MonthMapCard';
 
 interface BadgeDefinition {
   id: string;
@@ -73,8 +74,6 @@ export default function ProfileScreen() {
   const [digestCount, setDigestCount] = useState(0);
   const [activity, setActivity] = useState<ReadingActivitySummary>(EMPTY_ACTIVITY);
   const [insightsOpen, setInsightsOpen] = useState(false);
-  const [selectedBadgeFilter, setSelectedBadgeFilter] = useState('All');
-  const [achievementOffset, setAchievementOffset] = useState(0);
   const [userRank, setUserRank] = useState<number | null>(null);
   const c = {
     background: '#F7F3EA',
@@ -211,20 +210,6 @@ export default function ProfileScreen() {
   const insightTopics = activity.topTopics.length > 0
     ? activity.topTopics
     : (profile.topics ?? []).slice(0, 7).map((topic) => ({ topic, count: 0 }));
-  const earnedBadgeMap = new Map(earnedBadges.map((badge) => [badge.badge_id, badge.earned_at]));
-  const visibleBadges = allBadges.filter((badge) => (
-    selectedBadgeFilter === 'All' || badge.category === selectedBadgeFilter.toLowerCase()
-  ));
-  const badgeFilters = [
-    { label: 'All', count: badgeCount },
-    ...['Reading', 'Streak', 'Exploration', 'Engagement'].map((label) => ({
-      label,
-      count: earnedBadges.filter((earned) => {
-        const definition = allBadges.find((badge) => badge.id === earned.badge_id);
-        return definition?.category === label.toLowerCase();
-      }).length,
-    })),
-  ];
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
@@ -314,7 +299,7 @@ export default function ProfileScreen() {
             },
             {
               icon: 'trophy-outline', label: 'Achievements', value: badgeCount, accent: true,
-              onPress: () => scrollRef.current?.scrollTo({ y: achievementOffset, animated: true }),
+              onPress: () => router.push('/modal/achievements' as any),
             },
           ].map((item) => (
             <TouchableOpacity
@@ -401,89 +386,9 @@ export default function ProfileScreen() {
           </View>
         ) : null}
 
-        <View
-          style={s.achievementHeader}
-          onLayout={(event) => setAchievementOffset(event.nativeEvent.layout.y)}
-        >
-          <View style={s.achievementTitleRow}>
-            <Ionicons name="trophy-outline" size={28} color="#8EAF72" />
-            <Text style={[s.achievementTitle, { color: c.text }]}>Achievements</Text>
-          </View>
-          <Text style={[s.achievementCount, { color: c.textMuted }]}>{badgeCount} / {allBadges.length} earned</Text>
-        </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[s.filterRow, { backgroundColor: '#DDD5C7' }]}
-        >
-          {badgeFilters.map((filter) => {
-            const selected = selectedBadgeFilter === filter.label;
-            return (
-              <TouchableOpacity
-                key={filter.label}
-                style={[
-                  s.filterPill,
-                  selected && { backgroundColor: c.surface, borderColor: c.border },
-                ]}
-                onPress={() => setSelectedBadgeFilter(filter.label)}
-              >
-                <Text style={[s.filterText, { color: selected ? c.text : c.textMuted }]}>{filter.label} ({filter.count})</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
 
-        {badgesLoading ? (
-          <ActivityIndicator color="#8EAF72" style={s.badgeLoader} />
-        ) : visibleBadges.length > 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.badgeCarousel}>
-          {visibleBadges.map((badge) => {
-            const earnedAt = earnedBadgeMap.get(badge.id);
-            const earned = Boolean(earnedAt);
-            const categoryColors = CATEGORY_COLORS[badge.category] ?? CATEGORY_COLORS.reading;
-            return (
-            <View
-              key={badge.id}
-              style={[
-                s.badgeShowcaseCard,
-                {
-                  backgroundColor: earned ? '#F7ECE0' : c.card,
-                  borderColor: earned ? '#D9A57B' : c.border,
-                  borderStyle: earned ? 'solid' : 'dashed',
-                  opacity: earned ? 1 : 0.54,
-                },
-              ]}
-            >
-              <View style={[s.badgeIconCircle, { backgroundColor: earned ? '#B95E12' : '#E5DED2' }]}>
-                <Ionicons
-                  name={BADGE_ICONS[badge.category] ?? 'ribbon-outline'}
-                  size={38}
-                  color={earned ? '#FFFDF8' : '#AAA195'}
-                />
-              </View>
-              <Text style={[s.badgeShowcaseName, { color: c.text }]} numberOfLines={2}>{badge.name}</Text>
-              <Text style={[s.badgeShowcaseDescription, { color: c.textMuted }]}>
-                {badge.description}
-              </Text>
-              <View style={[s.badgeTopicPill, { backgroundColor: categoryColors.background, borderColor: categoryColors.border }]}>
-                <Text style={[s.badgeTopicText, { color: categoryColors.text }]}>{badge.category}</Text>
-              </View>
-              <View style={[s.badgeTierPill, { borderColor: '#D4C7B6', backgroundColor: c.surface }]}>
-                <Text style={[s.badgeTierText, { color: c.textMuted }]}>{badge.tier}</Text>
-              </View>
-              {earnedAt ? (
-                <Text style={[s.earnedDate, { color: c.textMuted }]}>
-                  Earned {new Date(earnedAt).toLocaleDateString()}
-                </Text>
-              ) : null}
-            </View>
-          )})}
-        </ScrollView>
-        ) : (
-          <Text style={[s.emptyBadgeText, { color: c.textMuted }]}>No achievements in this category yet.</Text>
-        )}
-
+        <MonthMapCard />
         <View style={{ height: 32 }} />
       </ScrollView>
     </SafeAreaView>
