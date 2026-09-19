@@ -69,6 +69,13 @@ function trimTitle(title: string, max = 60): string {
   return `${cut || clean.slice(0, max - 1)}…`;
 }
 
+// Push copy reads as sentences, not "title; title" fragment jumbles
+// (Ayuka, 2026-09-19): each headline stands alone, closed with a period.
+function sentence(title: string, max = 90): string {
+  const clean = trimTitle(title, max);
+  return /[.?!…]$/.test(clean) ? clean : `${clean}.`;
+}
+
 function withinHours(timestamp: number, hours: number): boolean {
   return Number.isFinite(timestamp) &&
     timestamp >= Date.now() - hours * 3600000;
@@ -313,8 +320,8 @@ serve(async (req) => {
       ).slice(0, 2);
       if (selected.length < 2) continue;
       const [first, second] = selected;
-      const line = `${trimTitle(first.lead.title)}; ${
-        trimTitle(second.lead.title)
+      const line = `${sentence(first.lead.title)}\n${
+        sentence(second.lead.title)
       }`;
       for (const token of userTokens) {
         messages.push({
@@ -344,8 +351,8 @@ serve(async (req) => {
     }
     if (eveningCandidates.length >= 2) {
       const [first, second] = eveningCandidates;
-      const line = `${trimTitle(first.lead.title)}; ${
-        trimTitle(second.lead.title)
+      const line = `${sentence(first.lead.title)}\n${
+        sentence(second.lead.title)
       }`;
       for (const token of guestTokens) {
         messages.push({
@@ -388,7 +395,7 @@ serve(async (req) => {
           Date.now() - Date.parse(row.sent_at) < 2 * 3600000
         );
         if (hasRecentDigest) continue;
-        const line = breakingCluster.lead.title.slice(0, 140);
+        const line = sentence(breakingCluster.lead.title, 140);
         for (const token of userTokens) {
           messages.push({
             to: token,
@@ -443,8 +450,8 @@ serve(async (req) => {
       const { cluster, side } = splitCluster;
       const missingSide = side === "left" ? "right" : "left";
       const line = `${
-        trimTitle(cluster.lead.title, 90)
-      } · Covered on the ${side}, not the ${missingSide} (so far).`;
+        sentence(cluster.lead.title, 90)
+      }\nSo far only ${side}-leaning outlets are covering this. Nothing yet from the ${missingSide}.`;
       for (const profile of profiles ?? []) {
         const userTokens = activeByUser.get(profile.id);
         const rows = mine(profile.id);
