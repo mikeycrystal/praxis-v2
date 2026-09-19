@@ -44,6 +44,8 @@ type AggregateRow = {
   cumulative_signups: number | null;
   article_impressions: number | null;
   article_opens: number | null;
+  article_read_completions: number | null;
+  authenticated_active_users: number | null;
   ai_analysis_opens: number | null;
   feed_loads: number | null;
 };
@@ -115,11 +117,18 @@ function Trend({ values, color = COLORS.green }: { values: number[]; color?: str
   );
 }
 
-function StatCard({ label, value, detail, prominent }: { label: string; value: string; detail?: string; prominent?: boolean }) {
+function StatCard({ label, value, detail, prominent, delta }: { label: string; value: string; detail?: string; prominent?: boolean; delta?: number | null }) {
   return (
     <View style={[s.statCard, prominent && s.statCardProminent]}>
       <Text style={[s.statLabel, prominent && { color: COLORS.green }]}>{label}</Text>
-      <Text style={[s.statValue, prominent && { color: COLORS.green }]}>{value}</Text>
+      <View style={s.statValueRow}>
+        <Text style={[s.statValue, prominent && { color: COLORS.green }]}>{value}</Text>
+        {typeof delta === 'number' && delta !== 0 ? (
+          <Text style={[s.statDelta, delta < 0 && s.statDeltaDown]}>
+            {delta > 0 ? `▲ ${delta}` : `▼ ${Math.abs(delta)}`}
+          </Text>
+        ) : null}
+      </View>
       {detail ? <Text style={s.statDetail}>{detail}</Text> : null}
     </View>
   );
@@ -201,6 +210,32 @@ export default function AnalyticsDashboard() {
     impressions: filteredAggregates.reduce((sum, row) => sum + number(row.article_impressions), 0),
     loads: filteredAggregates.reduce((sum, row) => sum + number(row.feed_loads), 0),
   }), [aggregates, filteredAggregates]);
+  // Layout A (Ayuka, 2026-09-19, msg 1506): yesterday's pulse up top, and
+  // window-over-window deltas on the tiles. The previous window is the
+  // equal-length stretch right before the selected one; "All time" has no
+  // meaningful predecessor, so deltas hide there.
+  const pulse = useMemo(() => {
+    const yesterday = aggregates.find((row) => row.day === subtractDays(1));
+    if (!yesterday) return null;
+    return {
+      actives: number(yesterday.blended_active_users),
+      reads: number(yesterday.article_read_completions),
+      signedIn: number(yesterday.authenticated_active_users),
+    };
+  }, [aggregates]);
+  const deltas = useMemo(() => {
+    const days = TIMEFRAMES.find((item) => item.value === timeframe)?.days;
+    if (!days || !cutoff) return null;
+    const prevCutoff = subtractDays(2 * days - 1);
+    const prev = aggregates.filter((row) => row.day >= prevCutoff && row.day < cutoff);
+    if (prev.length === 0) return null;
+    return {
+      users: overview.users - Math.max(...prev.map((row) => number(row.blended_active_users)), 0),
+      opens: overview.opens - prev.reduce((sum, row) => sum + number(row.article_opens), 0),
+      ai: overview.ai - prev.reduce((sum, row) => sum + number(row.ai_analysis_opens), 0),
+      signups: overview.signups - prev.reduce((sum, row) => sum + number(row.new_signups), 0),
+    };
+  }, [aggregates, cutoff, overview, timeframe]);
   const topSources = useMemo(() => {
     const grouped = new Map<string, { source: string; opens: number; reads: number; ai: number }>();
     sources.filter((row) => !cutoff || row.day >= cutoff).forEach((row) => {
@@ -225,7 +260,17 @@ export default function AnalyticsDashboard() {
         <View style={s.controls}><Text style={s.controlLabel}>Window</Text><View style={s.pills}>{TIMEFRAMES.map((item) => <TouchableOpacity key={item.value} onPress={() => setTimeframe(item.value)} style={[s.pill, timeframe === item.value && s.pillActive]}><Text style={[s.pillText, timeframe === item.value && s.pillTextActive]}>{item.label}</Text></TouchableOpacity>)}</View><Text style={s.freshness}>Freshness: {latestEvent ? new Date(latestEvent).toLocaleString() : 'Collecting data'}</Text></View>
         {error ? <View style={s.error}><Text style={s.errorText}>Dashboard failed to load: {error}</Text></View> : null}
         {loading && !daily.length ? <ActivityIndicator size="large" color={COLORS.green} style={{ marginVertical: 56 }} /> : <>
-          <View style={s.sectionShell}><Text style={s.sectionTitle}>Aggregate Overview</Text><Text style={s.sectionDescription}>How much total activity happened in this selected window.</Text><View style={s.statGrid}><StatCard label="Total Unique Users" value={count(overview.users)} /><StatCard label="Total Article Opens" value={count(overview.opens)} /><StatCard label="Total AI Insights" value={count(overview.ai)} /><StatCard label="New Signups" value={count(overview.signups)} /><StatCard label="Total Signups" value={count(overview.totalSignups)} /><StatCard label="Impressions" value={count(overview.impressions)} /><StatCard label="Feed Loads" value={count(overview.loads)} /><StatCard label="Loads per User" value={perUser(overview.users ? overview.loads / overview.users : 0)} /></View></View>
+          {pulse ? (
+            <View style={s.pulseCard}>
+              <Text style={s.statLabel}>Yesterday</Text>
+              <View style={s.pulseRow}>
+                <View><Text style={s.pulseValue}>{count(pulse.actives)}</Text><Text style={s.pulseCaption}>active readers</Text></View>
+                <View><Text style={s.pulseValue}>{count(pulse.reads)}</Text><Text style={s.pulseCaption}>full reads</Text></View>
+                <View><Text style={[s.pulseValue, { color: COLORS.green }]}>{count(pulse.signedIn)}</Text><Text style={s.pulseCaption}>signed in</Text></View>
+              </View>
+            </View>
+          ) : null}
+          <View style={s.sectionShell}><Text style={s.sectionTitle}>Aggregate Overview</Text><Text style={s.sectionDescription}>How much total activity happened in this selected window.</Text><View style={s.statGrid}><StatCard label="Total Unique Users" value={count(overview.users)} delta={deltas?.users} /><StatCard label="Total Article Opens" value={count(overview.opens)} delta={deltas?.opens} /><StatCard label="Total AI Insights" value={count(overview.ai)} delta={deltas?.ai} /><StatCard label="New Signups" value={count(overview.signups)} delta={deltas?.signups} /><StatCard label="Total Signups" value={count(overview.totalSignups)} /><StatCard label="Impressions" value={count(overview.impressions)} /><StatCard label="Feed Loads" value={count(overview.loads)} /><StatCard label="Loads per User" value={perUser(overview.users ? overview.loads / overview.users : 0)} /></View></View>
           <View style={[s.sectionShell, s.behaviorShell]}><Text style={s.sectionTitle}>User Behavior</Text><Text style={s.sectionDescription}>Core per-user KPIs for people who are active in Praxis.</Text><View style={s.pills}>{(['monthly', 'weekly', 'daily'] as Grain[]).map((item) => <TouchableOpacity key={item} onPress={() => setGrain(item)} style={[s.pill, grain === item && s.pillActive]}><Text style={[s.pillText, grain === item && s.pillTextActive]}>{item[0].toUpperCase() + item.slice(1)}</Text></TouchableOpacity>)}</View><View style={s.statGrid}><StatCard prominent label="North Star: Informed Engagement" value={rate(current?.informedRate)} detail={`${count(current?.informed)} / ${count(current?.active)} users`} /><StatCard label={`${grain === 'monthly' ? 'Monthly' : grain === 'weekly' ? 'Weekly' : 'Daily'} Active Users`} value={count(current?.active)} /><StatCard label="AI Adoption" value={rate(current?.aiRate)} detail={`${count(current?.aiAdopted)} users`} /><StatCard label="Articles per User" value={perUser(current?.opensPerUser)} /><StatCard label="Cross-Spectrum" value={rate(current?.crossSpectrumRate)} detail={`${count(current?.crossSpectrum)} users`} /></View></View>
           <Text style={s.sectionTitle}>Scale</Text><Text style={s.sectionDescription}>Trusted active-user timelines over the selected timeframe.</Text><View style={s.panel}><Text style={s.panelTitle}>{grain === 'monthly' ? 'MAU' : grain === 'weekly' ? 'WAU' : 'DAU'} Trend</Text><Text style={s.panelDescription}>Active users by the selected reporting grain.</Text><Trend values={series.map((row) => row.active)} /><Text style={s.chartCaption}>{series.length ? `${shortDate(series[0].day)} to ${shortDate(series.at(-1)!.day)}` : 'No data yet'}</Text></View>
           <Text style={s.sectionTitle}>Behavior</Text><Text style={s.sectionDescription}>The KPI layer that measures content, AI understanding, and perspective broadening.</Text><View style={s.chartGrid}>{[{ label: 'Informed Engagement Rate', values: series.map((row) => row.informedRate * 100) }, { label: 'AI Adoption Rate', values: series.map((row) => row.aiRate * 100) }, { label: 'Articles per User', values: series.map((row) => row.opensPerUser) }, { label: 'Cross-Spectrum Rate', values: series.map((row) => row.crossSpectrumRate * 100) }].map((chart) => <View key={chart.label} style={s.panel}><Text style={s.panelTitle}>{chart.label}</Text><Trend values={chart.values} /><Text style={s.chartCaption}>Current: {chart.values.length ? chart.values.at(-1)?.toFixed(1) : '0.0'}</Text></View>)}</View>
@@ -241,7 +286,12 @@ const s = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }, iconButton: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21, backgroundColor: COLORS.card, borderWidth: 1, borderColor: COLORS.border },
   titleRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 6 }, titleIcon: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.greenSoft }, title: { color: COLORS.text, fontSize: 25, fontWeight: '800', letterSpacing: -0.6 }, subtitle: { color: COLORS.muted, marginTop: 4, fontSize: 13, lineHeight: 19 },
   controls: { backgroundColor: COLORS.card, borderColor: COLORS.border, borderWidth: 1, borderRadius: 20, padding: 14, gap: 10 }, controlLabel: { color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 1.4, textTransform: 'uppercase' }, freshness: { color: COLORS.muted, fontSize: 12 }, pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, pill: { borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#FAF7F0', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 }, pillActive: { backgroundColor: COLORS.green, borderColor: COLORS.green }, pillText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' }, pillTextActive: { color: '#FFFDF9' },
-  sectionShell: { backgroundColor: '#FCF8F0', borderColor: COLORS.border, borderWidth: 1, borderRadius: 24, padding: 16, gap: 10, marginTop: 6 }, behaviorShell: { backgroundColor: '#EEF5E8', borderColor: '#CFE0C3' }, sectionTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.2, marginTop: 8 }, sectionDescription: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginBottom: 3 }, statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 }, statCard: { width: '48.7%', minHeight: 118, borderRadius: 18, padding: 13, justifyContent: 'space-between', backgroundColor: COLORS.card, borderColor: '#EDE5D8', borderWidth: 1 }, statCardProminent: { backgroundColor: '#F6FBF1', borderColor: '#B8CEA5' }, statLabel: { color: COLORS.muted, fontSize: 10, lineHeight: 14, fontWeight: '800', letterSpacing: .6, textTransform: 'uppercase' }, statValue: { color: COLORS.text, fontSize: 27, fontWeight: '800', letterSpacing: -1 }, statDetail: { color: COLORS.muted, fontSize: 11, lineHeight: 15 },
+  sectionShell: { backgroundColor: '#FCF8F0', borderColor: COLORS.border, borderWidth: 1, borderRadius: 24, padding: 16, gap: 10, marginTop: 6 }, behaviorShell: { backgroundColor: '#EEF5E8', borderColor: '#CFE0C3' }, sectionTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800', letterSpacing: -0.2, marginTop: 8 }, sectionDescription: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginBottom: 3 }, statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  // flexBasis + flexGrow, not a % width: 48.7% + the 9px gap overflowed the
+  // row by a hair on device and every tile wrapped to its own line — the
+  // half-width single-column mess in his screenshot (Ayuka, 2026-09-19).
+  statCard: { flexBasis: '44%', flexGrow: 1, minHeight: 84, borderRadius: 18, padding: 13, justifyContent: 'space-between', backgroundColor: COLORS.card, borderColor: '#EDE5D8', borderWidth: 1 }, statCardProminent: { backgroundColor: '#F6FBF1', borderColor: '#B8CEA5' }, statLabel: { color: COLORS.muted, fontSize: 10, lineHeight: 14, fontWeight: '800', letterSpacing: .6, textTransform: 'uppercase' }, statValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 7 }, statValue: { color: COLORS.text, fontSize: 27, fontWeight: '800', letterSpacing: -1 }, statDelta: { color: COLORS.green, fontSize: 12, fontWeight: '800' }, statDeltaDown: { color: '#B0684F' }, statDetail: { color: COLORS.muted, fontSize: 11, lineHeight: 15 },
+  pulseCard: { backgroundColor: COLORS.card, borderColor: COLORS.border, borderWidth: 1, borderRadius: 20, padding: 15, gap: 10, marginTop: 6 }, pulseRow: { flexDirection: 'row', justifyContent: 'space-between', paddingRight: 24 }, pulseValue: { color: COLORS.text, fontSize: 26, fontWeight: '800', letterSpacing: -0.8 }, pulseCaption: { color: COLORS.muted, fontSize: 11, marginTop: 2 },
   panel: { borderWidth: 1, borderColor: '#E7DED1', backgroundColor: COLORS.card, borderRadius: 20, padding: 15, gap: 7 }, panelTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800' }, panelDescription: { color: COLORS.muted, fontSize: 12, lineHeight: 18 }, chartWrap: { height: 88, position: 'relative', marginTop: 7 }, gridLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: '#ECE5DA' }, chartCaption: { color: COLORS.muted, fontSize: 11 }, chartGrid: { gap: 11 }, sourceRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, gap: 7 }, sourceBorder: { borderTopWidth: 1, borderTopColor: '#EEE7DB' }, sourceName: { flex: 1.25, color: COLORS.text, fontSize: 12, fontWeight: '700' }, sourceMetric: { flex: .72, color: COLORS.muted, fontSize: 10, textAlign: 'right' }, error: { backgroundColor: '#FBE9E5', borderColor: '#E9B8AC', borderWidth: 1, borderRadius: 15, padding: 13 }, errorText: { color: '#A94734', fontSize: 13, lineHeight: 18 },
   restricted: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 }, restrictedTitle: { color: COLORS.text, fontSize: 22, fontWeight: '800', textAlign: 'center' }, restrictedCopy: { color: COLORS.muted, fontSize: 14, lineHeight: 21, textAlign: 'center' }, backButton: { marginTop: 4, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 14, backgroundColor: COLORS.green }, backButtonText: { color: '#FFFDF9', fontWeight: '800' },
 });
