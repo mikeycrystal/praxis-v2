@@ -43,8 +43,12 @@ async function chunkedExpoSend(messages: unknown[]): Promise<void> {
 }
 
 // One line for everyone, generated once per day from the digest's top stories.
-async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, today: string): Promise<string> {
-  const fallback = '5 stories, 6 minutes.';
+// Returns the source titles too: they go into push_log.meta so later sends
+// (blind spot, breaking) can avoid re-pushing a story the digest already led with.
+type DigestLine = { line: string; titles: string[] };
+
+async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, today: string): Promise<DigestLine> {
+  const fallback: DigestLine = { line: '5 stories, 6 minutes.', titles: [] };
   const { data: cached } = await supabase
     .from('push_log')
     .select('meta')
@@ -52,7 +56,10 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
     .gte('sent_at', `${today}T00:00:00Z`)
     .not('meta->>line', 'is', null)
     .limit(1);
-  if (cached && cached.length > 0) return (cached[0].meta as { line: string }).line;
+  if (cached && cached.length > 0) {
+    const meta = cached[0].meta as { line: string; titles?: string[] };
+    return { line: meta.line, titles: Array.isArray(meta.titles) ? meta.titles : [] };
+  }
 
   try {
     // Top stories come from the same place the app's Top News feed does —
@@ -71,6 +78,7 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
       .filter(Boolean)
       .slice(0, 5);
     if (titles.length < 3) return fallback;
+    const withTitles = (line: string): DigestLine => ({ line, titles });
 
     // Real headlines beat the generic line even without AI: if OpenAI is
     // unavailable (no key, no credits, outage), send the top 3 titles as a
@@ -82,7 +90,7 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
     const headlineLine = titles.slice(0, 3).map(trimTitle).join('; ');
 
     const openaiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openaiKey) return headlineLine;
+    if (!openaiKey) return withTitles(headlineLine);
     const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${openaiKey}` },
@@ -106,8 +114,8 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
     });
     const ai = await aiRes.json();
     const line: string | undefined = ai?.choices?.[0]?.message?.content?.trim();
-    if (!line) return headlineLine;
-    if (line.length <= 150) return line;
+    if (!line) return withTitles(headlineLine);
+    if (line.length <= 150) return withTitles(line);
     // Over budget: keep whole sentences while they fit rather than throwing
     // a good line away and shipping raw headlines instead.
     const kept: string[] = [];
@@ -115,7 +123,7 @@ async function getOrCreateDigestLine(supabase: ReturnType<typeof createClient>, 
       if ([...kept, sentence].join(' ').length > 140) break;
       kept.push(sentence);
     }
-    return kept.length > 0 ? kept.join(' ') : headlineLine;
+    return withTitles(kept.length > 0 ? kept.join(' ') : headlineLine);
   } catch {
     return fallback;
   }
@@ -172,8 +180,8 @@ serve(async (req) => {
       } catch (e) {
         diag.fetchError = String(e);
       }
-      const line = await getOrCreateDigestLine(supabase, today);
-      return new Response(JSON.stringify({ line, diag }), {
+      const digestLine = await getOrCreateDigestLine(supabase, today);
+      return new Response(JSON.stringify({ ...digestLine, diag }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -192,10 +200,14 @@ serve(async (req) => {
     // their reading lives on-device, so there is no completion state to check.
     const byUser = new Map<string, string[]>();
     const guestTokens: string[] = [];
+    // A device that registered before sign-in leaves a guest row behind with
+    // the same token as its account row; sending to both double-pushes the
+    // phone (seen 2026-09-19). The account row wins.
+    const ownedTokens = new Set(tokens.filter((t) => t.user_id).map((t) => t.token));
     for (const t of tokens) {
       if (localHour(t.timezone ?? FALLBACK_TIMEZONE) !== targetHour) continue;
       if (!t.user_id) {
-        guestTokens.push(t.token);
+        if (!ownedTokens.has(t.token)) guestTokens.push(t.token);
         continue;
       }
       const list = byUser.get(t.user_id) ?? [];
@@ -230,7 +242,7 @@ serve(async (req) => {
     const pushesFor = (uid: string, type: string) =>
       (recentPushes ?? []).filter((p) => p.user_id === uid && p.push_type === type);
 
-    const line = await getOrCreateDigestLine(supabase, today);
+    const { line, titles } = await getOrCreateDigestLine(supabase, today);
 
     const messages: unknown[] = [];
     const logRows: unknown[] = [];
@@ -283,7 +295,7 @@ serve(async (req) => {
           sound: 'default',
         });
       }
-      logRows.push({ user_id: p.id, push_type: 'digest', meta: { line } });
+      logRows.push({ user_id: p.id, push_type: 'digest', meta: { line, titles } });
     }
 
     // Guest devices: one generic line, once a day at their local 8am.

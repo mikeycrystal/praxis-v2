@@ -76,6 +76,41 @@ function sentence(title: string, max = 90): string {
   return /[.?!…]$/.test(clean) ? clean : `${clean}.`;
 }
 
+// Two headlines about the same story rarely match verbatim (the morning
+// digest led with "Judge says Trump can't demolish Kennedy Center" and the
+// blind spot re-pushed it as "Thousands protest closure of the Kennedy
+// Center", 2026-09-19). Sharing ≥2 significant words is close enough to
+// count as the same story. Everyday political words never count.
+const TITLE_STOPWORDS = new Set([
+  "about", "administration", "after", "against", "america", "american",
+  "americans", "amid", "among", "announces", "because", "before", "being",
+  "between", "biden", "breaking", "calls", "claims", "congress", "could",
+  "court", "democrat", "democrats", "during", "every", "federal", "first",
+  "former", "house", "might", "nation", "national", "officials", "other",
+  "president", "report", "republican", "republicans", "says", "senate",
+  "should", "state", "states", "their", "there", "these", "things", "times",
+  "today", "trump", "under", "vance", "warns", "white", "whose", "world",
+  "would", "years",
+]);
+
+function significantWords(text: string): Set<string> {
+  return new Set(
+    text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/)
+      .filter((word) => word.length >= 5 && !TITLE_STOPWORDS.has(word)),
+  );
+}
+
+function sharesStoryWith(title: string, digestTexts: string[]): boolean {
+  const words = significantWords(title);
+  for (const text of digestTexts) {
+    let shared = 0;
+    for (const word of significantWords(text)) {
+      if (words.has(word) && ++shared >= 2) return true;
+    }
+  }
+  return false;
+}
+
 function withinHours(timestamp: number, hours: number): boolean {
   return Number.isFinite(timestamp) &&
     timestamp >= Date.now() - hours * 3600000;
@@ -206,13 +241,21 @@ serve(async (req) => {
     const eveningByUser = new Map<string, string[]>();
     const activeByUser = new Map<string, string[]>();
     const guestTokens: string[] = [];
+    // A device that registered before sign-in leaves a guest row behind with
+    // the same token as its account row; sending to both double-pushes the
+    // phone (seen on the digest, 2026-09-19). The account row wins.
+    const ownedTokens = new Set(
+      tokens.filter((t) => t.user_id).map((t) => t.token),
+    );
     for (const token of tokens) {
       const time = forcedTime ?? localTime(token.timezone ?? FALLBACK_TIMEZONE);
       if (!time) continue;
       const evening = time.hour === 18 && time.minute < 20;
       const quiet = time.hour >= 22 || time.hour <= 6;
       if (!token.user_id) {
-        if (evening) guestTokens.push(token.token);
+        if (evening && !ownedTokens.has(token.token)) {
+          guestTokens.push(token.token);
+        }
         continue;
       }
       if (evening) {
@@ -283,6 +326,23 @@ serve(async (req) => {
         row.push_type === type &&
         Date.now() - Date.parse(row.sent_at) < hours * 3600000
       );
+    // Everything the user's digest said today — source titles when the log
+    // has them (meta.titles, logged from 2026-09-19 on), the sent line always.
+    const digestTextsFor = (rows: typeof recentPushes) => {
+      const texts: string[] = [];
+      for (const row of rows ?? []) {
+        if (row.push_type !== "digest") continue;
+        if (nyDateKey(new Date(row.sent_at)) !== today) continue;
+        const meta = (row.meta ?? {}) as Record<string, unknown>;
+        if (Array.isArray(meta.titles)) {
+          for (const title of meta.titles) {
+            if (typeof title === "string") texts.push(title);
+          }
+        }
+        if (typeof meta.line === "string") texts.push(meta.line);
+      }
+      return texts;
+    };
     const dailyCapped = (userId: string, rows: typeof recentPushes) =>
       (rows ?? []).filter((row) =>
             ["digest", "streak", "news", "breaking", "split"].includes(
@@ -315,8 +375,10 @@ serve(async (req) => {
         if (meta.cluster_id != null) recentClusters.add(String(meta.cluster_id));
         if (meta.cluster_id_2 != null) recentClusters.add(String(meta.cluster_id_2));
       }
+      const digestTexts = digestTextsFor(mine(profile.id));
       const selected = eveningCandidates.filter((cluster) =>
-        !recentClusters.has(cluster.id)
+        !recentClusters.has(cluster.id) &&
+        !sharesStoryWith(cluster.lead.title, digestTexts)
       ).slice(0, 2);
       if (selected.length < 2) continue;
       const [first, second] = selected;
@@ -395,6 +457,9 @@ serve(async (req) => {
           Date.now() - Date.parse(row.sent_at) < 2 * 3600000
         );
         if (hasRecentDigest) continue;
+        if (sharesStoryWith(breakingCluster.lead.title, digestTextsFor(rows))) {
+          continue; // the digest already told them this story today
+        }
         const line = sentence(breakingCluster.lead.title, 140);
         for (const token of userTokens) {
           messages.push({
@@ -459,6 +524,15 @@ serve(async (req) => {
           !userTokens || profile.notify_news === false ||
           dailyCapped(profile.id, rows) || sentToday(rows, "split")
         ) continue;
+        // Same guards the breaking path has: never inside the digest's
+        // 2-hour window, never the story the digest already led with
+        // (both fired together on 2026-09-19 and it read as spam).
+        const hasRecentDigest = rows.some((row) =>
+          row.push_type === "digest" &&
+          Date.now() - Date.parse(row.sent_at) < 2 * 3600000
+        );
+        if (hasRecentDigest) continue;
+        if (sharesStoryWith(cluster.lead.title, digestTextsFor(rows))) continue;
         for (const token of userTokens) {
           messages.push({
             to: token,
