@@ -5,6 +5,7 @@ import {
   Linking,
   Platform,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -264,6 +265,11 @@ export default function AccountSettingsModal() {
           </TouchableOpacity>
         </View>
 
+        {/* The sheet grew with every added row until it pressed the title
+            against the status bar with nothing scrollable (Ayuka,
+            2026-09-19, msg 1503). The handle and header stay pinned; the
+            rows scroll inside a capped sheet. */}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
         {sections.map((section, sectionIndex) => (
           <View key={section.title ?? `section-${sectionIndex}`}>
             {section.title ? (
@@ -307,6 +313,7 @@ export default function AccountSettingsModal() {
             </View>
           </View>
         ))}
+        </ScrollView>
       </GlassSurface>
     </SafeAreaView>
   );
@@ -317,6 +324,9 @@ const s = StyleSheet.create({
   sheet: {
     overflow: 'hidden',
     width: '100%',
+    // A sheet, not a takeover: the top ~12% of the page stays visible
+    // behind it however many rows settings grows.
+    maxHeight: '88%',
     maxWidth: 520,
     alignSelf: 'center',
     borderTopLeftRadius: 28,
@@ -328,6 +338,7 @@ const s = StyleSheet.create({
     borderColor: PAGE.border,
   },
   sheetFallback: { backgroundColor: PAGE.background },
+  scrollContent: { paddingBottom: 8 },
   handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: '#D6CDBE', alignSelf: 'center', marginBottom: 22 },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 16, marginBottom: 6 },
   headerCopy: { flex: 1 },
