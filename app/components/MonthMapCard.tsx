@@ -229,15 +229,17 @@ export function MonthMapCard() {
                     opacity={0.11}
                   />
                 ) : null))}
-                {/* fresh layer: newest FRESH_COUNT reads, crisp and tappable */}
+                {/* fresh layer: newest FRESH_COUNT reads, crisp and tappable.
+                    The single newest read is the green "you are here" pin
+                    (his ask, msg 1714) — one accent, everything else ink. */}
                 {dots.map((dot) => (dot.order < FRESH_COUNT ? (
                   <Circle
                     key={dot.articleId}
                     cx={HALF + dot.x * SPAN}
                     cy={HALF - dot.y * SPAN}
-                    r={2.6}
-                    fill={CREAM}
-                    opacity={0.95 - 0.6 * (dot.order / freshDenom)}
+                    r={dot.order === 0 ? 3.4 : 2.6}
+                    fill={dot.order === 0 ? GREEN : CREAM}
+                    opacity={dot.order === 0 ? 1 : 0.95 - 0.6 * (dot.order / freshDenom)}
                     onPress={() => router.push({ pathname: '/article/[id]', params: { id: dot.articleId } })}
                   />
                 ) : null))}
