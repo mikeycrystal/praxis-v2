@@ -444,11 +444,11 @@ export default function GraphScreen() {
       GRAPH_MAX_SIZE,
     );
     const availableWidth = Math.max(graphViewport.width - 2, 0);
-    // The readout line (26 margin clearing the OPINION pill + 15 text) and
-    // Apply's slot (6 + 44 button), both always laid out, live inside the
+    // The readout line (30 margin clearing the OPINION pill + 18 text) and
+    // Apply's slot (18 + 44 button), both always laid out, live inside the
     // same wrap as the canvas, so the square must leave room for them.
     const availableHeight = Math.max(
-      Math.min(graphViewport.height - 91, viewportHeightLimit),
+      Math.min(graphViewport.height - 110, viewportHeightLimit),
       0,
     );
     const availableSquare = Math.min(
@@ -2726,24 +2726,25 @@ const s = StyleSheet.create({
   applySlot: {
     alignSelf: 'stretch',
     marginHorizontal: 24,
-    // The readout line above already clears the OPINION pill; 6 of air
-    // between it and the 44pt button.
-    marginTop: 6,
+    // The readout line above already clears the OPINION pill; 18 of air
+    // between it and the 44pt button ("spaced out", Ayuka, 2026-09-18).
+    marginTop: 18,
     height: 44,
   },
   applySlotIdle: {
     opacity: 0,
   },
-  // Same voice as the axis pills — the readout is axis furniture, not a
-  // card. 26 top margin clears the OPINION pill (21) with 5 of air.
+  // Green and bigger than the axis pills so it reads as YOUR setting, not
+  // more axis furniture — option B of the style renders (Ayuka,
+  // 2026-09-19). 30 top margin clears the OPINION pill (21) with air.
   readoutText: {
     alignSelf: 'center',
-    marginTop: 26,
-    fontSize: 12,
-    lineHeight: 15,
+    marginTop: 30,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '800',
-    letterSpacing: 2,
-    color: '#8A8272',
+    letterSpacing: 3,
+    color: '#7A9A62',
     textTransform: 'uppercase',
   },
   applyButton: {
