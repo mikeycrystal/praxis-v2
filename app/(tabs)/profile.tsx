@@ -390,9 +390,11 @@ export default function ProfileScreen() {
 
 
         <MonthMapCard />
-        {/* Floating bar overlays the scroll; 32 let the month card's
-            insight/stats/Share ride under it (Ayuka, msg 1704). */}
-        <View style={{ height: TAB_BAR_CLEARANCE }} />
+        {/* Floating bar overlays the scroll; the old 32 let the month card's
+            insight/stats/Share ride under it (Ayuka, msg 1704). The +14 above
+            the shared clearance is the tuned breathing room for this card's
+            Share row — drop it and the row kisses the capsule again. */}
+        <View style={{ height: TAB_BAR_CLEARANCE + 14 }} />
       </ScrollView>
     </SafeAreaView>
   );

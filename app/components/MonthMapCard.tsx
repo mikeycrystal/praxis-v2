@@ -1,13 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  runOnJS,
-  useAnimatedProps,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
@@ -20,22 +14,30 @@ import { supabase } from '../services/supabase';
 // a neutral line, never a corrective one.
 //
 // Density ("embers + fresh", his pick 2026-09-19 msg 1710): at Ayuka's real
-// volume (~1.3k reads/month) uniform dots merged into blobs. The month now
+// volume (~1.3k reads/month) uniform dots merged into blobs. The month
 // renders as two layers — everything older than the newest FRESH_COUNT
-// articles becomes faint ember terrain (one Path, no touch targets), the
-// fresh reads stay crisp and tappable on top. Ink only, no color coding:
-// position already encodes lean, color would say it twice. The single
-// newest read is the green "you are here" pin (his ask, msg 1714).
+// articles is faint ember terrain (three density-bucketed Paths, no touch
+// targets), the fresh reads stay crisp and tappable on top. Ink only, no
+// color coding: position already encodes lean, color would say it twice.
+// The single newest read is the green "you are here" pin (msg 1714).
 //
-// Zoom is a viewBox window, NOT a view transform: scaling the rendered
-// view magnifies a cached raster, so a merged blob stays the same blob,
-// bigger and blurrier (review finding, 2026-09-19). Shrinking the viewBox
-// re-renders the vectors each frame, and on gesture end the dot radii are
-// re-rendered divided by the zoom so dots hold their screen size while
-// positions spread — that separation is the point of zooming. Pinch also
-// pans (the window follows the focal point), so there is no one-finger
-// pan to fight the profile ScrollView; taps run through RNGH, not svg
-// onPress, so double-tap can win over a dot tap.
+// Zoom architecture (third pass — the two review rounds of 2026-09-19
+// killed the first two):
+// - A view-transform zoom magnifies a cached raster: blobs stay merged,
+//   just bigger and blurrier. Dead end.
+// - Animating the Svg root's viewBox via Reanimated animatedProps is a
+//   silent no-op on native (viewBox only becomes the native minX/vbWidth
+//   props inside Svg's React render), so that zoom never happened on
+//   device. Dead end.
+// So: no Reanimated in the render path at all. Gestures run on the JS
+// thread (.runOnJS(true)) and commit the visible window (viewBox) through
+// React state, throttled to ~15Hz — the same throttled-JS-commit pattern
+// the Graph tab uses for live pinch feedback. Every committed frame
+// renders radii divided by the zoom in the same render as the window, so
+// dots hold their screen size while positions spread: clusters separate,
+// which is the point. Pinch focal drift pans (no pan gesture → nothing
+// fights the profile ScrollView); double-tap resets; single tap opens the
+// nearest fresh dot, and taps are ignored while a pinch is live.
 
 const PANEL = 326;
 const HALF = PANEL / 2;
@@ -43,17 +45,27 @@ const SPAN = 123; // dot field radius in px; coords are -1..1
 const FRESH_COUNT = 150;
 const ZOOM_MAX = 3;
 const MIN_WIN = PANEL / ZOOM_MAX;
-const TAP_TOLERANCE = 18; // screen px around a fresh dot that counts as a hit
-// Slim rows (~5 small fields) make this ceiling cheap; at ~1.3k reads/month
-// it leaves 3x headroom before the count clips again.
-const EVENT_ROW_CAP = 4000;
+const COMMIT_MS = 66; // ~15Hz live-preview commits while pinching
+const TAP_TOLERANCE = 12; // screen px; an ember winning the scan is a no-op
+// PostgREST caps any single response at max_rows (1000 on this project), so
+// a bigger .limit() is a silent no-op — page instead. 4 pages covers 4k
+// events/month, ~3x Ayuka's real volume.
+const PAGE_ROWS = 1000;
+const MAX_PAGES = 4;
 
 const INK = '#2B2823';
 const INK_LINE = '#454037';
 const CREAM = '#EFE9DB';
 const GREEN = '#7A9A62';
 
-const AnimatedSvg = Animated.createAnimatedComponent(Svg);
+interface ArticleRead {
+  articleId: string;
+  createdAt: string;
+  x: number | null;
+  y: number | null;
+  source: string | null;
+  bias: number | null;
+}
 
 interface MonthDot {
   articleId: string;
@@ -69,196 +81,255 @@ interface MonthStats {
   rightReads: number;
 }
 
+interface MapWindow {
+  x: number;
+  y: number;
+  w: number;
+}
+
+const FULL_WINDOW: MapWindow = { x: 0, y: 0, w: PANEL };
+
+// One deduped reads list per user+month, so a tap-to-article round trip
+// refetches a 0–2 row delta instead of the whole month every focus
+// (standing Praxis cost rule). Newest-first, deduped by article.
+const monthCache = new Map<string, { newestCreatedAt: string; reads: ArticleRead[] }>();
+
 const monthStartIso = () => {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
 };
 
-const dotCx = (dot: MonthDot) => HALF + dot.x * SPAN;
-const dotCy = (dot: MonthDot) => HALF - dot.y * SPAN;
+const dotCx = (dot: { x: number }) => HALF + dot.x * SPAN;
+const dotCy = (dot: { y: number }) => HALF - dot.y * SPAN;
+
+const SLIM_SELECT =
+  'created_at, aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bias:properties->bias_score';
+
+const rowToRead = (row: Record<string, unknown>): ArticleRead | null => {
+  const id = typeof row.aid === 'string' ? row.aid : null;
+  const createdAt = typeof row.created_at === 'string' ? row.created_at : null;
+  if (!id || !createdAt) return null;
+  return {
+    articleId: id,
+    createdAt,
+    x: typeof row.ax === 'number' ? row.ax : null,
+    y: typeof row.ay === 'number' ? row.ay : null,
+    source: typeof row.src === 'string' ? row.src : null,
+    bias: typeof row.bias === 'number' ? row.bias : Number(row.bias) || null,
+  };
+};
 
 export function MonthMapCard() {
   const { user } = useAuth();
   const { c } = useTheme();
   const [dots, setDots] = useState<MonthDot[]>([]);
   const [stats, setStats] = useState<MonthStats | null>(null);
-  // Committed zoom, updated only at gesture end / reset — drives the radius
-  // compensation re-render. The live window lives in shared values.
-  const [renderScale, setRenderScale] = useState(1);
+  const [win, setWin] = useState<MapWindow>(FULL_WINDOW);
 
-  // The visible window of the 0..PANEL svg space: top-left + size.
-  const winX = useSharedValue(0);
-  const winY = useSharedValue(0);
-  const winW = useSharedValue(PANEL);
+  const scale = PANEL / win.w;
 
-  // Gestures must not depend on React state (a dep teardown on pinch-end
-  // was a review finding), so JS-side handlers read refs.
   const dotsRef = useRef<MonthDot[]>([]);
-  useEffect(() => {
-    dotsRef.current = dots;
-  }, [dots]);
+  const emberRef = useRef<MonthDot[]>([]);
+  const winRef = useRef<MapWindow>(FULL_WINDOW);
+  const startRef = useRef({ ...FULL_WINDOW, fx: 0, fy: 0 });
+  const lastCommitRef = useRef(0);
+  const pinchRef = useRef({ active: false, endedAt: 0 });
 
-  const commitScale = useCallback((nextScale: number) => {
-    setRenderScale(Math.min(ZOOM_MAX, Math.max(1, Math.round(nextScale * 100) / 100)));
+  const commitWindow = useCallback((next: MapWindow, force: boolean) => {
+    winRef.current = next;
+    const now = Date.now();
+    if (force || now - lastCommitRef.current >= COMMIT_MS) {
+      lastCommitRef.current = now;
+      setWin(next);
+    }
   }, []);
 
-  const openNearestDot = useCallback((svgX: number, svgY: number, tolerance: number) => {
+  const applyReads = useCallback((reads: ArticleRead[]) => {
+    const nextDots: MonthDot[] = [];
+    let order = 0;
+    const sources = new Set<string>();
+    let leftReads = 0;
+    let rightReads = 0;
+    for (const read of reads) {
+      if (read.source) sources.add(read.source.toLowerCase());
+      if (typeof read.bias === 'number') {
+        if (read.bias <= -15) leftReads += 1;
+        if (read.bias >= 15) rightReads += 1;
+      }
+      if (read.x != null && read.y != null) {
+        nextDots.push({ articleId: read.articleId, x: read.x, y: read.y, order: order++ });
+      }
+    }
+    dotsRef.current = nextDots.slice(0, FRESH_COUNT);
+    emberRef.current = nextDots.slice(FRESH_COUNT);
+    setDots(nextDots);
+    setStats({ reads: reads.length, sources: sources.size, leftReads, rightReads });
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!user) return;
+    const cacheKey = `${user.id}:${monthStartIso()}`;
+    const cached = monthCache.get(cacheKey);
+    if (cached) {
+      applyReads(cached.reads);
+      // Delta: only events newer than what we hold (usually 0–2 rows).
+      const { data, error } = await supabase
+        .from('analytics_events')
+        .select(SLIM_SELECT)
+        .eq('user_id', user.id)
+        .eq('event_name', 'article_read_complete')
+        .gt('created_at', cached.newestCreatedAt)
+        .order('created_at', { ascending: false })
+        .limit(PAGE_ROWS);
+      if (error || !data || data.length === 0) return;
+      const fresh = (data as Array<Record<string, unknown>>)
+        .map(rowToRead)
+        .filter((r): r is ArticleRead => r !== null);
+      if (fresh.length === 0) return;
+      const seen = new Set(fresh.map((r) => r.articleId));
+      const merged = [...fresh, ...cached.reads.filter((r) => !seen.has(r.articleId))];
+      const entry = { newestCreatedAt: fresh[0].createdAt, reads: merged };
+      monthCache.set(cacheKey, entry);
+      applyReads(merged);
+      return;
+    }
+
+    // First load of the month: page past PostgREST's max_rows response cap.
+    const byArticle = new Map<string, ArticleRead>();
+    let newestCreatedAt: string | null = null;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const { data, error } = await supabase
+        .from('analytics_events')
+        .select(SLIM_SELECT)
+        .eq('user_id', user.id)
+        .eq('event_name', 'article_read_complete')
+        .gte('created_at', monthStartIso())
+        .order('created_at', { ascending: false })
+        .range(page * PAGE_ROWS, (page + 1) * PAGE_ROWS - 1);
+      if (error || !data) return;
+      for (const raw of data as Array<Record<string, unknown>>) {
+        const read = rowToRead(raw);
+        if (!read) continue;
+        if (!newestCreatedAt) newestCreatedAt = read.createdAt;
+        if (!byArticle.has(read.articleId)) byArticle.set(read.articleId, read); // newest-first
+      }
+      if (data.length < PAGE_ROWS) break;
+    }
+    if (!newestCreatedAt) {
+      applyReads([]);
+      return;
+    }
+    const reads = [...byArticle.values()];
+    monthCache.set(cacheKey, { newestCreatedAt, reads });
+    applyReads(reads);
+  }, [applyReads, user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      // No zoom reset here: tap-dot → article blurs this screen, and coming
+      // back to the zoomed spot is the workflow. Double-tap resets.
+    }, [load]),
+  );
+
+  const openNearestDot = useCallback((tapX: number, tapY: number) => {
+    // Taps mid-pinch (or right at pinch release) are gesture spill, not aim.
+    if (pinchRef.current.active || Date.now() - pinchRef.current.endedAt < 200) return;
+    const view = winRef.current;
+    const svgX = view.x + (tapX / PANEL) * view.w;
+    const svgY = view.y + (tapY / PANEL) * view.w;
+    const tolerance = TAP_TOLERANCE * (view.w / PANEL);
     let best: MonthDot | null = null;
     let bestDist = tolerance;
     for (const dot of dotsRef.current) {
-      if (dot.order >= FRESH_COUNT) break; // newest-first: embers start here
       const dist = Math.hypot(dotCx(dot) - svgX, dotCy(dot) - svgY);
       if (dist < bestDist) {
         best = dot;
         bestDist = dist;
       }
     }
+    // If a (non-tappable) ember is what the finger is actually on, swallow
+    // the tap instead of teleporting to some fresh dot nearby.
+    for (const ember of emberRef.current) {
+      if (Math.hypot(dotCx(ember) - svgX, dotCy(ember) - svgY) < bestDist) return;
+    }
     if (best) {
       router.push({ pathname: '/article/[id]', params: { id: best.articleId } });
     }
   }, []);
 
-  const startWinX = useSharedValue(0);
-  const startWinY = useSharedValue(0);
-  const startWinW = useSharedValue(PANEL);
-  const startFocalX = useSharedValue(0);
-  const startFocalY = useSharedValue(0);
-
-  const pinchGesture = useMemo(
-    () => Gesture.Pinch()
+  const panelGesture = useMemo(() => {
+    const pinch = Gesture.Pinch()
+      .runOnJS(true)
       .onStart((event) => {
-        startWinX.value = winX.value;
-        startWinY.value = winY.value;
-        startWinW.value = winW.value;
-        startFocalX.value = event.focalX;
-        startFocalY.value = event.focalY;
+        pinchRef.current.active = true;
+        const view = winRef.current;
+        startRef.current = { ...view, fx: event.focalX, fy: event.focalY };
       })
       .onUpdate((event) => {
-        const nextW = Math.min(PANEL, Math.max(MIN_WIN, startWinW.value / event.scale));
-        // The svg point that sat under the starting focal stays under the
-        // moving focal — zoom about the fingers, and focal drift pans.
-        const anchorX = startWinX.value + (startFocalX.value / PANEL) * startWinW.value;
-        const anchorY = startWinY.value + (startFocalY.value / PANEL) * startWinW.value;
-        winW.value = nextW;
-        winX.value = Math.min(PANEL - nextW, Math.max(0, anchorX - (event.focalX / PANEL) * nextW));
-        winY.value = Math.min(PANEL - nextW, Math.max(0, anchorY - (event.focalY / PANEL) * nextW));
+        const start = startRef.current;
+        const nextW = Math.min(PANEL, Math.max(MIN_WIN, start.w / event.scale));
+        // The svg point under the starting focal stays under the moving
+        // focal — zoom about the fingers, and focal drift pans.
+        const anchorX = start.x + (start.fx / PANEL) * start.w;
+        const anchorY = start.y + (start.fy / PANEL) * start.w;
+        commitWindow(
+          {
+            x: Math.min(PANEL - nextW, Math.max(0, anchorX - (event.focalX / PANEL) * nextW)),
+            y: Math.min(PANEL - nextW, Math.max(0, anchorY - (event.focalY / PANEL) * nextW)),
+            w: nextW,
+          },
+          false,
+        );
       })
-      .onEnd(() => {
-        runOnJS(commitScale)(PANEL / winW.value);
-      }),
-    [commitScale, startFocalX, startFocalY, startWinW, startWinX, startWinY, winW, winX, winY],
-  );
+      .onFinalize(() => {
+        pinchRef.current.active = false;
+        pinchRef.current.endedAt = Date.now();
+        commitWindow(winRef.current, true);
+      });
 
-  const doubleTapGesture = useMemo(
-    () => Gesture.Tap()
+    const doubleTap = Gesture.Tap()
+      .runOnJS(true)
       .numberOfTaps(2)
       .maxDistance(12)
       .onEnd((_event, success) => {
-        if (!success) return;
-        winW.value = withTiming(PANEL, { duration: 200 });
-        winX.value = withTiming(0, { duration: 200 });
-        winY.value = withTiming(0, { duration: 200 });
-        runOnJS(commitScale)(1);
-      }),
-    [commitScale, winW, winX, winY],
-  );
+        if (success) commitWindow(FULL_WINDOW, true);
+      });
 
-  const dotTapGesture = useMemo(
-    () => Gesture.Tap()
+    const dotTap = Gesture.Tap()
+      .runOnJS(true)
       .maxDistance(12)
       .onEnd((event, success) => {
-        if (!success) return;
-        const svgX = winX.value + (event.x / PANEL) * winW.value;
-        const svgY = winY.value + (event.y / PANEL) * winW.value;
-        const tolerance = TAP_TOLERANCE * (winW.value / PANEL);
-        runOnJS(openNearestDot)(svgX, svgY, tolerance);
-      }),
-    [openNearestDot, winW, winX, winY],
-  );
-
-  const panelGesture = useMemo(
-    () => Gesture.Simultaneous(pinchGesture, Gesture.Exclusive(doubleTapGesture, dotTapGesture)),
-    [dotTapGesture, doubleTapGesture, pinchGesture],
-  );
-
-  const animatedSvgProps = useAnimatedProps(() => ({
-    viewBox: `${winX.value} ${winY.value} ${winW.value} ${winW.value}`,
-  }));
-
-  const load = useCallback(async () => {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('analytics_events')
-      .select(
-        'aid:properties->>article_id, ax:properties->article_x, ay:properties->article_y, src:properties->>source, bias:properties->bias_score',
-      )
-      .eq('user_id', user.id)
-      .eq('event_name', 'article_read_complete')
-      .gte('created_at', monthStartIso())
-      .order('created_at', { ascending: false })
-      .limit(EVENT_ROW_CAP);
-    if (error || !data) return;
-
-    const byArticle = new Map<string, { x: number | null; y: number | null; source: string | null; bias: number | null }>();
-    for (const row of data as Array<Record<string, unknown>>) {
-      const id = typeof row.aid === 'string' ? row.aid : null;
-      if (!id || byArticle.has(id)) continue; // rows are newest-first; keep latest
-      byArticle.set(id, {
-        x: typeof row.ax === 'number' ? row.ax : null,
-        y: typeof row.ay === 'number' ? row.ay : null,
-        source: typeof row.src === 'string' ? row.src : null,
-        bias: typeof row.bias === 'number' ? row.bias : Number(row.bias) || null,
+        if (success) openNearestDot(event.x, event.y);
       });
-    }
 
-    const nextDots: MonthDot[] = [];
-    let order = 0;
-    const sources = new Set<string>();
-    let leftReads = 0;
-    let rightReads = 0;
-    for (const [id, a] of byArticle) {
-      if (a.source) sources.add(a.source.toLowerCase());
-      if (typeof a.bias === 'number') {
-        if (a.bias <= -15) leftReads += 1;
-        if (a.bias >= 15) rightReads += 1;
-      }
-      if (a.x != null && a.y != null) {
-        nextDots.push({ articleId: id, x: a.x, y: a.y, order: order++ });
-      }
-    }
-    setDots(nextDots);
-    setStats({ reads: byArticle.size, sources: sources.size, leftReads, rightReads });
-  }, [user]);
-
-  useFocusEffect(
-    useCallback(() => {
-      void load();
-      return () => {
-        // Leave the screen → leave the zoom; coming back to a zoomed,
-        // scroll-fighting panel was a review finding.
-        winW.value = PANEL;
-        winX.value = 0;
-        winY.value = 0;
-        setRenderScale(1);
-      };
-    }, [load, winW, winX, winY]),
-  );
+    return Gesture.Simultaneous(pinch, Gesture.Exclusive(doubleTap, dotTap));
+  }, [commitWindow, openNearestDot]);
 
   // order === index (dots are appended newest-first), so the layer split is
-  // a plain slice. Embers collapse into ONE Path — ~1k identical circles as
-  // separate SVG nodes was the card's dominant render cost.
+  // a plain slice. Embers render as THREE Paths bucketed by local density —
+  // one flat path washed out the cluster glow (single-pass fill), and ~1k
+  // Circle nodes were the card's dominant render cost. Zero-length round-cap
+  // segments make the dot size a strokeWidth scalar, so the d strings memo
+  // on dots alone and never rebuild on zoom commits.
   const freshDots = useMemo(() => dots.slice(0, FRESH_COUNT), [dots]);
-  const emberPath = useMemo(() => {
-    const r = 1.7 / renderScale;
-    return dots
-      .slice(FRESH_COUNT)
-      .map((dot) => {
-        const cx = dotCx(dot);
-        const cy = dotCy(dot);
-        return `M ${(cx - r).toFixed(1)} ${cy.toFixed(1)} a ${r} ${r} 0 1 0 ${r * 2} 0 a ${r} ${r} 0 1 0 ${-r * 2} 0`;
-      })
-      .join(' ');
-  }, [dots, renderScale]);
+  const emberBuckets = useMemo(() => {
+    const cellCounts = new Map<string, number>();
+    const embers = dots.slice(FRESH_COUNT);
+    const cellOf = (dot: MonthDot) =>
+      `${Math.round(dotCx(dot) / 12)}:${Math.round(dotCy(dot) / 12)}`;
+    for (const dot of embers) {
+      const cell = cellOf(dot);
+      cellCounts.set(cell, (cellCounts.get(cell) ?? 0) + 1);
+    }
+    const buckets = ['', '', ''];
+    for (const dot of embers) {
+      const count = cellCounts.get(cellOf(dot)) ?? 1;
+      const bucket = count >= 4 ? 2 : count >= 2 ? 1 : 0;
+      buckets[bucket] += `M ${dotCx(dot).toFixed(1)} ${dotCy(dot).toFixed(1)} l 0.01 0 `;
+    }
+    return buckets;
+  }, [dots]);
 
   if (!user || !stats || stats.reads === 0) return null;
 
@@ -272,6 +343,7 @@ export function MonthMapCard() {
   );
 
   const freshDenom = Math.max(freshDots.length - 1, 1);
+  const emberOpacity = [0.1, 0.2, 0.32];
 
   const onShare = () => {
     void Share.share({
@@ -289,7 +361,7 @@ export function MonthMapCard() {
       <View style={s.panelWrap}>
         <GestureDetector gesture={panelGesture}>
           <View style={s.zoomClip} collapsable={false}>
-            <AnimatedSvg width={PANEL} height={PANEL} animatedProps={animatedSvgProps}>
+            <Svg width={PANEL} height={PANEL} viewBox={`${win.x} ${win.y} ${win.w} ${win.w}`}>
               <Rect x={0} y={0} width={PANEL} height={PANEL} rx={14} fill={INK} />
               <Line
                 x1={HALF}
@@ -297,7 +369,7 @@ export function MonthMapCard() {
                 x2={HALF}
                 y2={PANEL - 40}
                 stroke={INK_LINE}
-                strokeWidth={1 / renderScale}
+                strokeWidth={1 / scale}
               />
               <Line
                 x1={40}
@@ -305,21 +377,31 @@ export function MonthMapCard() {
                 x2={PANEL - 40}
                 y2={HALF}
                 stroke={INK_LINE}
-                strokeWidth={1 / renderScale}
+                strokeWidth={1 / scale}
               />
-              <Circle cx={HALF} cy={HALF} r={2 / renderScale} fill="#5A5344" />
-              {emberPath ? <Path d={emberPath} fill={CREAM} opacity={0.11} /> : null}
+              <Circle cx={HALF} cy={HALF} r={2 / scale} fill="#5A5344" />
+              {emberBuckets.map((d, bucket) => (d ? (
+                <Path
+                  key={`ember-${bucket}`}
+                  d={d}
+                  stroke={CREAM}
+                  strokeWidth={3.4 / scale}
+                  strokeLinecap="round"
+                  opacity={emberOpacity[bucket]}
+                  fill="none"
+                />
+              ) : null))}
               {freshDots.map((dot) => (
                 <Circle
                   key={dot.articleId}
                   cx={dotCx(dot)}
                   cy={dotCy(dot)}
-                  r={(dot.order === 0 ? 3.4 : 2.6) / renderScale}
+                  r={(dot.order === 0 ? 3.4 : 2.6) / scale}
                   fill={dot.order === 0 ? GREEN : CREAM}
                   opacity={dot.order === 0 ? 1 : 0.95 - 0.6 * (dot.order / freshDenom)}
                 />
               ))}
-            </AnimatedSvg>
+            </Svg>
           </View>
         </GestureDetector>
         <Text style={[s.quad, s.quadTop]}>HARD NEWS</Text>
