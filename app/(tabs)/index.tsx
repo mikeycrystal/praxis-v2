@@ -1466,8 +1466,15 @@ export default function FeedScreen() {
       digestArticleIdSet.has(current.id) &&
       !dailyDigestFeed?.state.completedIds.includes(current.id),
   );
+  // Cold start flashed "0/5" for the frames before the first card
+  // registered as in progress, then jumped to 1/5 (Ayuka, 2026-09-19).
+  // Being on story one IS 1/5, so the display floors at 1 while a digest
+  // with stories is incomplete.
   const digestDisplayCompletedCount = Math.min(
-    digestCompletedCount + (isVisibleDigestStoryInProgress ? 1 : 0),
+    Math.max(
+      digestCompletedCount + (isVisibleDigestStoryInProgress ? 1 : 0),
+      digestTotalCount > 0 ? 1 : 0,
+    ),
     digestTotalCount,
   );
   // The expanded Digest summary is intentionally an overlay. Reserving only
