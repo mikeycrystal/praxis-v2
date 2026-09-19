@@ -64,7 +64,7 @@ const formatCompactNumber = (value: number) => {
 };
 
 export default function ProfileScreen() {
-  const { isGuestMode, loading, profile, updateProfile, user } = useAuth();
+  const { isGuestMode, loading, profile, user } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
   const [allBadges, setAllBadges] = useState<BadgeDefinition[]>([]);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
@@ -76,7 +76,6 @@ export default function ProfileScreen() {
   const [selectedBadgeFilter, setSelectedBadgeFilter] = useState('All');
   const [achievementOffset, setAchievementOffset] = useState(0);
   const [userRank, setUserRank] = useState<number | null>(null);
-  const [resettingOnboarding, setResettingOnboarding] = useState(false);
   const c = {
     background: '#F7F3EA',
     card: '#FBF7F0',
@@ -199,30 +198,6 @@ export default function ProfileScreen() {
     router.push('/modal/reading-activity');
   };
 
-  const handleResetOnboarding = () => {
-    Alert.alert(
-      'Reset onboarding?',
-      'You will choose your interests again before returning to the feed.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          onPress: async () => {
-            setResettingOnboarding(true);
-            try {
-              await updateProfile({ onboarding_complete: false });
-              router.replace({ pathname: '/onboarding', params: { returnTo: '/' } });
-            } catch (error: any) {
-              Alert.alert('Reset failed', error?.message ?? 'Could not reset onboarding.');
-            } finally {
-              setResettingOnboarding(false);
-            }
-          },
-        },
-      ],
-    );
-  };
-
   if (loading || isGuestMode || !user || !profile) return null;
 
   const displayName = profile.full_name ?? profile.username ?? 'Reader';
@@ -322,16 +297,6 @@ export default function ProfileScreen() {
 
         <Text style={[s.bio, { color: c.textSecondary }]}>{displayBio}</Text>
 
-        <TouchableOpacity
-          style={[s.resetButton, { borderColor: c.border }]}
-          onPress={handleResetOnboarding}
-          disabled={resettingOnboarding}
-        >
-          {resettingOnboarding
-            ? <ActivityIndicator color={c.text} />
-            : <Ionicons name="refresh-outline" size={22} color={c.text} />}
-          <Text style={[s.resetButtonText, { color: c.text }]}>Reset Onboarding</Text>
-        </TouchableOpacity>
 
         <View style={s.statsGridWrap}>
           {[
@@ -611,20 +576,6 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 8,
   },
-  resetButton: {
-    marginHorizontal: 20,
-    marginTop: 8,
-    marginBottom: 18,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    paddingVertical: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 10,
-  },
-  resetButtonText: { fontSize: 16, fontWeight: '500' },
   statsGridWrap: {
     paddingHorizontal: 20,
     flexDirection: 'row',

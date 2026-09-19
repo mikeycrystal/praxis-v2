@@ -47,7 +47,7 @@ type SettingsRow = {
 };
 
 export default function AccountSettingsModal() {
-  const { isGuestMode, loading, profile, signOut, user } = useAuth();
+  const { isGuestMode, loading, profile, signOut, updateProfile, user } = useAuth();
   const [busyAction, setBusyAction] = useState<'signout' | 'delete' | null>(null);
   // Set while this screen itself is ending the session. Sign-out used to fire
   // three root-stack replaces at once (this effect, performSignOut, and
@@ -135,6 +135,30 @@ export default function AccountSettingsModal() {
     profile?.notify_social !== false && 'social',
   ].filter(Boolean);
 
+  // Moved off the Profile page, where it sat as a bare button under the
+  // bio (Ayuka, 2026-09-19): a reset is a settings action, not something
+  // to brush against while reading your own profile.
+  const confirmResetOnboarding = () => {
+    Alert.alert(
+      'Reset onboarding?',
+      'You will choose your interests again before returning to the feed.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          onPress: async () => {
+            try {
+              await updateProfile({ onboarding_complete: false });
+              router.replace({ pathname: '/onboarding', params: { returnTo: '/' } } as any);
+            } catch (error: any) {
+              Alert.alert('Reset failed', error?.message ?? 'Could not reset onboarding.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const sections: { title: string | null; rows: SettingsRow[] }[] = [
     {
       title: 'ACCOUNT',
@@ -172,6 +196,13 @@ export default function AccountSettingsModal() {
               : `On: ${notifSummary.join(', ')}.`,
           icon: 'notifications-outline',
           onPress: () => router.push('/modal/notification-settings'),
+        },
+        {
+          id: 'reset-onboarding',
+          label: 'Reset Onboarding',
+          hint: 'Choose your interests again.',
+          icon: 'refresh-outline',
+          onPress: confirmResetOnboarding,
         },
       ],
     },
