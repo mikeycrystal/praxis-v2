@@ -419,6 +419,7 @@ export default function FeedScreen() {
   });
   const visualIndex = useSharedValue(externalIndex);
   const digestProgressValue = useSharedValue(0);
+  const digestBarSeededRef = useRef(false);
   const deckTransitionTranslateY = useSharedValue(0);
   const digestCompletionOpacity = useSharedValue(0);
   const digestCompletionScale = useSharedValue(0.95);
@@ -1502,6 +1503,15 @@ export default function FeedScreen() {
   }));
 
   useEffect(() => {
+    // The first visible value paints in place — animating from the shared
+    // value's 0 made the bar visibly fill to 1/5 on every cold start
+    // (Ayuka, 2026-09-19, msg 1529). Later changes still ease.
+    if (!digestBarSeededRef.current) {
+      if (digestProgressPercentage === 0) return;
+      digestBarSeededRef.current = true;
+      digestProgressValue.value = digestProgressPercentage;
+      return;
+    }
     digestProgressValue.value = withTiming(digestProgressPercentage, {
       duration: 420,
       easing: Easing.out(Easing.cubic),

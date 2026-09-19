@@ -45,8 +45,11 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
-      <LinearGradient colors={[c.background, c.secondary]} style={s.gradient}>
+    // Gradient outside the safe area: nested the other way, the bottom
+    // inset showed the plain background under the gradient's warm end — a
+    // visible band above the home indicator (Ayuka, 2026-09-19, msg 1526).
+    <LinearGradient colors={[c.background, c.secondary]} style={s.gradient}>
+      <SafeAreaView style={s.container}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={s.inner}>
           <ScrollView
             contentContainerStyle={s.scrollContent}
@@ -150,8 +153,8 @@ export default function LoginScreen() {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
-      </LinearGradient>
-    </SafeAreaView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
