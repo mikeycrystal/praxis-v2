@@ -35,6 +35,7 @@ export type CompletionMethod = 'swipe' | 'open' | 'detail_page';
 export type AnalyticsEventName =
   | 'page_view'
   | 'session_start'
+  | 'push_open'
   | 'session_end'
   | 'signup'
   | 'sign_in'
@@ -195,6 +196,8 @@ export type ArticleAnalyticsContext = {
   articleTopic?: string | null;
   biasScore?: number | null;
   biasBucket?: BiasBucket | null;
+  articleX?: number | null;
+  articleY?: number | null;
   surface?: Surface;
   feedMode?: FeedMode;
   positionInFeed?: number;
@@ -208,6 +211,7 @@ type ArticleAnalyticsSource = {
   url?: string | null;
   category?: string | null;
   x?: number | null;
+  y?: number | null;
   meta?: Record<string, unknown> | null;
 };
 
@@ -272,6 +276,14 @@ export const deriveBiasScore = (x: number | null | undefined) => {
   return Math.round(Math.max(-1, Math.min(1, x)) * 100);
 };
 
+// Raw map position, kept alongside the derived bias fields: bias_score
+// collapses x and drops y entirely, and the profile month-map (and its
+// tappable dots) needs both axes per read.
+const normalizeCoordinate = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null;
+  return Math.round(Math.max(-1, Math.min(1, value)) * 1000) / 1000;
+};
+
 export const deriveBiasBucket = (biasScore: number | null | undefined) => {
   if (typeof biasScore !== 'number' || Number.isNaN(biasScore)) return null;
   if (biasScore < -10) return 'left' as const;
@@ -283,7 +295,15 @@ export const buildArticleAnalyticsContext = (
   article: ArticleAnalyticsSource,
   extras: Omit<
     ArticleAnalyticsContext,
-    'articleId' | 'title' | 'source' | 'url' | 'articleTopic' | 'biasScore' | 'biasBucket'
+    | 'articleId'
+    | 'title'
+    | 'source'
+    | 'url'
+    | 'articleTopic'
+    | 'biasScore'
+    | 'biasBucket'
+    | 'articleX'
+    | 'articleY'
   > = {},
 ): ArticleAnalyticsContext => {
   const biasScore = deriveBiasScore(article.x);
@@ -296,6 +316,8 @@ export const buildArticleAnalyticsContext = (
     articleTopic: deriveArticleTopic(article),
     biasScore,
     biasBucket: deriveBiasBucket(biasScore),
+    articleX: normalizeCoordinate(article.x),
+    articleY: normalizeCoordinate(article.y),
     ...extras,
   };
 };
@@ -308,17 +330,43 @@ const buildArticlePayload = (context: ArticleAnalyticsContext) => ({
   article_topic: context.articleTopic ?? null,
   bias_score: context.biasScore ?? null,
   bias_bucket: context.biasBucket ?? null,
+  article_x: context.articleX ?? null,
+  article_y: context.articleY ?? null,
   surface: context.surface,
   feed_mode: context.feedMode,
   position_in_feed: context.positionInFeed,
   topics: context.topics,
 });
 
+// Where the next session came from. The push tap handler sets it and the
+// session_start that follows consumes it. A tap on an already-open app never
+// starts a session, so the "from a push" question is answered by push_open
+// events (same session id), not by this field alone — and a cold start whose
+// session begins before the tap replay resolves still gets the push_open.
+let pendingSessionSource: { source: string; push_type?: string } | null = null;
+
+export const setPendingSessionSource = (source: string, pushType?: string) => {
+  pendingSessionSource = { source, ...(pushType ? { push_type: pushType } : {}) };
+};
+
+export const trackPushOpen = async (
+  pushType: string,
+  articleId?: string | number | null,
+) => {
+  setPendingSessionSource('push', pushType);
+  await trackEvent('push_open', {
+    push_type: pushType,
+    article_id: articleId == null ? null : String(articleId),
+  });
+};
+
 export const startSession = async () => {
   if (sessionId) return;
   const nextSessionId = getSessionId(true);
   sessionStart = Date.now();
-  await trackEvent('session_start', {}, { sessionId: nextSessionId, createSession: true });
+  const attribution = pendingSessionSource ?? { source: 'organic' };
+  pendingSessionSource = null;
+  await trackEvent('session_start', { ...attribution }, { sessionId: nextSessionId, createSession: true });
 };
 
 export const endSession = async () => {

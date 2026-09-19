@@ -13,7 +13,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
 import { BadgeCelebrationProvider } from './components/BadgeCelebration';
 import { supabase } from './services/supabase';
-import { endSession, startSession, trackPageView } from './lib/analytics';
+import { endSession, startSession, trackPageView, trackPushOpen } from './lib/analytics';
 import { writeDailyDigestOpenRequest } from './lib/dailyDigest';
 import { startUiStallMonitor } from './lib/uiStallMonitor';
 
@@ -117,6 +117,11 @@ function PushNotificationHandler() {
 
   useEffect(() => {
     const handle = (data: Record<string, any> | undefined) => {
+      if (typeof data?.type === 'string') {
+        // The only place a push tap is visible to analytics; without this
+        // row "do pushes bring people back" is unanswerable (audit 9/19).
+        void trackPushOpen(data.type, data.articleId ?? null);
+      }
       if (data?.type === 'follow' && data?.followerId) {
         router.push({ pathname: '/modal/user-profile', params: { userId: data.followerId } });
       } else if (data?.type === 'message' && data?.senderId) {
