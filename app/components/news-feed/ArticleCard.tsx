@@ -6,10 +6,14 @@ import {
   TouchableOpacity,
   Animated,
   Pressable,
-  ScrollView,
   useWindowDimensions,
   type GestureResponderEvent,
 } from 'react-native';
+// The card back sits inside the deck's Pan GestureDetector. RNGH's ScrollView
+// registers with the gesture system so its vertical scroll and the deck's
+// horizontal pan (failOffsetY 22) negotiate; the plain RN one is not
+// guaranteed to (Charlie, 9/20: could not scroll a long insight).
+import { ScrollView } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -486,7 +490,10 @@ export const ArticleCard = memo(function ArticleCard({
               </View>
             ) : null}
 
-            {backSummary ? (
+            {/* An open insight swaps in for the summary (Ayuka's pick, 9/20)
+                instead of stacking above it and pushing it off the card. The
+                chip toggles the summary back. */}
+            {backSummary && !selectedInsightRow ? (
               <View style={s.backSection}>
                 <Text style={s.backSummary}>{backSummary}</Text>
               </View>
