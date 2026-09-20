@@ -47,11 +47,7 @@ export type AnalyticsEventName =
   | 'ai_analysis_open'
   | 'preferences_apply'
   | 'feed_load'
-  | 'ui_stall'
-  // Temporary trace for the 131 gesture reports (Ayuka, 2026-09-20): a few
-  // rows per gesture from the month map and the Graph dot. Remove once the
-  // drag/zoom behaviour on device is understood.
-  | 'gesture_debug';
+  | 'ui_stall';
 
 // The mobile feed uses 'top-news'; the analytics schema (and web) use 'top_news'.
 export const normalizeFeedMode = (mode: string | null | undefined): FeedMode | undefined => {
@@ -389,20 +385,6 @@ export const endSession = async () => {
     { duration_seconds: durationSeconds },
     { sessionId: endingSessionId },
   );
-};
-
-// Fire-and-forget gesture trace (see 'gesture_debug' above). Numbers are
-// rounded so a row stays small; never called more than a few times per gesture.
-export const trackGestureDebug = (
-  surface: 'month_map' | 'graph_pan' | 'graph_tap',
-  phase: string,
-  details: Record<string, number | boolean | string | null | undefined>,
-) => {
-  const rounded: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(details)) {
-    rounded[key] = typeof value === 'number' ? Math.round(value * 100) / 100 : value;
-  }
-  void trackEvent('gesture_debug', { surface, phase, ...rounded });
 };
 
 export const trackPageView = async (path: string) => {

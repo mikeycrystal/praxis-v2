@@ -6,7 +6,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../hooks/useTheme';
-import { trackGestureDebug } from '../lib/analytics';
 import { supabase } from '../services/supabase';
 
 // "Your month on the map" — the ink window (design locked 2026-09-19):
@@ -37,11 +36,9 @@ import { supabase } from '../services/supabase';
 // the Graph tab uses for live pinch feedback. Every committed frame
 // renders radii divided by the zoom in the same render as the window, so
 // dots hold their screen size while positions spread: clusters separate,
-// which is the point. The zoom is anchored on the pinch's START point (the
-// drift-pans-with-the-centroid model slid the map away on device, 9/20);
-// a one-finger drag pans while zoomed; the host page is frozen from
-// touch-down so its ScrollView can't cancel the pinch; double-tap resets;
-// single tap opens the nearest fresh dot, ignored while a pinch is live.
+// which is the point. Pinch focal drift pans (no pan gesture → nothing
+// fights the profile ScrollView); double-tap resets; single tap opens the
+// nearest fresh dot, and taps are ignored while a pinch is live.
 
 const PANEL = 326;
 const HALF = PANEL / 2;
@@ -157,15 +154,7 @@ const dedupeReads = (rows: ArticleRead[]): ArticleRead[] => {
   return [...byArticle.values()];
 };
 
-interface MonthMapCardProps {
-  // Fires true when a pinch goes live and false when it ends, so the host
-  // ScrollView can freeze (scrollEnabled=false) for the pinch's lifetime.
-  // Ayuka 9/20 (msg 1867/1868): the profile page scrolled under his
-  // fingers mid-pinch, so the zoom "jumped away" from where he pinched.
-  onPinchActiveChange?: (active: boolean) => void;
-}
-
-export function MonthMapCard({ onPinchActiveChange }: MonthMapCardProps = {}) {
+export function MonthMapCard() {
   const { user } = useAuth();
   const { c } = useTheme();
   const [dots, setDots] = useState<MonthDot[]>([]);
@@ -177,14 +166,9 @@ export function MonthMapCard({ onPinchActiveChange }: MonthMapCardProps = {}) {
   const freshRef = useRef<MonthDot[]>([]);
   const emberRef = useRef<MonthDot[]>([]);
   const winRef = useRef<MapWindow>(FULL_WINDOW);
-  const startRef = useRef({ ...FULL_WINDOW, fx: 0, fy: 0, scale: 1 });
-  const panStartRef = useRef({ x: 0, y: 0 });
+  const startRef = useRef({ ...FULL_WINDOW, fx: 0, fy: 0 });
   const lastCommitRef = useRef(0);
-  const pinchRef = useRef({ active: false, endedAt: 0, updates: 0 });
-  const panRef = useRef({ active: false });
-  // Whether the host page is currently told to hold still (see the prop).
-  const lockRef = useRef(false);
-  const isZoomed = win.w < PANEL;
+  const pinchRef = useRef({ active: false, endedAt: 0 });
   const monthKeyRef = useRef('');
   const loadPromiseRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
   // Monotonic token: a newer load (other account, month rollover) bumps it,
@@ -404,134 +388,34 @@ export function MonthMapCard({ onPinchActiveChange }: MonthMapCardProps = {}) {
     });
   }, []);
 
-  // Tell the host page to hold still (scrollEnabled=false) for the life of a
-  // map gesture. Flipped on TOUCH-DOWN, not activation: the profile ScrollView
-  // begins its own pan after ~10pt of travel, and once it does iOS cancels
-  // our pinch mid-gesture — the "can't zoom out" of build 131 (Ayuka, msg
-  // 1897). Locking at touch-down wins that race.
-  const setPageLock = useCallback((on: boolean) => {
-    if (lockRef.current === on) return;
-    lockRef.current = on;
-    onPinchActiveChange?.(on);
-  }, [onPinchActiveChange]);
-
-  const releasePageLockIfIdle = useCallback(() => {
-    if (!pinchRef.current.active && !panRef.current.active) setPageLock(false);
-  }, [setPageLock]);
-
   const panelGesture = useMemo(() => {
-    const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
-
     const pinch = Gesture.Pinch()
       .runOnJS(true)
-      .onTouchesDown((event) => {
-        if (event.numberOfTouches >= 2) setPageLock(true);
-      })
-      .onTouchesUp(releasePageLockIfIdle)
-      .onTouchesCancelled(releasePageLockIfIdle)
       .onStart((event) => {
         pinchRef.current.active = true;
-        pinchRef.current.updates = 0;
-        setPageLock(true);
         const view = winRef.current;
-        // The recognizer's scale is already a touch above 1 by the time iOS
-        // reports the first Changed frame; ratios against it, not against 1.
-        startRef.current = {
-          ...view,
-          fx: clamp(event.focalX, 0, PANEL),
-          fy: clamp(event.focalY, 0, PANEL),
-          scale: event.scale > 0 ? event.scale : 1,
-        };
-        trackGestureDebug('month_map', 'pinch_start', {
-          fx: event.focalX,
-          fy: event.focalY,
-          scale: event.scale,
-          touches: event.numberOfPointers,
-          wx: view.x,
-          wy: view.y,
-          ww: view.w,
-        });
+        startRef.current = { ...view, fx: event.focalX, fy: event.focalY };
       })
       .onUpdate((event) => {
         const start = startRef.current;
-        const nextW = clamp(start.w / (event.scale / start.scale), MIN_WIN, PANEL);
-        // Fixed anchor (build 131 → next): the svg point under the fingers at
-        // pinch START stays put on screen. The previous "focal drift pans"
-        // model followed the moving centroid, and on device that slid the map
-        // away from the spot being pinched (Ayuka, msgs 1868/1874, video 1899).
-        // Panning is the one-finger drag below instead.
+        const nextW = Math.min(PANEL, Math.max(MIN_WIN, start.w / event.scale));
+        // The svg point under the starting focal stays under the moving
+        // focal — zoom about the fingers, and focal drift pans.
         const anchorX = start.x + (start.fx / PANEL) * start.w;
         const anchorY = start.y + (start.fy / PANEL) * start.w;
         commitWindow(
           {
-            x: clamp(anchorX - (start.fx / PANEL) * nextW, 0, PANEL - nextW),
-            y: clamp(anchorY - (start.fy / PANEL) * nextW, 0, PANEL - nextW),
+            x: Math.min(PANEL - nextW, Math.max(0, anchorX - (event.focalX / PANEL) * nextW)),
+            y: Math.min(PANEL - nextW, Math.max(0, anchorY - (event.focalY / PANEL) * nextW)),
             w: nextW,
-          },
-          false,
-        );
-        pinchRef.current.updates += 1;
-        if (pinchRef.current.updates === 1) {
-          trackGestureDebug('month_map', 'pinch_first_update', {
-            fx: event.focalX,
-            fy: event.focalY,
-            scale: event.scale,
-            touches: event.numberOfPointers,
-          });
-        }
-      })
-      .onFinalize((event, success) => {
-        pinchRef.current.active = false;
-        pinchRef.current.endedAt = Date.now();
-        commitWindow(winRef.current, true);
-        releasePageLockIfIdle();
-        trackGestureDebug('month_map', 'pinch_end', {
-          success,
-          fx: event.focalX,
-          fy: event.focalY,
-          scale: event.scale,
-          updates: pinchRef.current.updates,
-          wx: winRef.current.x,
-          wy: winRef.current.y,
-          ww: winRef.current.w,
-        });
-      });
-
-    // One-finger pan, only while zoomed in: at full view the page keeps its
-    // scroll (the gesture is disabled, so the ScrollView never sees a rival).
-    const pan = Gesture.Pan()
-      .runOnJS(true)
-      .enabled(isZoomed)
-      .maxPointers(1)
-      .minDistance(3)
-      .onTouchesDown(() => {
-        if (winRef.current.w < PANEL) setPageLock(true);
-      })
-      .onTouchesUp(releasePageLockIfIdle)
-      .onTouchesCancelled(releasePageLockIfIdle)
-      .onStart(() => {
-        if (winRef.current.w >= PANEL) return;
-        panRef.current.active = true;
-        setPageLock(true);
-        panStartRef.current = { x: winRef.current.x, y: winRef.current.y };
-      })
-      .onUpdate((event) => {
-        if (!panRef.current.active) return;
-        const w = winRef.current.w;
-        const k = w / PANEL; // screen px → svg units at the current zoom
-        commitWindow(
-          {
-            x: clamp(panStartRef.current.x - event.translationX * k, 0, PANEL - w),
-            y: clamp(panStartRef.current.y - event.translationY * k, 0, PANEL - w),
-            w,
           },
           false,
         );
       })
       .onFinalize(() => {
-        if (panRef.current.active) commitWindow(winRef.current, true);
-        panRef.current.active = false;
-        releasePageLockIfIdle();
+        pinchRef.current.active = false;
+        pinchRef.current.endedAt = Date.now();
+        commitWindow(winRef.current, true);
       });
 
     const doubleTap = Gesture.Tap()
@@ -549,11 +433,8 @@ export function MonthMapCard({ onPinchActiveChange }: MonthMapCardProps = {}) {
         if (success) openNearestDot(event.x, event.y);
       });
 
-    return Gesture.Simultaneous(
-      pinch,
-      Gesture.Race(pan, Gesture.Exclusive(doubleTap, dotTap)),
-    );
-  }, [commitWindow, isZoomed, openNearestDot, releasePageLockIfIdle, setPageLock]);
+    return Gesture.Simultaneous(pinch, Gesture.Exclusive(doubleTap, dotTap));
+  }, [commitWindow, openNearestDot]);
 
   // order === index (dots are appended newest-first), so the layer split is
   // a plain slice. Embers render as THREE Paths bucketed by local density —

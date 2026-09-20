@@ -68,10 +68,6 @@ const formatCompactNumber = (value: number) => {
 export default function ProfileScreen() {
   const { isGuestMode, loading, profile, user } = useAuth();
   const scrollRef = useRef<ScrollView>(null);
-  // Frozen while the month map is being pinched: a live pinch inside a
-  // scrolling page let the page move under the fingers and the zoom landed
-  // somewhere else (Ayuka, msg 1867/1868). Flips back on pinch end.
-  const [mapPinching, setMapPinching] = useState(false);
   const [allBadges, setAllBadges] = useState<BadgeDefinition[]>([]);
   const [earnedBadges, setEarnedBadges] = useState<EarnedBadge[]>([]);
   const [badgesLoading, setBadgesLoading] = useState(false);
@@ -218,7 +214,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={[s.container, { backgroundColor: c.background }]}>
-      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} scrollEnabled={!mapPinching}>
+      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false}>
         <View style={s.topBar}>
           <TouchableOpacity onPress={() => router.back()} style={[s.headerButton, { borderColor: c.border, backgroundColor: c.surface }]}>
             <Ionicons name="arrow-back" size={20} color={c.text} />
@@ -393,7 +389,7 @@ export default function ProfileScreen() {
 
 
 
-        <MonthMapCard onPinchActiveChange={setMapPinching} />
+        <MonthMapCard />
         {/* Floating bar overlays the scroll; the old 32 let the month card's
             insight/stats/Share ride under it (Ayuka, msg 1704). The +14 above
             the shared clearance is the tuned breathing room for this card's
