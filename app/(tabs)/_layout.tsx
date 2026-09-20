@@ -62,15 +62,6 @@ export default function TabsLayout() {
   return (
     <Tabs
       tabBar={(props) => <GlassTabBar {...props} />}
-      // Graph's `lazy: false` pre-ran its JS mount, but react-native-screens
-      // still DETACHED the inactive tab's native subtree, so its first tap
-      // paid the native side anyway: attaching ~13 logo images + the SVG +
-      // dozens of Text nodes, decoding the PNGs, and the first real
-      // onLayout — the "glitchy, takes a bit to load" first open (Ayuka,
-      // 2026-09-20, msg 1736). Keeping inactive tabs attached moves all of
-      // that to launch, off-screen. Only the three lazy:false tabs exist at
-      // launch, so the memory cost is bounded; hidden utility tabs stay lazy.
-      detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: c.tint,
