@@ -11,6 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { Link, router, useFocusEffect } from 'expo-router';
+import { trackGestureDebug } from '../lib/analytics';
 import { useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
 import { GraphOnboarding, type SpotlightRect } from '../components/onboarding/GraphOnboarding';
@@ -1016,9 +1017,16 @@ export default function GraphScreen() {
       // never activated) then committed it (Ayuka, 2026-09-19, msg 1499).
       // The pin now moves only once the pan actually activates; bare taps
       // stay the tap gesture's job.
-      .onBegin(() => {
+      .onBegin((event) => {
         activeGraphGestureRevision.value = graphResetRevision.value;
         panDidActivate.value = false;
+        // Trace (temporary, 9/20): the dot would not drag on device in 131.
+        runOnJS(trackGestureDebug)('graph_pan', 'begin', {
+          x: event.x,
+          y: event.y,
+          pointers: event.numberOfPointers,
+          gw: graphWidth,
+        });
       })
       .onStart((event) => {
         panDidActivate.value = true;
@@ -1026,6 +1034,7 @@ export default function GraphScreen() {
         animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
         lastLivePanX.value = animatedPinX.value;
         lastLivePanY.value = animatedPinY.value;
+        runOnJS(trackGestureDebug)('graph_pan', 'start', { x: event.x, y: event.y });
       })
       .onUpdate((event) => {
         animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
@@ -1045,7 +1054,14 @@ export default function GraphScreen() {
           );
         }
       })
-      .onFinalize(() => {
+      .onFinalize((event, success) => {
+        runOnJS(trackGestureDebug)('graph_pan', 'finalize', {
+          success,
+          activated: panDidActivate.value,
+          state: event.state,
+          tx: event.translationX,
+          ty: event.translationY,
+        });
         if (!panDidActivate.value) return;
         panDidActivate.value = false;
         runOnJS(commitGraphPosition)(
@@ -1075,6 +1091,7 @@ export default function GraphScreen() {
         activeGraphGestureRevision.value = graphResetRevision.value;
       })
       .onEnd((event, success) => {
+        runOnJS(trackGestureDebug)('graph_tap', 'end', { success, x: event.x, y: event.y });
         if (!success) return;
         animatedPinX.value = Math.max(0, Math.min(graphWidth, event.x));
         animatedPinY.value = Math.max(0, Math.min(graphHeight, event.y));
