@@ -1,5 +1,10 @@
 import './lib/webRuntimePolyfills';
+import { installCrashReporter } from './lib/analytics';
 import { useEffect, useRef } from 'react';
+
+// Before anything renders: a startup crash in an OTA bundle must leave a
+// record for the next launch (2026-09-20, update 2 died on launch unseen).
+installCrashReporter();
 import { Stack, router, useGlobalSearchParams, usePathname, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';

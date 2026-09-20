@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Dimensions, Platform } from 'react-native';
+import * as Updates from 'expo-updates';
 import { supabase } from '../services/supabase';
 
 // Mobile port of card-page/src/lib/analytics.ts. Event names, payload shapes and
@@ -47,7 +48,11 @@ export type AnalyticsEventName =
   | 'ai_analysis_open'
   | 'preferences_apply'
   | 'feed_load'
-  | 'ui_stall';
+  | 'ui_stall'
+  // Temporary diagnostics for the build-131 gesture reports (Ayuka,
+  // 2026-09-20): crash records and, later, per-gesture traces. Remove once
+  // the on-device behaviour is understood.
+  | 'gesture_debug';
 
 // The mobile feed uses 'top-news'; the analytics schema (and web) use 'top_news'.
 export const normalizeFeedMode = (mode: string | null | undefined): FeedMode | undefined => {
@@ -97,6 +102,19 @@ export const setCurrentAnalyticsPath = (path: string) => {
 
 export const getCurrentAnalyticsPath = () => currentPath;
 
+// Which JS bundle is actually running: the 8-char OTA update id, or
+// 'embedded' for the binary's own bundle. Without it a report from the field
+// can't be tied to an update (2026-09-20: three OTAs in an hour, one crashed).
+const getRunningUpdate = () => {
+  try {
+    if (Platform.OS === 'web') return 'web';
+    if (Updates.isEmbeddedLaunch || !Updates.updateId) return 'embedded';
+    return Updates.updateId.slice(0, 8);
+  } catch {
+    return 'unknown';
+  }
+};
+
 const getDeviceContext = () => {
   const { width, height } = Dimensions.get('window');
   const isMobile = Platform.OS !== 'web' || width < 768;
@@ -105,7 +123,57 @@ const getDeviceContext = () => {
     os: Platform.OS,
     viewport_width: Math.round(width),
     viewport_height: Math.round(height),
+    running_update: getRunningUpdate(),
   };
+};
+
+// Crash capture: a fatal JS error in a release build takes the process down
+// before any network call completes, so the record is written to
+// AsyncStorage first and sent on the NEXT launch. Non-fatal errors go out
+// straight away. Installed once from app/_layout.tsx.
+const CRASH_KEY = 'praxis.lastCrash.v1';
+let crashReporterInstalled = false;
+export const installCrashReporter = () => {
+  if (crashReporterInstalled || Platform.OS === 'web') return;
+  crashReporterInstalled = true;
+
+  void AsyncStorage.getItem(CRASH_KEY)
+    .then((raw) => {
+      if (!raw) return;
+      void AsyncStorage.removeItem(CRASH_KEY);
+      let record: Record<string, unknown> = { raw: raw.slice(0, 900) };
+      try {
+        record = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        // keep the raw string
+      }
+      void trackEvent('gesture_debug', { surface: 'crash', phase: 'previous_launch', ...record });
+    })
+    .catch(() => {});
+
+  const errorUtils = (globalThis as { ErrorUtils?: {
+    getGlobalHandler?: () => ((error: unknown, isFatal?: boolean) => void) | undefined;
+    setGlobalHandler?: (handler: (error: unknown, isFatal?: boolean) => void) => void;
+  } }).ErrorUtils;
+  if (!errorUtils?.setGlobalHandler) return;
+  const previous = errorUtils.getGlobalHandler?.();
+  errorUtils.setGlobalHandler((error, isFatal) => {
+    const err = error as { message?: unknown; stack?: unknown } | null;
+    const record = {
+      message: String(err?.message ?? error).slice(0, 300),
+      stack: String(err?.stack ?? '').slice(0, 700),
+      fatal: Boolean(isFatal),
+      running_update: getRunningUpdate(),
+      at: new Date().toISOString(),
+    };
+    try {
+      void AsyncStorage.setItem(CRASH_KEY, JSON.stringify(record));
+    } catch {
+      // nothing to do
+    }
+    void trackEvent('gesture_debug', { surface: 'crash', phase: isFatal ? 'fatal' : 'nonfatal', ...record });
+    previous?.(error, isFatal);
+  });
 };
 
 const inferSurface = (path: string): Surface => {
